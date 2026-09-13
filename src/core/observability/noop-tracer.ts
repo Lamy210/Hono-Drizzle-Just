@@ -4,6 +4,7 @@ const noopSpan: Span = {
   setAttribute: () => undefined,
   setStatus: () => undefined,
   recordException: () => undefined,
+  traceContext: () => undefined,
 };
 
 export class NoopTracer implements Tracer {
