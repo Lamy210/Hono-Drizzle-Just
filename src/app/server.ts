@@ -1,19 +1,32 @@
+import { loadConfig } from "../config/load-config";
 import { createApp } from "./app";
 import { createProductionContainer } from "./composition/container";
+import { GracefulShutdownCoordinator } from "./lifecycle/graceful-shutdown";
 
-const container = createProductionContainer();
+const config = loadConfig(Bun.env);
+const container = createProductionContainer(config);
 const app = createApp(container.dependencies);
-const port = Number.parseInt(process.env.PORT ?? "3000", 10);
-const server = Bun.serve({ port, fetch: app.fetch });
+const server = Bun.serve({ port: config.port, fetch: app.fetch });
+const shutdown = new GracefulShutdownCoordinator({
+  server,
+  lifecycle: container.lifecycle,
+  logger: container.dependencies.logger,
+  timeoutMs: config.shutdownTimeoutMs,
+});
 
 container.dependencies.logger.info("server.started", { port: server.port });
 
-async function shutdown(signal: string): Promise<void> {
-  container.dependencies.logger.info("server.stopping", { signal });
-  server.stop();
-  await container.close();
-  process.exit(0);
+function handleSignal(signal: "SIGINT" | "SIGTERM"): void {
+  void shutdown
+    .shutdown(signal)
+    .then(() => {
+      process.exitCode = 0;
+    })
+    .catch((error) => {
+      container.dependencies.logger.error("server.shutdown.failed", { signal, error });
+      process.exit(1);
+    });
 }
 
-process.on("SIGINT", () => void shutdown("SIGINT"));
-process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => handleSignal("SIGINT"));
+process.on("SIGTERM", () => handleSignal("SIGTERM"));

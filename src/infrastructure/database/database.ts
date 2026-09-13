@@ -2,8 +2,18 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "../../db/schema";
 
-export function createDatabase(connectionString: string) {
-  const pool = new Pool({ connectionString });
+export interface DatabaseOptions {
+  readonly connectionString: string;
+  readonly max?: number;
+  readonly connectionTimeoutMillis?: number;
+}
+
+export function createDatabase(options: DatabaseOptions) {
+  const pool = new Pool({
+    connectionString: options.connectionString,
+    max: options.max,
+    connectionTimeoutMillis: options.connectionTimeoutMillis,
+  });
   const db = drizzle(pool, { schema });
   return {
     db,

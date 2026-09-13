@@ -1,41 +1,48 @@
-import type { LogLevel } from "../../core/logging/logger";
+import type { AppConfig } from "../../config/load-config";
+import { ReadinessChecker } from "../../core/health/readiness-checker";
+import { ApplicationLifecycle } from "../../core/lifecycle/application-lifecycle";
 import { createDatabase } from "../../infrastructure/database/database";
+import { DatabaseHealthCheck } from "../../infrastructure/health/database-health-check";
 import { JsonConsoleLogger } from "../../infrastructure/logging/json-console-logger";
 import { CreateUserService } from "../../modules/users/application/create-user.service";
 import { GetUserService } from "../../modules/users/application/get-user.service";
 import { DrizzleUserRepository } from "../../modules/users/infrastructure/drizzle-user.repository";
 import type { AppDependencies } from "../app";
 
-function logLevel(value: string | undefined): LogLevel {
-  return value === "debug" || value === "warn" || value === "error" ? value : "info";
-}
-
-export function createProductionContainer(): {
+export function createProductionContainer(config: AppConfig): {
   dependencies: AppDependencies;
+  lifecycle: ApplicationLifecycle;
   close: () => Promise<void>;
 } {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL is required");
-  }
-
   const logger = new JsonConsoleLogger(
     {
-      service: "hono-drizzle-just",
-      environment: process.env.NODE_ENV ?? "development",
+      service: config.serviceName,
+      environment: config.environment,
     },
     undefined,
-    logLevel(process.env.LOG_LEVEL),
+    config.logLevel,
   );
-  const database = createDatabase(databaseUrl);
+  const database = createDatabase({
+    connectionString: config.databaseUrl,
+    max: config.databasePoolMax,
+    connectionTimeoutMillis: config.databaseConnectionTimeoutMs,
+  });
+  const lifecycle = new ApplicationLifecycle();
+  lifecycle.register("database", database.close);
+
   const userRepository = new DrizzleUserRepository(database.db);
+  const readinessChecker = new ReadinessChecker([
+    new DatabaseHealthCheck(database.pool, config.healthCheckTimeoutMs),
+  ]);
 
   return {
     dependencies: {
       logger,
+      readinessChecker,
       createUserService: new CreateUserService(userRepository, logger),
       getUserService: new GetUserService(userRepository),
     },
-    close: database.close,
+    lifecycle,
+    close: () => lifecycle.close(),
   };
 }
