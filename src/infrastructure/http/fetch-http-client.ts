@@ -111,6 +111,16 @@ export class FetchHttpClient implements HttpClient {
           headers: response.headers,
         });
         if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt)) {
+          this.logger.warn("http.client.retry", {
+            method: request.method,
+            path: url.pathname,
+            statusCode: response.status,
+            attempt,
+            nextAttempt: attempt + 1,
+            delayMs: retryDelay,
+            reason: "status",
+            traceId: request.context?.trace.traceId,
+          });
           if (retryDelay > 0) {
             await this.sleep(retryDelay);
           }
@@ -165,6 +175,18 @@ export class FetchHttpClient implements HttpClient {
         if (!(error instanceof AppError)) {
           const retryDelay = this.retryPolicy.nextDelay(request, attempt, { kind: "network" });
           if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt)) {
+            this.logger.warn("http.client.retry", {
+              method: request.method,
+              path: url.pathname,
+              attempt,
+              nextAttempt: attempt + 1,
+              delayMs: retryDelay,
+              reason:
+                error instanceof DOMException && error.name === "TimeoutError"
+                  ? "timeout"
+                  : "network",
+              traceId: request.context?.trace.traceId,
+            });
             if (retryDelay > 0) {
               await this.sleep(retryDelay);
             }
