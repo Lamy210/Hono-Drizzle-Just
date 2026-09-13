@@ -78,9 +78,13 @@ A dependency outage can therefore remove the instance from traffic without causi
 
 The coordinator does not call `process.exit`; only the executable entry point controls process exit behavior.
 
-## Testing
+## Testing and factories
 
-Service tests mock the transaction manager/repository ports and may spy on logging. Repository tests run against real PostgreSQL and seed rows through factories. Transaction integration tests use real PostgreSQL to prove commit and rollback. API tests use Hono's in-process request API so they test routing and validation without opening a TCP port.
+Service tests mock the transaction manager/repository ports and may spy on logging. Repository tests run against real PostgreSQL. Transaction integration tests use real PostgreSQL to prove commit and rollback. API tests use Hono's in-process request API so they test routing and validation without opening a TCP port.
+
+All reusable fixture builders live under `tests/factories`; production code must not import them. The generic `TestFactory` has no persistence capability and is suitable for unit tests. `PersistentTestFactory` adds caller-supplied persistence and is used by feature factories such as `makeUserFactory(databaseSession)`.
+
+Factory sequences are instance-local. Defaults generate valid UUIDs rather than UUID-shaped placeholders. Relations are explicit composition so factory calls do not hide additional database writes. Bulk persistence is sequential and deliberately non-atomic; tests can pass a transaction `DatabaseSession` when atomic setup matters.
 
 Health tests explicitly verify that liveness remains successful during dependency failure and readiness returns a controlled 503. Lifecycle tests verify reverse shutdown order, idempotence, and forced connection termination after the deadline.
 

@@ -1,31 +1,37 @@
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import type * as schema from "../../src/db/schema";
 import { users } from "../../src/db/schema";
+import type { DatabaseSession } from "../../src/infrastructure/database/database";
+import type { User } from "../../src/modules/users/domain/user";
+import {
+  type FactoryContext,
+  PersistentTestFactory,
+  TestFactory,
+} from "./factory";
 
-export type UserFactoryOverrides = Partial<{
-  id: string;
-  email: string;
-  name: string;
-  createdAt: Date;
-}>;
+export type UserFactoryOverrides = Partial<User>;
 
-let sequence = 0;
-
-export async function createUserFactory(
-  db: NodePgDatabase<typeof schema>,
-  overrides: UserFactoryOverrides = {},
-) {
-  sequence += 1;
-  const values = {
-    id: overrides.id ?? crypto.randomUUID(),
-    email: overrides.email ?? `user-${sequence}@example.com`,
-    name: overrides.name ?? `User ${sequence}`,
-    createdAt: overrides.createdAt ?? new Date("2026-09-13T00:00:00.000Z"),
+function userDefaults({ sequence }: FactoryContext): User {
+  return {
+    id: crypto.randomUUID(),
+    email: `user-${sequence}-${crypto.randomUUID()}@example.com`,
+    name: `User ${sequence}`,
+    createdAt: new Date("2026-09-13T00:00:00.000Z"),
   };
+}
 
-  const [created] = await db.insert(users).values(values).returning();
-  if (!created) {
-    throw new Error("Factory failed to create user");
+export function makeUserFactory(): TestFactory<User>;
+export function makeUserFactory(db: DatabaseSession): PersistentTestFactory<User, User>;
+export function makeUserFactory(
+  db?: DatabaseSession,
+): TestFactory<User> | PersistentTestFactory<User, User> {
+  if (!db) {
+    return new TestFactory(userDefaults);
   }
-  return created;
+
+  return new PersistentTestFactory(userDefaults, async (values) => {
+    const [created] = await db.insert(users).values(values).returning();
+    if (!created) {
+      throw new Error("User factory failed to persist a user");
+    }
+    return created;
+  });
 }
