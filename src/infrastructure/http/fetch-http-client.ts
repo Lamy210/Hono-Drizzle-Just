@@ -8,6 +8,8 @@ import type {
 import type { Logger } from "../../core/logging/logger";
 import { formatTraceParent } from "../tracing/w3c-trace-context";
 
+const RETRYABLE_STATUS_CODES = new Set([408, 429, 502, 503, 504]);
+
 export type FetchLike = (
   input: Parameters<typeof fetch>[0],
   init?: Parameters<typeof fetch>[1],
@@ -67,7 +69,11 @@ export class FetchHttpClient implements HttpClient {
           signal: AbortSignal.timeout(request.timeoutMs ?? this.defaultTimeoutMs),
         });
 
-        if (response.status === 503 && request.method === "GET" && attempt === 1) {
+        if (
+          RETRYABLE_STATUS_CODES.has(response.status) &&
+          request.method === "GET" &&
+          attempt === 1
+        ) {
           continue;
         }
 
