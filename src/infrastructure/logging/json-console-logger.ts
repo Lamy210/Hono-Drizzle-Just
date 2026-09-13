@@ -30,6 +30,12 @@ function sanitize(value: unknown, key?: string): unknown {
   if (value instanceof Error) {
     return { name: value.name, message: value.message, stack: value.stack };
   }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (value instanceof URL) {
+    return value.toString();
+  }
   if (Array.isArray(value)) {
     return value.map((item) => sanitize(item));
   }

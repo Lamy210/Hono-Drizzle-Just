@@ -52,3 +52,14 @@ test("uppercase UUID path input is accepted and normalized before repository acc
   const body = await response.json();
   expect(body.id).toBe("550e8400-e29b-41d4-a716-446655440000");
 });
+
+test("valid incoming traceparent keeps the trace ID and emits a new span ID", async () => {
+  const { app } = buildApp();
+  const incoming = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+  const response = await app.request("/health", { headers: { traceparent: incoming } });
+
+  expect(response.status).toBe(200);
+  const outgoing = response.headers.get("traceparent");
+  expect(outgoing).toMatch(/^00-4bf92f3577b34da6a3ce929d0e0e4736-[0-9a-f]{16}-01$/);
+  expect(outgoing).not.toBe(incoming);
+});

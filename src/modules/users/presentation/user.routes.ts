@@ -1,5 +1,4 @@
 import { createRoute, type OpenAPIHono } from "@hono/zod-openapi";
-import { AppError } from "../../../core/errors/app-error";
 import { ErrorResponseSchema } from "../../../contracts/common/errors";
 import { CanonicalUuidSchema } from "../../../contracts/common/primitives";
 import {
@@ -68,13 +67,15 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
   app.openapi(createUserRoute, async (c) => {
     const input = c.req.valid("json");
     const user = await dependencies.createUserService.execute(input, c.get("requestContext"));
-    return c.json(toUserResponse(user), 201);
+    const response = UserResponseSchema.parse(toUserResponse(user));
+    return c.json(response, 201);
   });
 
   app.openapi(getUserRoute, async (c) => {
     const { id } = c.req.valid("param");
     const canonicalId = CanonicalUuidSchema.parse(id);
     const user = await dependencies.getUserService.execute(canonicalId);
-    return c.json(toUserResponse(user), 200);
+    const response = UserResponseSchema.parse(toUserResponse(user));
+    return c.json(response, 200);
   });
 }
