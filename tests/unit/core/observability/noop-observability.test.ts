@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { NoopMeter } from "../../../src/core/observability/noop-meter";
-import { NoopTracer } from "../../../src/core/observability/noop-tracer";
+import { NoopMeter } from "../../../../src/core/observability/noop-meter";
+import { NoopTracer } from "../../../../src/core/observability/noop-tracer";
 
 test("NoopTracer executes the operation without changing its result", async () => {
   const tracer = new NoopTracer();
