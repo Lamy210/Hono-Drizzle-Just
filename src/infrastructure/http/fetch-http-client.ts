@@ -14,12 +14,15 @@ export type FetchLike = (
   init?: Parameters<typeof fetch>[1],
 ) => ReturnType<typeof fetch>;
 
+export type SleepLike = (delayMs: number) => Promise<void>;
+
 export interface FetchHttpClientOptions {
   readonly baseUrl: string | URL;
   readonly logger: Logger;
   readonly fetchImpl?: FetchLike;
   readonly defaultTimeoutMs?: number;
   readonly retryPolicy?: RetryPolicy;
+  readonly sleep?: SleepLike;
 }
 
 export class FetchHttpClient implements HttpClient {
@@ -27,6 +30,7 @@ export class FetchHttpClient implements HttpClient {
   private readonly fetchImpl: FetchLike;
   private readonly defaultTimeoutMs: number;
   private readonly retryPolicy: RetryPolicy;
+  private readonly sleep: SleepLike;
   private readonly logger: Logger;
 
   constructor(options: FetchHttpClientOptions) {
@@ -34,6 +38,7 @@ export class FetchHttpClient implements HttpClient {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 10_000;
     this.retryPolicy = options.retryPolicy ?? new DefaultRetryPolicy();
+    this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
     this.logger = options.logger.child({ component: "http_client", upstreamHost: this.baseUrl.host });
   }
 
@@ -71,12 +76,15 @@ export class FetchHttpClient implements HttpClient {
           signal: AbortSignal.timeout(request.timeoutMs ?? this.defaultTimeoutMs),
         });
 
-        if (
-          this.retryPolicy.nextDelay(request, attempt, {
-            kind: "response",
-            status: response.status,
-          }) !== null
-        ) {
+        const retryDelay = this.retryPolicy.nextDelay(request, attempt, {
+          kind: "response",
+          status: response.status,
+          headers: response.headers,
+        });
+        if (retryDelay !== null) {
+          if (retryDelay > 0) {
+            await this.sleep(retryDelay);
+          }
           continue;
         }
 
@@ -124,11 +132,14 @@ export class FetchHttpClient implements HttpClient {
         });
         return { status: response.status, headers: response.headers, data };
       } catch (error) {
-        if (
-          !(error instanceof AppError) &&
-          this.retryPolicy.nextDelay(request, attempt, { kind: "network" }) !== null
-        ) {
-          continue;
+        if (!(error instanceof AppError)) {
+          const retryDelay = this.retryPolicy.nextDelay(request, attempt, { kind: "network" });
+          if (retryDelay !== null) {
+            if (retryDelay > 0) {
+              await this.sleep(retryDelay);
+            }
+            continue;
+          }
         }
         if (error instanceof AppError) {
           throw error;
