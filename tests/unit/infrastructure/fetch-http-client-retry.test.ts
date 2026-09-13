@@ -59,3 +59,29 @@ test("GET retries every configured transient upstream status", async () => {
     expect(attempts).toBe(2);
   }
 });
+
+test("GET retries a network failure before surfacing an upstream error", async () => {
+  let attempts = 0;
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      throw new TypeError("connection reset");
+    }
+    return Response.json({ ok: true });
+  };
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultTimeoutMs: 1_000,
+  });
+
+  const response = await client.request(
+    { method: "GET", path: "/resource" },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(response.data.ok).toBe(true);
+  expect(attempts).toBe(2);
+});
