@@ -5,14 +5,27 @@ import { NoopMeter } from "../../../src/core/observability/noop-meter";
 import { NoopTracer } from "../../../src/core/observability/noop-tracer";
 import { createTelemetry } from "../../../src/infrastructure/observability/telemetry";
 
+function metricExporter(exportedMetrics: ResourceMetrics[] = []): PushMetricExporter {
+  return {
+    export(metrics: ResourceMetrics, callback: (result: { code: number }) => void) {
+      exportedMetrics.push(metrics);
+      callback({ code: 0 });
+    },
+    async forceFlush() {},
+    async shutdown() {},
+  } as unknown as PushMetricExporter;
+}
+
+const enabledOptions = {
+  enabled: true,
+  serviceName: "test-service",
+  environment: "test",
+  endpoint: "http://127.0.0.1:4318",
+  metricExportIntervalMs: 60_000,
+} as const;
+
 test("disabled telemetry uses Noop adapters and has no exporter side effects", async () => {
-  const telemetry = createTelemetry({
-    enabled: false,
-    serviceName: "test-service",
-    environment: "test",
-    endpoint: "http://127.0.0.1:4318",
-    metricExportIntervalMs: 60_000,
-  });
+  const telemetry = createTelemetry({ ...enabledOptions, enabled: false });
 
   expect(telemetry.tracer).toBeInstanceOf(NoopTracer);
   expect(telemetry.meter).toBeInstanceOf(NoopMeter);
@@ -23,24 +36,10 @@ test("disabled telemetry uses Noop adapters and has no exporter side effects", a
 test("enabled telemetry exports nested spans and metrics with service resource attributes under Bun", async () => {
   const traceExporter = new InMemorySpanExporter();
   const exportedMetrics: ResourceMetrics[] = [];
-  const metricExporter = {
-    export(metrics: ResourceMetrics, callback: (result: { code: number }) => void) {
-      exportedMetrics.push(metrics);
-      callback({ code: 0 });
-    },
-    async forceFlush() {},
-    async shutdown() {},
-  } as unknown as PushMetricExporter;
-  const telemetry = createTelemetry(
-    {
-      enabled: true,
-      serviceName: "test-service",
-      environment: "test",
-      endpoint: "http://127.0.0.1:4318",
-      metricExportIntervalMs: 60_000,
-    },
-    { traceExporter, metricExporter },
-  );
+  const telemetry = createTelemetry(enabledOptions, {
+    traceExporter,
+    metricExporter: metricExporter(exportedMetrics),
+  });
 
   let parentSpanId: string | undefined;
   await telemetry.tracer.withSpan("parent", {}, async (parent) => {
@@ -70,4 +69,18 @@ test("enabled telemetry exports nested spans and metrics with service resource a
   expect(metricNames).toContain("example.duration");
 
   await telemetry.shutdown();
+});
+
+test("shutdown releases the global context manager so telemetry can be initialized again", async () => {
+  const first = createTelemetry(enabledOptions, {
+    traceExporter: new InMemorySpanExporter(),
+    metricExporter: metricExporter(),
+  });
+  await first.shutdown();
+
+  const second = createTelemetry(enabledOptions, {
+    traceExporter: new InMemorySpanExporter(),
+    metricExporter: metricExporter(),
+  });
+  await second.shutdown();
 });
