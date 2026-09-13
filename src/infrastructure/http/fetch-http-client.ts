@@ -72,7 +72,7 @@ export class FetchHttpClient implements HttpClient {
 
         if (
           RETRYABLE_STATUS_CODES.has(response.status) &&
-          DEFAULT_RETRY_METHODS.has(request.method) &&
+          this.canRetry(request) &&
           attempt === 1
         ) {
           continue;
@@ -122,11 +122,7 @@ export class FetchHttpClient implements HttpClient {
         });
         return { status: response.status, headers: response.headers, data };
       } catch (error) {
-        if (
-          !(error instanceof AppError) &&
-          DEFAULT_RETRY_METHODS.has(request.method) &&
-          attempt === 1
-        ) {
+        if (!(error instanceof AppError) && this.canRetry(request) && attempt === 1) {
           continue;
         }
         if (error instanceof AppError) {
@@ -150,6 +146,10 @@ export class FetchHttpClient implements HttpClient {
         );
       }
     }
+  }
+
+  private canRetry(request: HttpRequest): boolean {
+    return request.retry === "idempotent" || DEFAULT_RETRY_METHODS.has(request.method);
   }
 
   private resolveUrl(path: string): URL {
