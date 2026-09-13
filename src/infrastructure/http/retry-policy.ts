@@ -33,6 +33,9 @@ export class DefaultRetryPolicy implements RetryPolicy {
   }
 
   private canRetryMethod(request: HttpRequest): boolean {
+    if (request.retry === "never") {
+      return false;
+    }
     return request.retry === "idempotent" || DEFAULT_RETRY_METHODS.has(request.method);
   }
 }
