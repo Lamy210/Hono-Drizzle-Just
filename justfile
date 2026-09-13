@@ -36,6 +36,15 @@ db-reset:
 db-generate:
   bun run db:generate
 
+db-check:
+  bun run db:check
+
+db-migrate:
+  bun run db:migrate
+
+db-verify:
+  bun run db:migrations:verify
+
 db-push:
   bun run db:push
 
