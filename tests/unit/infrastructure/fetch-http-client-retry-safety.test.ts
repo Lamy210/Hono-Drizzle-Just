@@ -66,6 +66,28 @@ test("response schema failures are never retried", async () => {
   expect(attempts).toBe(1);
 });
 
+test("HEAD accepts a successful empty response without attempting JSON decoding", async () => {
+  let attempts = 0;
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    return new Response(null, { status: 200 });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: logger(),
+    fetchImpl,
+  });
+
+  const response = await client.request(
+    { method: "HEAD", path: "/resource" },
+    z.undefined(),
+  );
+
+  expect(response.status).toBe(200);
+  expect(response.data).toBeUndefined();
+  expect(attempts).toBe(1);
+});
+
 test("POST does not retry without explicit idempotent opt-in", async () => {
   let attempts = 0;
   const fetchImpl: FetchLike = async () => {
