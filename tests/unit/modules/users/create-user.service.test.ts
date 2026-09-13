@@ -1,8 +1,10 @@
 import { expect, mock, spyOn, test } from "bun:test";
-import type { UserRepository } from "../../../../src/modules/users/domain/user.repository";
-import { CreateUserService } from "../../../../src/modules/users/application/create-user.service";
-import { JsonConsoleLogger } from "../../../../src/infrastructure/logging/json-console-logger";
 import type { RequestContext } from "../../../../src/core/context/request-context";
+import type { TransactionManager } from "../../../../src/core/transaction/transaction-manager";
+import { JsonConsoleLogger } from "../../../../src/infrastructure/logging/json-console-logger";
+import { CreateUserService } from "../../../../src/modules/users/application/create-user.service";
+import type { UserUnitOfWork } from "../../../../src/modules/users/application/user-unit-of-work";
+import type { UserRepository } from "../../../../src/modules/users/domain/user.repository";
 
 const context: RequestContext = {
   requestId: "550e8400-e29b-41d4-a716-446655440000",
@@ -14,7 +16,13 @@ const context: RequestContext = {
   startedAt: 0,
 };
 
-test("service uses a mocked repository and logs the created user", async () => {
+function transactionManager(repository: UserRepository): TransactionManager<UserUnitOfWork> {
+  return {
+    run: mock(async (operation) => operation({ users: repository })),
+  };
+}
+
+test("service uses a mocked repository inside the transaction and logs the created user", async () => {
   const createdAt = new Date("2026-09-13T00:00:00.000Z");
   const findByEmail = mock(async () => null);
   const create = mock(async (input: { email: string; name: string }) => ({
@@ -28,19 +36,21 @@ test("service uses a mocked repository and logs the created user", async () => {
     findByEmail,
     create,
   };
+  const transactions = transactionManager(repository);
   const logger = new JsonConsoleLogger({}, () => undefined);
   const infoSpy = spyOn(logger, "info");
-  const service = new CreateUserService(repository, logger);
+  const service = new CreateUserService(transactions, logger);
 
-  const user = await service.execute({ email: "lamy@example.com", name: "Lamy" }, context);
+  const user = await service.execute({ email: " LAMY@example.com ", name: " Lamy " }, context);
 
+  expect(transactions.run).toHaveBeenCalledTimes(1);
   expect(findByEmail).toHaveBeenCalledWith("lamy@example.com");
   expect(create).toHaveBeenCalledWith({ email: "lamy@example.com", name: "Lamy" });
   expect(user.email).toBe("lamy@example.com");
   expect(infoSpy).toHaveBeenCalledTimes(1);
 });
 
-test("service rejects an already registered email", async () => {
+test("service rolls out of the unit of work without creating when the email already exists", async () => {
   const existing = {
     id: "550e8400-e29b-41d4-a716-446655440000",
     email: "lamy@example.com",
@@ -53,10 +63,12 @@ test("service rejects an already registered email", async () => {
     findByEmail: mock(async () => existing),
     create,
   };
-  const service = new CreateUserService(repository, new JsonConsoleLogger({}, () => undefined));
+  const transactions = transactionManager(repository);
+  const service = new CreateUserService(transactions, new JsonConsoleLogger({}, () => undefined));
 
   await expect(
     service.execute({ email: "lamy@example.com", name: "Lamy" }, context),
   ).rejects.toMatchObject({ code: "CONFLICT", status: 409 });
+  expect(transactions.run).toHaveBeenCalledTimes(1);
   expect(create).not.toHaveBeenCalled();
 });
