@@ -13,13 +13,16 @@ export interface RetryPolicy {
 
 export interface DefaultRetryPolicyOptions {
   readonly maxRetries?: number;
+  readonly now?: () => number;
 }
 
 export class DefaultRetryPolicy implements RetryPolicy {
   private readonly maxRetries: number;
+  private readonly now: () => number;
 
   constructor(options: DefaultRetryPolicyOptions = {}) {
     this.maxRetries = options.maxRetries ?? 1;
+    this.now = options.now ?? Date.now;
   }
 
   nextDelay(request: HttpRequest, failedAttempt: number, failure: RetryFailure): number | null {
@@ -33,9 +36,15 @@ export class DefaultRetryPolicy implements RetryPolicy {
       return null;
     }
 
-    const retryAfter = failure.headers?.get("retry-after");
-    if (retryAfter !== null && retryAfter !== undefined && /^\d+$/.test(retryAfter.trim())) {
-      return Number(retryAfter.trim()) * 1_000;
+    const retryAfter = failure.headers?.get("retry-after")?.trim();
+    if (retryAfter && /^\d+$/.test(retryAfter)) {
+      return Number(retryAfter) * 1_000;
+    }
+    if (retryAfter) {
+      const retryAt = Date.parse(retryAfter);
+      if (Number.isFinite(retryAt)) {
+        return Math.max(0, retryAt - this.now());
+      }
     }
 
     return 0;
