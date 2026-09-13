@@ -4,10 +4,22 @@ import { NoopTracer } from "../../../../src/core/observability/noop-tracer";
 
 test("NoopTracer executes the operation without changing its result", async () => {
   const tracer = new NoopTracer();
-  const result = await tracer.withSpan("example.operation", {}, async (span) => {
-    span.setAttribute("example.attribute", "value");
-    return 42;
-  });
+  const result = await tracer.withSpan(
+    "example.operation",
+    {
+      parent: {
+        traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+        spanId: "00f067aa0ba902b7",
+        traceFlags: "01",
+      },
+      parentIsRemote: true,
+    },
+    async (span) => {
+      span.setAttribute("example.attribute", "value");
+      expect(span.traceContext()).toBeUndefined();
+      return 42;
+    },
+  );
 
   expect(result).toBe(42);
 });
