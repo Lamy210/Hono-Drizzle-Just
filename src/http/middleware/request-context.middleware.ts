@@ -17,10 +17,12 @@ export function createRequestContextMiddleware(
     const incomingRequestId = CanonicalUuidSchema.safeParse(c.req.header("x-request-id"));
     const requestId = incomingRequestId.success ? incomingRequestId.data : crypto.randomUUID().toLowerCase();
     const trace = createRequestTrace(c.req.header("traceparent") ?? null, c.req.header("tracestate"));
+    const authorization = c.req.header("authorization");
+    const cookie = c.req.header("cookie");
     const principal = principalResolver
       ? await principalResolver.resolve({
-          authorization: c.req.header("authorization"),
-          cookie: c.req.header("cookie"),
+          ...(authorization === undefined ? {} : { authorization }),
+          ...(cookie === undefined ? {} : { cookie }),
         })
       : undefined;
     const requestContext: RequestContext = {
