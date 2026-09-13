@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { HttpMethod, HttpRequest } from "../../../src/core/http/http-client";
 import {
   FetchHttpClient,
+  type FetchHttpClientOptions,
   type FetchLike,
 } from "../../../src/infrastructure/http/fetch-http-client";
 import { JsonConsoleLogger } from "../../../src/infrastructure/logging/json-console-logger";
@@ -132,12 +133,12 @@ test("non-default methods retry only when the caller marks the request idempoten
     defaultTimeoutMs: 1_000,
   });
 
-  const request = {
+  const request: HttpRequest<{ name: string }> = {
     method: "POST",
     path: "/resource",
     body: { name: "Lamy" },
     retry: "idempotent",
-  } as HttpRequest<{ name: string }> & { retry: "idempotent" };
+  };
 
   const response = await client.request(request, z.object({ ok: z.boolean() }));
 
@@ -162,14 +163,48 @@ test("retry never disables automatic retry for safe methods", async () => {
     defaultTimeoutMs: 1_000,
   });
 
-  const request = {
+  const request: HttpRequest = {
     method: "GET",
     path: "/resource",
     retry: "never",
-  } as HttpRequest & { retry: "never" };
+  };
 
   await expect(client.request(request, z.unknown())).rejects.toMatchObject({
     code: "UPSTREAM_REQUEST_FAILED",
   });
   expect(attempts).toBe(1);
+});
+
+test("client waits for Retry-After before retrying", async () => {
+  let attempts = 0;
+  const delays: number[] = [];
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response("busy", {
+        status: 429,
+        headers: { "retry-after": "2" },
+      });
+    }
+    return Response.json({ ok: true });
+  };
+
+  const options = {
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultTimeoutMs: 5_000,
+    sleep: async (delayMs: number) => {
+      delays.push(delayMs);
+    },
+  } as FetchHttpClientOptions & { sleep: (delayMs: number) => Promise<void> };
+  const client = new FetchHttpClient(options);
+
+  const response = await client.request(
+    { method: "GET", path: "/resource" },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(response.data.ok).toBe(true);
+  expect(delays).toEqual([2_000]);
 });
