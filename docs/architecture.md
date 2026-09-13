@@ -23,6 +23,22 @@ Environment variables are read only at startup and parsed by `loadConfig()` into
 
 This keeps configuration failures deterministic and makes composition testable without mutating process-global environment state.
 
+## Database schema and migrations
+
+`src/db/schema` is the code-first authoring model. `drizzle/` is the committed deployment history: SQL migrations, the migration journal, and snapshots travel together in source control.
+
+The lifecycle is intentionally split by responsibility:
+
+1. Developers change the TypeScript schema and run `drizzle-kit generate`.
+2. Review verifies both the schema change and generated migration artifacts.
+3. CI runs `drizzle-kit check`, regenerates from the committed snapshot, and requires `drizzle/` to remain unchanged.
+4. Integration starts from an empty PostgreSQL database and runs `drizzle-kit migrate` before tests.
+5. Deployment applies the same committed migration history as a separate step before or alongside application rollout.
+
+`drizzle-kit push` is not part of CI or deployment. It is retained only for disposable local-development databases. Application startup never calls `push`, `generate`, or `migrate`, so API availability and schema deployment are not coupled.
+
+The initial migration establishes the current template schema from an empty database. A database that already has equivalent tables because it was previously managed with `push` must be baselined explicitly; applying the initial migration blindly would conflict with existing objects. Baseline/repair automation is outside the default template because it depends on the state and ownership of the target database.
+
 ## Transactions and unit of work
 
 The application-owned transaction abstraction is generic:
