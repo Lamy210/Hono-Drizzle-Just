@@ -9,6 +9,7 @@ import type { Logger } from "../../core/logging/logger";
 import { formatTraceParent } from "../tracing/w3c-trace-context";
 
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 502, 503, 504]);
+const DEFAULT_RETRY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export type FetchLike = (
   input: Parameters<typeof fetch>[0],
@@ -71,7 +72,7 @@ export class FetchHttpClient implements HttpClient {
 
         if (
           RETRYABLE_STATUS_CODES.has(response.status) &&
-          request.method === "GET" &&
+          DEFAULT_RETRY_METHODS.has(request.method) &&
           attempt === 1
         ) {
           continue;
@@ -121,7 +122,11 @@ export class FetchHttpClient implements HttpClient {
         });
         return { status: response.status, headers: response.headers, data };
       } catch (error) {
-        if (!(error instanceof AppError) && request.method === "GET" && attempt === 1) {
+        if (
+          !(error instanceof AppError) &&
+          DEFAULT_RETRY_METHODS.has(request.method) &&
+          attempt === 1
+        ) {
           continue;
         }
         if (error instanceof AppError) {
