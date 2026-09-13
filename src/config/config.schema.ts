@@ -31,6 +31,7 @@ const RawConfigSchema = z.object({
   }),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   HTTP_DEFAULT_TIMEOUT_MS: integerEnv(10_000, 1, 120_000),
+  HTTP_DEFAULT_ATTEMPT_TIMEOUT_MS: integerEnv(3_000, 1, 120_000),
   DATABASE_POOL_MAX: integerEnv(10, 1, 100),
   DATABASE_CONNECTION_TIMEOUT_MS: integerEnv(5_000, 100, 120_000),
   HEALTH_CHECK_TIMEOUT_MS: integerEnv(1_500, 50, 30_000),
@@ -44,6 +45,7 @@ export interface AppConfig {
   readonly databaseUrl: string;
   readonly logLevel: LogLevel;
   readonly httpDefaultTimeoutMs: number;
+  readonly httpDefaultAttemptTimeoutMs: number;
   readonly databasePoolMax: number;
   readonly databaseConnectionTimeoutMs: number;
   readonly healthCheckTimeoutMs: number;
@@ -58,6 +60,7 @@ export const AppConfigSchema = RawConfigSchema.transform(
     databaseUrl: raw.DATABASE_URL,
     logLevel: raw.LOG_LEVEL,
     httpDefaultTimeoutMs: raw.HTTP_DEFAULT_TIMEOUT_MS,
+    httpDefaultAttemptTimeoutMs: raw.HTTP_DEFAULT_ATTEMPT_TIMEOUT_MS,
     databasePoolMax: raw.DATABASE_POOL_MAX,
     databaseConnectionTimeoutMs: raw.DATABASE_CONNECTION_TIMEOUT_MS,
     healthCheckTimeoutMs: raw.HEALTH_CHECK_TIMEOUT_MS,
