@@ -144,3 +144,32 @@ test("non-default methods retry only when the caller marks the request idempoten
   expect(response.data.ok).toBe(true);
   expect(attempts).toBe(2);
 });
+
+test("retry never disables automatic retry for safe methods", async () => {
+  let attempts = 0;
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response("busy", { status: 503 });
+    }
+    return Response.json({ ok: true });
+  };
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultTimeoutMs: 1_000,
+  });
+
+  const request = {
+    method: "GET",
+    path: "/resource",
+    retry: "never",
+  } as HttpRequest & { retry: "never" };
+
+  await expect(client.request(request, z.unknown())).rejects.toMatchObject({
+    code: "UPSTREAM_REQUEST_FAILED",
+  });
+  expect(attempts).toBe(1);
+});
