@@ -1,0 +1,37 @@
+{
+  "name": "hono-drizzle-just-template",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/app/server.ts",
+    "start": "bun src/app/server.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome ci .",
+    "format": "biome check --write .",
+    "test": "bun test tests/unit tests/api",
+    "test:integration": "bun test tests/integration",
+    "test:all": "bun run test && bun run test:integration",
+    "check": "bun run lint && bun run typecheck && bun run test",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@hono/zod-openapi": "1.6.3",
+    "drizzle-orm": "0.45.2",
+    "hono": "4.13.7",
+    "pg": "8.23.0",
+    "zod": "4.6.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.13",
+    "@types/bun": "1.4.2",
+    "@types/pg": "8.23.1",
+    "drizzle-kit": "0.31.10",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "bun": ">=1.4.2"
+  }
+}
