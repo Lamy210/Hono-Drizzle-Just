@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { users } from "../../../../src/db/schema";
 import { DrizzleUserRepository } from "../../../../src/modules/users/infrastructure/drizzle-user.repository";
-import { createUserFactory } from "../../../factories/user.factory";
+import { makeUserFactory } from "../../../factories/user.factory";
 import { createTestDatabase } from "../../../helpers/database";
 
 const database = createTestDatabase();
 const repository = new DrizzleUserRepository(database.db);
+const userFactory = makeUserFactory(database.db);
 
 beforeAll(async () => {
   await database.pool.query("select 1");
@@ -20,7 +21,7 @@ afterAll(async () => {
 });
 
 test("repository reads rows created by the database factory", async () => {
-  const seeded = await createUserFactory(database.db, { email: "seed@example.com" });
+  const seeded = await userFactory.create({ email: "seed@example.com" });
 
   const found = await repository.findById(seeded.id);
 
