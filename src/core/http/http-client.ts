@@ -1,6 +1,7 @@
 import type { RequestContext } from "../context/request-context";
 
 export type HttpMethod = "GET" | "HEAD" | "OPTIONS" | "POST" | "PUT" | "PATCH" | "DELETE";
+export type HttpRetryMode = "idempotent";
 
 export interface SchemaParser<T> {
   parse(value: unknown): T;
@@ -12,6 +13,7 @@ export interface HttpRequest<TBody = unknown> {
   readonly headers?: HeadersInit;
   readonly body?: TBody;
   readonly timeoutMs?: number;
+  readonly retry?: HttpRetryMode;
   readonly context?: RequestContext;
 }
 
