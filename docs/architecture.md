@@ -6,13 +6,13 @@
 HTTP / Hono / Zod contracts
           |
           v
-Application services ---> core ports (Logger, HttpClient, TransactionManager, health, lifecycle, tracing/context)
+Application services ---> core ports (Logger, HttpClient, TransactionManager, PrincipalResolver, health, lifecycle, tracing/context)
           |
           v
 Domain repository ports
           ^
           |
-Infrastructure adapters (Drizzle/PostgreSQL, transactions, fetch, health probes, JSON logger)
+Infrastructure adapters (Drizzle/PostgreSQL, transactions, fetch, health probes, JSON logger, identity-provider adapters)
 ```
 
 `core` contains stable application-owned abstractions and does not import Hono, Drizzle, Zod, or PostgreSQL. `contracts` owns API schemas. `infrastructure` implements adapters. `modules` are feature-first and keep domain/application code independent of HTTP.
@@ -60,6 +60,31 @@ PostgreSQL constraints remain authoritative. Drizzle wraps driver errors in `Dri
 
 `requestId` identifies one inbound API request. `traceId` follows the complete distributed trace. `spanId` identifies the local operation. Incoming W3C `traceparent` values retain the trace ID while the server creates a fresh local span ID.
 
+`RequestContext` also carries an optional normalized `Principal`. This keeps identity available to application services without exposing Hono request objects or identity-provider-specific session/JWT structures.
+
+## Authentication boundary
+
+`core/auth` owns two provider-neutral contracts:
+
+```text
+Principal
+  subject
+  tenantId?
+  roles[]?
+  scopes[]?
+
+PrincipalResolver
+  resolve({ authorization?, cookie? }) -> Principal | undefined
+```
+
+`PrincipalResolver` is a port, not a JWT/OIDC/Ory implementation. A concrete authentication adapter validates its provider-specific credentials/session and maps successful identity data into `Principal`. Services can therefore reason about authenticated subject/tenant/roles/scopes without importing provider SDK types.
+
+The request-context middleware establishes `requestId`, trace context, and a base request logger **before** invoking the resolver. This ordering is deliberate: an invalid credential or unavailable identity provider may throw an `AppError`, and the common error handler still needs correlation context and a logger to return a controlled response. `UNAUTHORIZED` is a stable 401 application error code for authentication adapters to use when appropriate.
+
+Raw `Authorization` and `Cookie` values are passed only to the resolver. They are not stored in `RequestContext`, copied into logger context, or echoed in error responses. After successful resolution, only `subject` and optional `tenantId` are added to structured log context.
+
+If no resolver is composed, the request remains anonymous. The default template deliberately does not choose a JWT package, OIDC provider, Ory/Cognito integration, role hierarchy, or authorization framework. Authentication answers "who is this?"; route/use-case authorization (for example requiring a principal, role, or scope) remains an explicit policy layer to add per application.
+
 ## Validation
 
 Validation exists at three boundaries:
@@ -103,6 +128,8 @@ All reusable fixture builders live under `tests/factories`; production code must
 Factory sequences are instance-local. Defaults generate valid UUIDs rather than UUID-shaped placeholders. Relations are explicit composition so factory calls do not hide additional database writes. Bulk persistence is sequential and deliberately non-atomic; tests can pass a transaction `DatabaseSession` when atomic setup matters.
 
 Health tests explicitly verify that liveness remains successful during dependency failure and readiness returns a controlled 503. Lifecycle tests verify reverse shutdown order, idempotence, and forced connection termination after the deadline.
+
+Authentication-context API tests verify anonymous requests, credential delivery to the resolver, normalized principal propagation, secret-free structured logging, application composition wiring, and correlation-preserving resolver failures.
 
 ## External HTTP
 

@@ -1,5 +1,6 @@
 export type AppErrorCode =
   | "VALIDATION_ERROR"
+  | "UNAUTHORIZED"
   | "NOT_FOUND"
   | "CONFLICT"
   | "INVALID_HTTP_PATH"
@@ -8,7 +9,7 @@ export type AppErrorCode =
   | "UPSTREAM_RESPONSE_INVALID"
   | "INTERNAL_ERROR";
 
-export type AppErrorStatus = 400 | 404 | 409 | 500 | 502 | 504;
+export type AppErrorStatus = 400 | 401 | 404 | 409 | 500 | 502 | 504;
 
 export class AppError extends Error {
   readonly name = "AppError";

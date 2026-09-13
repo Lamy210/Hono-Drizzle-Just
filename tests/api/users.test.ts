@@ -1,5 +1,6 @@
 import { expect, mock, test } from "bun:test";
 import { createApp } from "../../src/app/app";
+import type { PrincipalResolver } from "../../src/core/auth/principal-resolver";
 import { ReadinessChecker } from "../../src/core/health/readiness-checker";
 import type { TransactionManager } from "../../src/core/transaction/transaction-manager";
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
@@ -12,7 +13,7 @@ function transactions(repository: UserRepository): TransactionManager<UserUnitOf
   return { run: async (operation) => operation({ users: repository }) };
 }
 
-function buildApp() {
+function buildApp(principalResolver?: PrincipalResolver) {
   const user = {
     id: "550e8400-e29b-41d4-a716-446655440000",
     email: "lamy@example.com",
@@ -31,6 +32,7 @@ function buildApp() {
       readinessChecker: new ReadinessChecker([]),
       createUserService: new CreateUserService(transactions(repository), logger),
       getUserService: new GetUserService(repository),
+      ...(principalResolver === undefined ? {} : { principalResolver }),
     }),
     repository,
   };
@@ -70,4 +72,22 @@ test("valid incoming traceparent keeps the trace ID and emits a new span ID", as
   const outgoing = response.headers.get("traceparent");
   expect(outgoing).toMatch(/^00-4bf92f3577b34da6a3ce929d0e0e4736-[0-9a-f]{16}-01$/);
   expect(outgoing).not.toBe(incoming);
+});
+
+test("createApp wires authorization and cookie credentials into PrincipalResolver", async () => {
+  const resolve = mock(async () => ({ subject: "user-123" }));
+  const { app } = buildApp({ resolve });
+
+  const response = await app.request("/health", {
+    headers: {
+      authorization: "Bearer opaque-token",
+      cookie: "session=opaque-session",
+    },
+  });
+
+  expect(response.status).toBe(200);
+  expect(resolve).toHaveBeenCalledWith({
+    authorization: "Bearer opaque-token",
+    cookie: "session=opaque-session",
+  });
 });

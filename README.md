@@ -11,6 +11,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - Request and response contracts are defined with Zod and exposed through OpenAPI.
 - UUID input accepts upper/lowercase RFC UUIDs; application-facing canonical values are lowercase.
 - W3C `traceparent` propagation with separate request IDs, trace IDs, and span IDs.
+- Provider-neutral `Principal` / `PrincipalResolver` authentication context without coupling services to Hono or a specific identity provider.
 - Structured JSON logging behind an application-owned `Logger` interface with secret redaction.
 - External HTTP access goes through an application-owned `HttpClient` abstraction and `FetchHttpClient` adapter.
 - Outbound HTTP retries are conservative, idempotency-aware, deadline-bounded, and trace-preserving.
@@ -145,6 +146,16 @@ just db-reset
 | API | No by default | Repository behind real services | HTTP validation/contracts |
 
 Repository integration tests use persistent factories to insert actual rows. This intentionally avoids mocking Drizzle or PostgreSQL. The same factory defaults can be used through build-only factories in database-free tests.
+
+## Authentication context
+
+Authentication is adapter-driven. `core/auth` defines a provider-neutral `Principal` with `subject` plus optional `tenantId`, `roles`, and `scopes`, and a `PrincipalResolver` port that maps inbound credentials into that normalized shape. JWT/OIDC claims, Ory sessions, Cognito payloads, or other provider-specific structures must be translated at the adapter boundary rather than exposed to services.
+
+`createApp` accepts an optional `PrincipalResolver`. If none is configured, requests remain anonymous and `RequestContext.principal` is absent. When a resolver is configured, the HTTP middleware passes only the inbound `Authorization` and `Cookie` credential values to it. Raw credentials are not copied into `RequestContext`, structured log context, or error responses.
+
+Base request correlation is established before principal resolution. A resolver can therefore throw a stable `AppError` such as `UNAUTHORIZED`/401 without losing `requestId`, `traceId`, or the request logger. Once resolution succeeds, only the normalized `subject` and optional `tenantId` are added to log context.
+
+Authentication and authorization remain separate concerns. This template does not force a JWT library, identity provider, role model, or route authorization policy; protected routes/use cases should explicitly require a principal or specific scopes/roles when such policy is added.
 
 ## Request correlation and tracing
 
