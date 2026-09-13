@@ -55,71 +55,86 @@ export class FetchHttpClient implements HttpClient {
     }
 
     const startedAt = performance.now();
-    try {
-      const response = await this.fetchImpl(url, {
-        method: request.method,
-        headers,
-        ...(body === undefined ? {} : { body }),
-        signal: AbortSignal.timeout(request.timeoutMs ?? this.defaultTimeoutMs),
-      });
+    let attempt = 0;
 
-      if (!response.ok) {
+    while (true) {
+      attempt += 1;
+      try {
+        const response = await this.fetchImpl(url, {
+          method: request.method,
+          headers,
+          ...(body === undefined ? {} : { body }),
+          signal: AbortSignal.timeout(request.timeoutMs ?? this.defaultTimeoutMs),
+        });
+
+        if (response.status === 503 && request.method === "GET" && attempt === 1) {
+          continue;
+        }
+
+        if (!response.ok) {
+          throw new AppError(
+            "UPSTREAM_REQUEST_FAILED",
+            `Upstream returned HTTP ${response.status}`,
+            502,
+            { status: response.status, host: url.host },
+          );
+        }
+
+        let raw: unknown;
+        try {
+          raw = response.status === 204 ? undefined : await response.json();
+        } catch (error) {
+          throw new AppError(
+            "UPSTREAM_RESPONSE_INVALID",
+            "Upstream returned invalid JSON",
+            502,
+            { host: url.host },
+            { cause: error },
+          );
+        }
+
+        let data: TResponse;
+        try {
+          data = responseSchema.parse(raw);
+        } catch (error) {
+          throw new AppError(
+            "UPSTREAM_RESPONSE_INVALID",
+            "Upstream response did not match the expected schema",
+            502,
+            { host: url.host },
+            { cause: error },
+          );
+        }
+
+        this.logger.info("http.client.response", {
+          method: request.method,
+          path: url.pathname,
+          statusCode: response.status,
+          durationMs: Number((performance.now() - startedAt).toFixed(2)),
+          traceId: request.context?.trace.traceId,
+        });
+        return { status: response.status, headers: response.headers, data };
+      } catch (error) {
+        if (error instanceof AppError) {
+          throw error;
+        }
+        if (error instanceof DOMException && error.name === "TimeoutError") {
+          throw new AppError(
+            "UPSTREAM_TIMEOUT",
+            "Upstream request timed out",
+            504,
+            { host: url.host },
+            { cause: error },
+          );
+        }
         throw new AppError(
           "UPSTREAM_REQUEST_FAILED",
-          `Upstream returned HTTP ${response.status}`,
-          502,
-          { status: response.status, host: url.host },
-        );
-      }
-
-      let raw: unknown;
-      try {
-        raw = response.status === 204 ? undefined : await response.json();
-      } catch (error) {
-        throw new AppError(
-          "UPSTREAM_RESPONSE_INVALID",
-          "Upstream returned invalid JSON",
+          "Upstream request failed",
           502,
           { host: url.host },
           { cause: error },
         );
       }
-
-      let data: TResponse;
-      try {
-        data = responseSchema.parse(raw);
-      } catch (error) {
-        throw new AppError(
-          "UPSTREAM_RESPONSE_INVALID",
-          "Upstream response did not match the expected schema",
-          502,
-          { host: url.host },
-          { cause: error },
-        );
-      }
-
-      this.logger.info("http.client.response", {
-        method: request.method,
-        path: url.pathname,
-        statusCode: response.status,
-        durationMs: Number((performance.now() - startedAt).toFixed(2)),
-        traceId: request.context?.trace.traceId,
-      });
-      return { status: response.status, headers: response.headers, data };
-    } catch (error) {
-      if (error instanceof AppError) {
-        throw error;
-      }
-      if (error instanceof DOMException && error.name === "TimeoutError") {
-        throw new AppError("UPSTREAM_TIMEOUT", "Upstream request timed out", 504, { host: url.host }, { cause: error });
-      }
-      throw new AppError(
-        "UPSTREAM_REQUEST_FAILED",
-        "Upstream request failed",
-        502,
-        { host: url.host },
-        { cause: error },
-      );
     }
   }
 
