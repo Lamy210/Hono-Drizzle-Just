@@ -3,7 +3,6 @@ import { z } from "zod";
 import type { HttpMethod, HttpRequest } from "../../../src/core/http/http-client";
 import {
   FetchHttpClient,
-  type FetchHttpClientOptions,
   type FetchLike,
 } from "../../../src/infrastructure/http/fetch-http-client";
 import { JsonConsoleLogger } from "../../../src/infrastructure/logging/json-console-logger";
@@ -189,16 +188,15 @@ test("client waits for Retry-After before retrying", async () => {
     return Response.json({ ok: true });
   };
 
-  const options = {
+  const client = new FetchHttpClient({
     baseUrl: "https://example.test",
     logger: new JsonConsoleLogger({}, () => undefined),
     fetchImpl,
     defaultTimeoutMs: 5_000,
-    sleep: async (delayMs: number) => {
+    sleep: async (delayMs) => {
       delays.push(delayMs);
     },
-  } as FetchHttpClientOptions & { sleep: (delayMs: number) => Promise<void> };
-  const client = new FetchHttpClient(options);
+  });
 
   const response = await client.request(
     { method: "GET", path: "/resource" },
@@ -207,4 +205,35 @@ test("client waits for Retry-After before retrying", async () => {
 
   expect(response.data.ok).toBe(true);
   expect(delays).toEqual([2_000]);
+});
+
+test("retry delay that exceeds the total deadline is not attempted", async () => {
+  let attempts = 0;
+  const delays: number[] = [];
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response("busy", {
+        status: 429,
+        headers: { "retry-after": "2" },
+      });
+    }
+    return Response.json({ ok: true });
+  };
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultTimeoutMs: 1_000,
+    sleep: async (delayMs) => {
+      delays.push(delayMs);
+    },
+  });
+
+  await expect(
+    client.request({ method: "GET", path: "/resource" }, z.unknown()),
+  ).rejects.toMatchObject({ code: "UPSTREAM_REQUEST_FAILED" });
+  expect(attempts).toBe(1);
+  expect(delays).toEqual([]);
 });
