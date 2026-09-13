@@ -44,10 +44,9 @@ export class FetchHttpClient implements HttpClient {
       }
     }
 
-    let body: BodyInit | undefined;
-    if (request.body !== undefined) {
+    const body = request.body === undefined ? undefined : JSON.stringify(request.body);
+    if (body !== undefined) {
       headers.set("content-type", "application/json");
-      body = JSON.stringify(request.body);
     }
 
     const startedAt = performance.now();
@@ -55,7 +54,7 @@ export class FetchHttpClient implements HttpClient {
       const response = await this.fetchImpl(url, {
         method: request.method,
         headers,
-        body,
+        ...(body === undefined ? {} : { body }),
         signal: AbortSignal.timeout(request.timeoutMs ?? this.defaultTimeoutMs),
       });
 

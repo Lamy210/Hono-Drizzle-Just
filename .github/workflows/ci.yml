@@ -44,5 +44,5 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install
-      - run: bun run db:push -- --force
+      - run: bunx drizzle-kit push --force
       - run: bun run test:integration

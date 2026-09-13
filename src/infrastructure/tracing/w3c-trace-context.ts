@@ -40,10 +40,16 @@ export function parseTraceParent(value: string | null): TraceContext | null {
 
 export function createRequestTrace(parentHeader: string | null, traceState?: string): TraceContext {
   const parent = parseTraceParent(parentHeader);
-  const traceId = parent?.traceId ?? createTraceId();
-  const traceFlags = parent?.traceFlags ?? "01";
-  const base = { traceId, spanId: createSpanId(), traceFlags };
-  return traceState ? { ...base, traceState } : base;
+  if (!parent) {
+    return { traceId: createTraceId(), spanId: createSpanId(), traceFlags: "01" };
+  }
+
+  const trace = {
+    traceId: parent.traceId,
+    spanId: createSpanId(),
+    traceFlags: parent.traceFlags,
+  };
+  return traceState ? { ...trace, traceState } : trace;
 }
 
 export function formatTraceParent(context: TraceContext): string {

@@ -1,9 +1,9 @@
 import { expect, mock, test } from "bun:test";
 import { createApp } from "../../src/app/app";
+import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
 import type { UserRepository } from "../../src/modules/users/domain/user.repository";
-import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 
 function buildApp() {
   const user = {
@@ -39,7 +39,7 @@ test("invalid request body returns the common validation error schema", async ()
   expect(response.status).toBe(400);
   const body = await response.json();
   expect(body).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
-  expect(body.requestId).toBeString();
+  expect(typeof body.requestId).toBe("string");
   expect(body.traceId).toMatch(/^[0-9a-f]{32}$/);
 });
 
