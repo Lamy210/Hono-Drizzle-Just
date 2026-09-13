@@ -15,6 +15,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - External HTTP access goes through an application-owned `HttpClient` abstraction and `FetchHttpClient` adapter.
 - Environment variables are parsed once at startup into a typed configuration object.
 - Deployment-safe liveness/readiness probes and graceful shutdown are built in.
+- Database changes are delivered as committed Drizzle migrations rather than runtime schema pushes.
 
 ## Requirements
 
@@ -29,7 +30,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 cp .env.example .env
 bun install
 just db-up
-just db-push
+just db-migrate
 just dev
 ```
 
@@ -77,6 +78,16 @@ The sample user creation flow performs the duplicate lookup and insert in the sa
 
 Automatic transaction retries and implicit `AsyncLocalStorage` transactions are intentionally not enabled by default.
 
+## Database migrations
+
+The TypeScript schema under `src/db/schema` is the authoring model, while committed files under `drizzle/` are the deployable database history. After changing the schema, run `just db-generate`, review the generated SQL and metadata, and commit all resulting migration files together.
+
+Use `just db-migrate` to apply committed migrations. CI starts with an empty PostgreSQL database, applies the committed history, and only then runs integration tests. The quality job runs `just db-verify` semantics (`drizzle-kit check`, `drizzle-kit generate`, then a clean-diff check) so a schema change without a committed migration fails before merge.
+
+`just db-push` remains available only as a local-development convenience for disposable databases. It is not used by CI or deployment workflows. The API process also does not run migrations during startup; schema deployment is a separate operational step.
+
+If a pre-existing database was previously managed with `drizzle-kit push`, do not blindly apply the initial migration to it. Establish an explicit baseline/repair procedure for that database first so its existing schema and Drizzle migration log are reconciled safely.
+
 ## Test factories
 
 Factory infrastructure lives under `tests/factories` only. `TestFactory<T>` exposes `build/buildMany` for DB-free unit tests; `PersistentTestFactory<T,TCreated>` additionally exposes `create/createMany` through an explicit persistence callback.
@@ -94,7 +105,10 @@ just test-integration
 just test-all
 just format
 just db-generate
-just db-push
+just db-check
+just db-verify
+just db-migrate
+just db-push     # local/disposable DB only
 just db-reset
 ```
 
