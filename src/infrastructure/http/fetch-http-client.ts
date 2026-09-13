@@ -121,6 +121,9 @@ export class FetchHttpClient implements HttpClient {
         });
         return { status: response.status, headers: response.headers, data };
       } catch (error) {
+        if (!(error instanceof AppError) && request.method === "GET" && attempt === 1) {
+          continue;
+        }
         if (error instanceof AppError) {
           throw error;
         }
