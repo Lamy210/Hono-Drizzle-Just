@@ -15,6 +15,7 @@
     "test:all": "bun run test && bun run test:integration",
     "check": "bun run lint && bun run typecheck && bun run test",
     "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },
