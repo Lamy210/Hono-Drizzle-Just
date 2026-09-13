@@ -94,7 +94,7 @@ export function createTelemetry(
         await forceFlush();
         await Promise.all([tracerProvider.shutdown(), meterProvider.shutdown()]);
       } finally {
-        contextManager.disable();
+        context.disable();
       }
     })();
     return shutdownPromise;
