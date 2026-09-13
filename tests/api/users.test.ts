@@ -1,5 +1,6 @@
 import { expect, mock, test } from "bun:test";
 import { createApp } from "../../src/app/app";
+import { ReadinessChecker } from "../../src/core/health/readiness-checker";
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
@@ -21,6 +22,7 @@ function buildApp() {
   return {
     app: createApp({
       logger,
+      readinessChecker: new ReadinessChecker([]),
       createUserService: new CreateUserService(repository, logger),
       getUserService: new GetUserService(repository),
     }),

@@ -12,6 +12,8 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - W3C `traceparent` propagation with separate request IDs, trace IDs, and span IDs.
 - Structured JSON logging behind an application-owned `Logger` interface with secret redaction.
 - External HTTP access goes through an application-owned `HttpClient` abstraction and `FetchHttpClient` adapter.
+- Environment variables are parsed once at startup into a typed configuration object.
+- Deployment-safe liveness/readiness probes and graceful shutdown are built in.
 
 ## Requirements
 
@@ -32,10 +34,39 @@ just dev
 
 The service listens on `http://localhost:3000` by default.
 
-- `GET /health`
+- `GET /health` — compatibility liveness endpoint
+- `GET /health/live` — process/HTTP liveness; does not query PostgreSQL
+- `GET /health/ready` — readiness; returns 503 when a critical dependency is unavailable
 - `POST /users`
 - `GET /users/{id}`
 - `GET /openapi.json`
+
+## Configuration
+
+Configuration is loaded once during startup. Application modules should not read `process.env` or `Bun.env` directly.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `NODE_ENV` | `development` | Runtime environment |
+| `SERVICE_NAME` | `hono-drizzle-just` | Structured log service name |
+| `PORT` | `3000` | HTTP listen port |
+| `DATABASE_URL` | required | PostgreSQL connection URL |
+| `DATABASE_POOL_MAX` | `10` | Maximum PostgreSQL pool size |
+| `DATABASE_CONNECTION_TIMEOUT_MS` | `5000` | Pool connection timeout |
+| `LOG_LEVEL` | `info` | Minimum structured log level |
+| `HTTP_DEFAULT_TIMEOUT_MS` | `10000` | Default outbound HTTP timeout for adapters |
+| `HEALTH_CHECK_TIMEOUT_MS` | `1500` | Critical dependency readiness deadline |
+| `SHUTDOWN_TIMEOUT_MS` | `10000` | Grace period for in-flight HTTP requests |
+
+Invalid configuration fails startup before database/service composition. Configuration errors list variable names and validation reasons without echoing secret values.
+
+## Health and shutdown
+
+`/health/live` only confirms that the process and HTTP stack are alive. It intentionally does not depend on PostgreSQL, so a database outage does not cause an orchestrator to restart an otherwise healthy process repeatedly.
+
+`/health/ready` checks critical dependencies. The default PostgreSQL check executes `select 1`; failures and timeouts return `503` with a sanitized per-check status.
+
+On `SIGINT` or `SIGTERM`, the server stops accepting new connections and waits for in-flight requests. If they exceed `SHUTDOWN_TIMEOUT_MS`, active connections are force-closed. Registered resources are then closed once in reverse registration order.
 
 ## Common commands
 

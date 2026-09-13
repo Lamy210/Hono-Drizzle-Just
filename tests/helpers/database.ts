@@ -5,5 +5,5 @@ export function createTestDatabase() {
   if (!url) {
     throw new Error("DATABASE_URL is required for integration tests");
   }
-  return createDatabase(url);
+  return createDatabase({ connectionString: url });
 }
