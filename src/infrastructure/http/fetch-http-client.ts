@@ -138,7 +138,7 @@ export class FetchHttpClient implements HttpClient {
 
         let raw: unknown;
         try {
-          raw = response.status === 204 ? undefined : await response.json();
+          raw = request.method === "HEAD" || response.status === 204 ? undefined : await response.json();
         } catch (error) {
           throw new AppError(
             "UPSTREAM_RESPONSE_INVALID",
