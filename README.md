@@ -5,7 +5,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 ## Goals
 
 - Feature-first modules with explicit application/domain/infrastructure/presentation boundaries.
-- Repository integration tests use a real PostgreSQL database populated by factories.
+- Repository integration tests use a real PostgreSQL database populated by typed test factories.
 - Service unit tests use Bun's built-in `mock()` / `spyOn()` and never require a database.
 - Explicit transaction boundaries use an application-owned `TransactionManager` instead of leaking Drizzle transaction types into services.
 - Request and response contracts are defined with Zod and exposed through OpenAPI.
@@ -77,6 +77,14 @@ The sample user creation flow performs the duplicate lookup and insert in the sa
 
 Automatic transaction retries and implicit `AsyncLocalStorage` transactions are intentionally not enabled by default.
 
+## Test factories
+
+Factory infrastructure lives under `tests/factories` only. `TestFactory<T>` exposes `build/buildMany` for DB-free unit tests; `PersistentTestFactory<T,TCreated>` additionally exposes `create/createMany` through an explicit persistence callback.
+
+`makeUserFactory()` returns a build-only user factory, while `makeUserFactory(databaseSession)` persists through the supplied root or transactional Drizzle session. Each factory instance owns its own sequence state, UUIDs are generated with `crypto.randomUUID()`, and default emails include a random suffix to avoid collisions between factory instances.
+
+Relations stay explicit rather than being auto-created. Create the related record first, then pass its identifier as an override to the dependent factory. `createMany` preserves order but is not implicitly atomic; pass a transaction session when atomic fixture setup is required.
+
 ## Common commands
 
 ```bash
@@ -100,7 +108,7 @@ just db-reset
 | Transaction integration | Real PostgreSQL | No | Commit/rollback semantics |
 | API | No by default | Repository behind real services | HTTP validation/contracts |
 
-Repository integration tests use `tests/factories` to insert actual rows. This intentionally avoids mocking Drizzle or PostgreSQL.
+Repository integration tests use persistent factories to insert actual rows. This intentionally avoids mocking Drizzle or PostgreSQL. The same factory defaults can be used through build-only factories in database-free tests.
 
 ## Request correlation and tracing
 
