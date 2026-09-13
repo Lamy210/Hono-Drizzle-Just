@@ -6,10 +6,8 @@ import type {
   SchemaParser,
 } from "../../core/http/http-client";
 import type { Logger } from "../../core/logging/logger";
+import { DefaultRetryPolicy, type RetryPolicy } from "./retry-policy";
 import { formatTraceParent } from "../tracing/w3c-trace-context";
-
-const RETRYABLE_STATUS_CODES = new Set([408, 429, 502, 503, 504]);
-const DEFAULT_RETRY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export type FetchLike = (
   input: Parameters<typeof fetch>[0],
@@ -21,18 +19,21 @@ export interface FetchHttpClientOptions {
   readonly logger: Logger;
   readonly fetchImpl?: FetchLike;
   readonly defaultTimeoutMs?: number;
+  readonly retryPolicy?: RetryPolicy;
 }
 
 export class FetchHttpClient implements HttpClient {
   private readonly baseUrl: URL;
   private readonly fetchImpl: FetchLike;
   private readonly defaultTimeoutMs: number;
+  private readonly retryPolicy: RetryPolicy;
   private readonly logger: Logger;
 
   constructor(options: FetchHttpClientOptions) {
     this.baseUrl = new URL(options.baseUrl);
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 10_000;
+    this.retryPolicy = options.retryPolicy ?? new DefaultRetryPolicy();
     this.logger = options.logger.child({ component: "http_client", upstreamHost: this.baseUrl.host });
   }
 
@@ -71,9 +72,10 @@ export class FetchHttpClient implements HttpClient {
         });
 
         if (
-          RETRYABLE_STATUS_CODES.has(response.status) &&
-          this.canRetry(request) &&
-          attempt === 1
+          this.retryPolicy.shouldRetry(request, attempt, {
+            kind: "response",
+            status: response.status,
+          })
         ) {
           continue;
         }
@@ -122,7 +124,10 @@ export class FetchHttpClient implements HttpClient {
         });
         return { status: response.status, headers: response.headers, data };
       } catch (error) {
-        if (!(error instanceof AppError) && this.canRetry(request) && attempt === 1) {
+        if (
+          !(error instanceof AppError) &&
+          this.retryPolicy.shouldRetry(request, attempt, { kind: "network" })
+        ) {
           continue;
         }
         if (error instanceof AppError) {
@@ -146,10 +151,6 @@ export class FetchHttpClient implements HttpClient {
         );
       }
     }
-  }
-
-  private canRetry(request: HttpRequest): boolean {
-    return request.retry === "idempotent" || DEFAULT_RETRY_METHODS.has(request.method);
   }
 
   private resolveUrl(path: string): URL {
