@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
-import type { HttpMethod } from "../../../src/core/http/http-client";
+import type { HttpMethod, HttpRequest } from "../../../src/core/http/http-client";
 import {
   FetchHttpClient,
   type FetchLike,
@@ -113,4 +113,34 @@ test("safe read-only methods retry transient upstream responses by default", asy
     expect(response.data.ok).toBe(true);
     expect(attempts).toBe(2);
   }
+});
+
+test("non-default methods retry only when the caller marks the request idempotent", async () => {
+  let attempts = 0;
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response("busy", { status: 503 });
+    }
+    return Response.json({ ok: true });
+  };
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultTimeoutMs: 1_000,
+  });
+
+  const request = {
+    method: "POST",
+    path: "/resource",
+    body: { name: "Lamy" },
+    retry: "idempotent",
+  } as HttpRequest<{ name: string }> & { retry: "idempotent" };
+
+  const response = await client.request(request, z.object({ ok: z.boolean() }));
+
+  expect(response.data.ok).toBe(true);
+  expect(attempts).toBe(2);
 });
