@@ -1,6 +1,7 @@
 import type { RequestContext } from "../context/request-context";
 
 export type HttpMethod = "GET" | "HEAD" | "OPTIONS" | "POST" | "PUT" | "PATCH" | "DELETE";
+export type HttpRetryMode = "never" | "idempotent";
 
 export interface SchemaParser<T> {
   parse(value: unknown): T;
@@ -11,7 +12,11 @@ export interface HttpRequest<TBody = unknown> {
   readonly path: string;
   readonly headers?: HeadersInit;
   readonly body?: TBody;
+  /** Total time budget across attempts, retry delays, and response handling. */
   readonly timeoutMs?: number;
+  /** Maximum time budget for one network attempt. */
+  readonly attemptTimeoutMs?: number;
+  readonly retry?: HttpRetryMode;
   readonly context?: RequestContext;
 }
 

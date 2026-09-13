@@ -21,7 +21,7 @@ Infrastructure adapters (Drizzle/PostgreSQL, transactions, fetch, health probes,
 
 Environment variables are read only at startup and parsed by `loadConfig()` into `AppConfig`. The composition root receives typed config and constructs infrastructure adapters. Feature code must not read `process.env` or `Bun.env` directly.
 
-This keeps configuration failures deterministic and makes composition testable without mutating process-global environment state.
+This keeps configuration failures deterministic and makes composition testable without mutating process-global environment state. Outbound HTTP composition receives separate total-deadline and per-attempt timeout defaults so adding retries cannot silently multiply the caller's latency budget.
 
 ## Database schema and migrations
 
@@ -106,4 +106,32 @@ Health tests explicitly verify that liveness remains successful during dependenc
 
 ## External HTTP
 
-Application code should not call global `fetch` directly. `FetchHttpClient` fixes the upstream origin, rejects absolute URLs to reduce SSRF foot-guns, injects request/trace headers, applies a timeout, maps network/upstream failures into `AppError`, and validates JSON responses against a caller-provided schema.
+Application code must not call global `fetch` directly. The application-owned `HttpClient` port expresses the request, total deadline, optional per-attempt timeout, retry intent, request context, and response schema without exposing Bun's fetch implementation.
+
+`FetchHttpClient` is the infrastructure adapter. It fixes the upstream origin, rejects absolute caller-provided URLs to reduce SSRF foot-guns, injects correlation/tracing headers, serializes JSON request bodies, validates successful JSON responses, and maps transport/upstream failures into `AppError`.
+
+### Retry boundary
+
+Retry eligibility and delay calculation live in `RetryPolicy`, not in services. The default policy is intentionally conservative:
+
+- `GET`, `HEAD`, and `OPTIONS` are retryable by default.
+- Other methods require `retry: "idempotent"`; this is an explicit assertion by the caller that replay is safe.
+- `retry: "never"` disables retry even for safe methods.
+- Retryable statuses are `408`, `429`, `502`, `503`, and `504`.
+- Network failures and per-attempt timeout failures use the same retry budget.
+- Successful responses that fail JSON decoding or schema validation are not retried.
+- The default retry budget is one retry. A different `RetryPolicy` can change this without changing the `HttpClient` interface.
+
+`Retry-After` is parsed as either delay-seconds or an HTTP-date. Without that header, `DefaultRetryPolicy` uses capped exponential backoff with full jitter. `Retry-After` is not clipped to the backoff cap; the caller's total deadline decides whether there is enough time to honor it.
+
+### Deadline boundary
+
+`timeoutMs` is a total monotonic deadline covering attempts and retry waits. `attemptTimeoutMs` limits one fetch operation. Before every attempt, the adapter calculates the remaining total budget and uses:
+
+```text
+actualAttemptTimeout = min(attemptTimeout, remainingTotalDeadline)
+```
+
+A retry is skipped when its delay cannot fit inside the remaining budget. This prevents `N` retries from turning a 10-second caller deadline into `N × 10` seconds. The default adapter values are 10 seconds total and 3 seconds per attempt.
+
+The same precomputed request headers are reused across attempts, so `x-request-id`, `traceparent`, and `tracestate` remain stable for one logical outbound call. Attempt count may be added to logs/metrics without changing correlation identity.

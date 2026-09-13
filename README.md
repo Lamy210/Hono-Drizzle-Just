@@ -13,6 +13,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - W3C `traceparent` propagation with separate request IDs, trace IDs, and span IDs.
 - Structured JSON logging behind an application-owned `Logger` interface with secret redaction.
 - External HTTP access goes through an application-owned `HttpClient` abstraction and `FetchHttpClient` adapter.
+- Outbound HTTP retries are conservative, idempotency-aware, deadline-bounded, and trace-preserving.
 - Environment variables are parsed once at startup into a typed configuration object.
 - Deployment-safe liveness/readiness probes and graceful shutdown are built in.
 - Database changes are delivered as committed Drizzle migrations rather than runtime schema pushes.
@@ -56,7 +57,8 @@ Configuration is loaded once during startup. Application modules should not read
 | `DATABASE_POOL_MAX` | `10` | Maximum PostgreSQL pool size |
 | `DATABASE_CONNECTION_TIMEOUT_MS` | `5000` | Pool connection timeout |
 | `LOG_LEVEL` | `info` | Minimum structured log level |
-| `HTTP_DEFAULT_TIMEOUT_MS` | `10000` | Default outbound HTTP timeout for adapters |
+| `HTTP_DEFAULT_TIMEOUT_MS` | `10000` | Total outbound HTTP deadline across attempts and retry delays |
+| `HTTP_DEFAULT_ATTEMPT_TIMEOUT_MS` | `3000` | Maximum duration of one outbound fetch attempt |
 | `HEALTH_CHECK_TIMEOUT_MS` | `1500` | Critical dependency readiness deadline |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | Grace period for in-flight HTTP requests |
 
@@ -95,6 +97,26 @@ Factory infrastructure lives under `tests/factories` only. `TestFactory<T>` expo
 `makeUserFactory()` returns a build-only user factory, while `makeUserFactory(databaseSession)` persists through the supplied root or transactional Drizzle session. Each factory instance owns its own sequence state, UUIDs are generated with `crypto.randomUUID()`, and default emails include a random suffix to avoid collisions between factory instances.
 
 Relations stay explicit rather than being auto-created. Create the related record first, then pass its identifier as an override to the dependent factory. `createMany` preserves order but is not implicitly atomic; pass a transaction session when atomic fixture setup is required.
+
+## Outbound HTTP policy
+
+Application code should depend on `HttpClient` instead of calling global `fetch` directly. `FetchHttpClient` fixes the upstream origin, rejects absolute caller-provided URLs, propagates request/trace correlation headers, validates successful JSON responses, and maps transport failures into stable application errors.
+
+`timeoutMs` is a **total request deadline** covering all network attempts and retry delays. `attemptTimeoutMs` limits one fetch attempt and is always capped by the remaining total deadline. Adapter defaults are 10 seconds total and 3 seconds per attempt; composition should normally supply the typed configuration values above.
+
+Retry behavior is deliberately conservative:
+
+- `GET`, `HEAD`, and `OPTIONS` may retry automatically.
+- `POST`, `PUT`, `PATCH`, and `DELETE` do not retry automatically; set `retry: "idempotent"` only when the caller can guarantee replay safety.
+- Set `retry: "never"` to disable retry even for a normally retryable read request.
+- The default policy allows one retry for network/attempt-timeout failures and HTTP `408`, `429`, `502`, `503`, or `504`.
+- `Retry-After` is honored in both delay-seconds and HTTP-date forms.
+- Without `Retry-After`, retry delay uses capped exponential backoff with full jitter.
+- A retry is skipped when its delay cannot fit inside the remaining total deadline.
+- JSON decoding and response-schema validation failures are never retried.
+- `x-request-id`, `traceparent`, and `tracestate` remain stable across attempts for the same outbound request.
+
+Retry eligibility and delay calculation live in `RetryPolicy`, so an application can replace the default policy without changing service code or the `HttpClient` port.
 
 ## Common commands
 

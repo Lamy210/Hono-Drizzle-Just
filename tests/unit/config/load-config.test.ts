@@ -15,6 +15,7 @@ describe("loadConfig", () => {
       port: 8080,
       logLevel: "info",
       httpDefaultTimeoutMs: 10_000,
+      httpDefaultAttemptTimeoutMs: 3_000,
       databasePoolMax: 20,
       databaseConnectionTimeoutMs: 5_000,
       healthCheckTimeoutMs: 1_500,

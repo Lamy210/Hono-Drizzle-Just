@@ -1,0 +1,237 @@
+import { expect, test } from "bun:test";
+import { z } from "zod";
+import type { HttpRequest } from "../../../src/core/http/http-client";
+import {
+  FetchHttpClient,
+  type FetchLike,
+} from "../../../src/infrastructure/http/fetch-http-client";
+import { JsonConsoleLogger } from "../../../src/infrastructure/logging/json-console-logger";
+
+test("GET retries a retryable upstream status", async () => {
+  let attempts = 0;
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response("busy", { status: 503 });
+    }
+    return Response.json({ ok: true });
+  };
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultTimeoutMs: 1_000,
+  });
+
+  const response = await client.request(
+    { method: "GET", path: "/resource" },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(response.data.ok).toBe(true);
+  expect(attempts).toBe(2);
+});
+
+test("GET retries every configured transient upstream status", async () => {
+  for (const status of [408, 429, 502, 503, 504]) {
+    let attempts = 0;
+    const fetchImpl: FetchLike = async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return new Response("transient", { status });
+      }
+      return Response.json({ ok: true });
+    };
+
+    const client = new FetchHttpClient({
+      baseUrl: "https://example.test",
+      logger: new JsonConsoleLogger({}, () => undefined),
+      fetchImpl,
+      defaultTimeoutMs: 1_000,
+    });
+
+    const response = await client.request(
+      { method: "GET", path: "/resource" },
+      z.object({ ok: z.boolean() }),
+    );
+
+    expect(response.data.ok).toBe(true);
+    expect(attempts).toBe(2);
+  }
+});
+
+test("GET retries a network failure before surfacing an upstream error", async () => {
+  let attempts = 0;
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      throw new TypeError("connection reset");
+    }
+    return Response.json({ ok: true });
+  };
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultTimeoutMs: 1_000,
+  });
+
+  const response = await client.request(
+    { method: "GET", path: "/resource" },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(response.data.ok).toBe(true);
+  expect(attempts).toBe(2);
+});
+
+test("OPTIONS retries transient upstream responses by default", async () => {
+  let attempts = 0;
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response("busy", { status: 503 });
+    }
+    return Response.json({ ok: true });
+  };
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultTimeoutMs: 1_000,
+  });
+
+  const response = await client.request(
+    { method: "OPTIONS", path: "/resource" },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(response.data.ok).toBe(true);
+  expect(attempts).toBe(2);
+});
+
+test("non-default methods retry only when the caller marks the request idempotent", async () => {
+  let attempts = 0;
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response("busy", { status: 503 });
+    }
+    return Response.json({ ok: true });
+  };
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultTimeoutMs: 1_000,
+  });
+
+  const request: HttpRequest<{ name: string }> = {
+    method: "POST",
+    path: "/resource",
+    body: { name: "Lamy" },
+    retry: "idempotent",
+  };
+
+  const response = await client.request(request, z.object({ ok: z.boolean() }));
+
+  expect(response.data.ok).toBe(true);
+  expect(attempts).toBe(2);
+});
+
+test("retry never disables automatic retry for safe methods", async () => {
+  let attempts = 0;
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response("busy", { status: 503 });
+    }
+    return Response.json({ ok: true });
+  };
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultTimeoutMs: 1_000,
+  });
+
+  const request: HttpRequest = {
+    method: "GET",
+    path: "/resource",
+    retry: "never",
+  };
+
+  await expect(client.request(request, z.unknown())).rejects.toMatchObject({
+    code: "UPSTREAM_REQUEST_FAILED",
+  });
+  expect(attempts).toBe(1);
+});
+
+test("client waits for Retry-After before retrying", async () => {
+  let attempts = 0;
+  const delays: number[] = [];
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response("busy", {
+        status: 429,
+        headers: { "retry-after": "2" },
+      });
+    }
+    return Response.json({ ok: true });
+  };
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultTimeoutMs: 5_000,
+    sleep: async (delayMs) => {
+      delays.push(delayMs);
+    },
+  });
+
+  const response = await client.request(
+    { method: "GET", path: "/resource" },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(response.data.ok).toBe(true);
+  expect(delays).toEqual([2_000]);
+});
+
+test("retry delay that exceeds the total deadline is not attempted", async () => {
+  let attempts = 0;
+  const delays: number[] = [];
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response("busy", {
+        status: 429,
+        headers: { "retry-after": "2" },
+      });
+    }
+    return Response.json({ ok: true });
+  };
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultTimeoutMs: 1_000,
+    sleep: async (delayMs) => {
+      delays.push(delayMs);
+    },
+  });
+
+  await expect(
+    client.request({ method: "GET", path: "/resource" }, z.unknown()),
+  ).rejects.toMatchObject({ code: "UPSTREAM_REQUEST_FAILED" });
+  expect(attempts).toBe(1);
+  expect(delays).toEqual([]);
+});
