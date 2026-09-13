@@ -1,8 +1,11 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
-import { FetchHttpClient } from "../../../src/infrastructure/http/fetch-http-client";
-import { JsonConsoleLogger } from "../../../src/infrastructure/logging/json-console-logger";
 import type { RequestContext } from "../../../src/core/context/request-context";
+import {
+  FetchHttpClient,
+  type FetchLike,
+} from "../../../src/infrastructure/http/fetch-http-client";
+import { JsonConsoleLogger } from "../../../src/infrastructure/logging/json-console-logger";
 
 const context: RequestContext = {
   requestId: "550e8400-e29b-41d4-a716-446655440000",
@@ -16,7 +19,7 @@ const context: RequestContext = {
 
 test("fetch wrapper propagates tracing headers and validates the response", async () => {
   let captured: Request | undefined;
-  const fetchImpl: typeof fetch = async (input, init) => {
+  const fetchImpl: FetchLike = async (input, init) => {
     captured = new Request(input, init);
     return Response.json({ id: "550e8400-e29b-41d4-a716-446655440000", name: "Lamy" });
   };

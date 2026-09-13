@@ -8,16 +8,21 @@ import type {
 import type { Logger } from "../../core/logging/logger";
 import { formatTraceParent } from "../tracing/w3c-trace-context";
 
+export type FetchLike = (
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+) => ReturnType<typeof fetch>;
+
 export interface FetchHttpClientOptions {
   readonly baseUrl: string | URL;
   readonly logger: Logger;
-  readonly fetchImpl?: typeof fetch;
+  readonly fetchImpl?: FetchLike;
   readonly defaultTimeoutMs?: number;
 }
 
 export class FetchHttpClient implements HttpClient {
   private readonly baseUrl: URL;
-  private readonly fetchImpl: typeof fetch;
+  private readonly fetchImpl: FetchLike;
   private readonly defaultTimeoutMs: number;
   private readonly logger: Logger;
 
