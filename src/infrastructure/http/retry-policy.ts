@@ -8,7 +8,7 @@ export type RetryFailure =
   | { readonly kind: "network" };
 
 export interface RetryPolicy {
-  shouldRetry(request: HttpRequest, failedAttempt: number, failure: RetryFailure): boolean;
+  nextDelay(request: HttpRequest, failedAttempt: number, failure: RetryFailure): number | null;
 }
 
 export interface DefaultRetryPolicyOptions {
@@ -22,14 +22,14 @@ export class DefaultRetryPolicy implements RetryPolicy {
     this.maxRetries = options.maxRetries ?? 1;
   }
 
-  shouldRetry(request: HttpRequest, failedAttempt: number, failure: RetryFailure): boolean {
+  nextDelay(request: HttpRequest, failedAttempt: number, failure: RetryFailure): number | null {
     if (failedAttempt > this.maxRetries || !this.canRetryMethod(request)) {
-      return false;
+      return null;
     }
     if (failure.kind === "network") {
-      return true;
+      return 0;
     }
-    return RETRYABLE_STATUS_CODES.has(failure.status);
+    return RETRYABLE_STATUS_CODES.has(failure.status) ? 0 : null;
   }
 
   private canRetryMethod(request: HttpRequest): boolean {
