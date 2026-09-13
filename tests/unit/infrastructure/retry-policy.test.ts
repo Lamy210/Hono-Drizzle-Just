@@ -21,8 +21,7 @@ test("Retry-After delay-seconds controls the retry delay", () => {
 
 test("Retry-After HTTP-date controls the retry delay", () => {
   const nowMs = Date.parse("2026-09-14T00:00:00.000Z");
-  const options = { now: () => nowMs } as DefaultRetryPolicyOptions & { now: () => number };
-  const policy = new DefaultRetryPolicy(options);
+  const policy = new DefaultRetryPolicy({ now: () => nowMs });
   const failure: RetryFailure = {
     kind: "response",
     status: 503,
@@ -32,4 +31,23 @@ test("Retry-After HTTP-date controls the retry delay", () => {
   };
 
   expect(policy.nextDelay(getRequest, 1, failure)).toBe(3_000);
+});
+
+test("fallback retry delay uses capped exponential backoff with jitter", () => {
+  const options = {
+    maxRetries: 2,
+    baseDelayMs: 100,
+    maxDelayMs: 1_000,
+    random: () => 0.5,
+  } as DefaultRetryPolicyOptions & {
+    baseDelayMs: number;
+    maxDelayMs: number;
+    random: () => number;
+  };
+  const policy = new DefaultRetryPolicy(options);
+  const failure: RetryFailure = { kind: "response", status: 503 };
+
+  expect(policy.nextDelay(getRequest, 1, failure)).toBe(50);
+  expect(policy.nextDelay(getRequest, 2, failure)).toBe(100);
+  expect(policy.nextDelay(getRequest, 3, failure)).toBeNull();
 });
