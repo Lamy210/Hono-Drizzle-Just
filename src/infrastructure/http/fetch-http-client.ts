@@ -15,6 +15,7 @@ export type FetchLike = (
 ) => ReturnType<typeof fetch>;
 
 export type SleepLike = (delayMs: number) => Promise<void>;
+export type MonotonicNow = () => number;
 
 export interface FetchHttpClientOptions {
   readonly baseUrl: string | URL;
@@ -23,6 +24,7 @@ export interface FetchHttpClientOptions {
   readonly defaultTimeoutMs?: number;
   readonly retryPolicy?: RetryPolicy;
   readonly sleep?: SleepLike;
+  readonly now?: MonotonicNow;
 }
 
 export class FetchHttpClient implements HttpClient {
@@ -31,6 +33,7 @@ export class FetchHttpClient implements HttpClient {
   private readonly defaultTimeoutMs: number;
   private readonly retryPolicy: RetryPolicy;
   private readonly sleep: SleepLike;
+  private readonly now: MonotonicNow;
   private readonly logger: Logger;
 
   constructor(options: FetchHttpClientOptions) {
@@ -39,6 +42,7 @@ export class FetchHttpClient implements HttpClient {
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 10_000;
     this.retryPolicy = options.retryPolicy ?? new DefaultRetryPolicy();
     this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
+    this.now = options.now ?? performance.now.bind(performance);
     this.logger = options.logger.child({ component: "http_client", upstreamHost: this.baseUrl.host });
   }
 
@@ -63,7 +67,8 @@ export class FetchHttpClient implements HttpClient {
       headers.set("content-type", "application/json");
     }
 
-    const startedAt = performance.now();
+    const startedAt = this.now();
+    const deadlineAt = startedAt + (request.timeoutMs ?? this.defaultTimeoutMs);
     let attempt = 0;
 
     while (true) {
@@ -81,7 +86,7 @@ export class FetchHttpClient implements HttpClient {
           status: response.status,
           headers: response.headers,
         });
-        if (retryDelay !== null) {
+        if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt)) {
           if (retryDelay > 0) {
             await this.sleep(retryDelay);
           }
@@ -127,14 +132,14 @@ export class FetchHttpClient implements HttpClient {
           method: request.method,
           path: url.pathname,
           statusCode: response.status,
-          durationMs: Number((performance.now() - startedAt).toFixed(2)),
+          durationMs: Number((this.now() - startedAt).toFixed(2)),
           traceId: request.context?.trace.traceId,
         });
         return { status: response.status, headers: response.headers, data };
       } catch (error) {
         if (!(error instanceof AppError)) {
           const retryDelay = this.retryPolicy.nextDelay(request, attempt, { kind: "network" });
-          if (retryDelay !== null) {
+          if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt)) {
             if (retryDelay > 0) {
               await this.sleep(retryDelay);
             }
@@ -162,6 +167,10 @@ export class FetchHttpClient implements HttpClient {
         );
       }
     }
+  }
+
+  private remainingMs(deadlineAt: number): number {
+    return Math.max(0, deadlineAt - this.now());
   }
 
   private resolveUrl(path: string): URL {
