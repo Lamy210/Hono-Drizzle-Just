@@ -2,10 +2,16 @@ import { expect, mock, test } from "bun:test";
 import { createApp } from "../../src/app/app";
 import type { HealthCheck } from "../../src/core/health/health-check";
 import { ReadinessChecker } from "../../src/core/health/readiness-checker";
+import type { TransactionManager } from "../../src/core/transaction/transaction-manager";
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
+import type { UserUnitOfWork } from "../../src/modules/users/application/user-unit-of-work";
 import type { UserRepository } from "../../src/modules/users/domain/user.repository";
+
+function transactions(repository: UserRepository): TransactionManager<UserUnitOfWork> {
+  return { run: async (operation) => operation({ users: repository }) };
+}
 
 function buildApp(healthCheck: HealthCheck) {
   const repository: UserRepository = {
@@ -21,7 +27,7 @@ function buildApp(healthCheck: HealthCheck) {
   return createApp({
     logger,
     readinessChecker: new ReadinessChecker([healthCheck]),
-    createUserService: new CreateUserService(repository, logger),
+    createUserService: new CreateUserService(transactions(repository), logger),
     getUserService: new GetUserService(repository),
   });
 }

@@ -6,13 +6,13 @@
 HTTP / Hono / Zod contracts
           |
           v
-Application services ---> core ports (Logger, HttpClient, health, lifecycle, tracing/context)
+Application services ---> core ports (Logger, HttpClient, TransactionManager, health, lifecycle, tracing/context)
           |
           v
 Domain repository ports
           ^
           |
-Infrastructure adapters (Drizzle/PostgreSQL, fetch, health probes, JSON logger)
+Infrastructure adapters (Drizzle/PostgreSQL, transactions, fetch, health probes, JSON logger)
 ```
 
 `core` contains stable application-owned abstractions and does not import Hono, Drizzle, Zod, or PostgreSQL. `contracts` owns API schemas. `infrastructure` implements adapters. `modules` are feature-first and keep domain/application code independent of HTTP.
@@ -22,6 +22,23 @@ Infrastructure adapters (Drizzle/PostgreSQL, fetch, health probes, JSON logger)
 Environment variables are read only at startup and parsed by `loadConfig()` into `AppConfig`. The composition root receives typed config and constructs infrastructure adapters. Feature code must not read `process.env` or `Bun.env` directly.
 
 This keeps configuration failures deterministic and makes composition testable without mutating process-global environment state.
+
+## Transactions and unit of work
+
+The application-owned transaction abstraction is generic:
+
+```text
+TransactionManager<TUnitOfWork>
+  run(operation: (unitOfWork: TUnitOfWork) => Promise<TResult>)
+```
+
+Each feature defines the narrow unit of work needed by its use cases. For the sample user module, `UserUnitOfWork` exposes a `UserRepository`; it contains no Drizzle types.
+
+`DrizzleTransactionManager` is an infrastructure adapter. It starts `db.transaction()`, passes the active transaction session to a composition-supplied factory, and invokes the application operation with the resulting unit of work. `DatabaseSession` is a structural subset shared by the root Drizzle database and a transaction session, so repository implementations do not need separate transactional variants.
+
+Returning from the operation commits. Throwing propagates the error and causes Drizzle/PostgreSQL to roll back the transaction. Nested savepoints, serialization/deadlock retries, and implicit AsyncLocalStorage transaction state are intentionally outside the default template.
+
+PostgreSQL constraints remain authoritative. Drizzle wraps driver errors in `DrizzleQueryError`, so repository adapters inspect the error `cause` chain when mapping stable PostgreSQL error codes such as `23505` into application errors.
 
 ## Cross-cutting context
 
@@ -63,7 +80,7 @@ The coordinator does not call `process.exit`; only the executable entry point co
 
 ## Testing
 
-Service tests mock the repository port and may spy on logging. Repository tests run against real PostgreSQL and seed rows through factories. API tests use Hono's in-process request API so they test routing and validation without opening a TCP port.
+Service tests mock the transaction manager/repository ports and may spy on logging. Repository tests run against real PostgreSQL and seed rows through factories. Transaction integration tests use real PostgreSQL to prove commit and rollback. API tests use Hono's in-process request API so they test routing and validation without opening a TCP port.
 
 Health tests explicitly verify that liveness remains successful during dependency failure and readiness returns a controlled 503. Lifecycle tests verify reverse shutdown order, idempotence, and forced connection termination after the deadline.
 

@@ -7,6 +7,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - Feature-first modules with explicit application/domain/infrastructure/presentation boundaries.
 - Repository integration tests use a real PostgreSQL database populated by factories.
 - Service unit tests use Bun's built-in `mock()` / `spyOn()` and never require a database.
+- Explicit transaction boundaries use an application-owned `TransactionManager` instead of leaking Drizzle transaction types into services.
 - Request and response contracts are defined with Zod and exposed through OpenAPI.
 - UUID input accepts upper/lowercase RFC UUIDs; application-facing canonical values are lowercase.
 - W3C `traceparent` propagation with separate request IDs, trace IDs, and span IDs.
@@ -68,6 +69,14 @@ Invalid configuration fails startup before database/service composition. Configu
 
 On `SIGINT` or `SIGTERM`, the server stops accepting new connections and waits for in-flight requests. If they exceed `SHUTDOWN_TIMEOUT_MS`, active connections are force-closed. Registered resources are then closed once in reverse registration order.
 
+## Transactions
+
+Application services that need atomic persistence depend on `TransactionManager<TUnitOfWork>`, not on Drizzle. A feature-owned unit-of-work interface lists only the repository ports that the use case can access. The production Drizzle adapter creates those repositories from the active transaction session.
+
+The sample user creation flow performs the duplicate lookup and insert in the same transaction. Returning from the operation commits; throwing rolls back the complete unit of work. PostgreSQL constraints remain authoritative under concurrency, and repository adapters translate known database errors after unwrapping Drizzle's error cause chain.
+
+Automatic transaction retries and implicit `AsyncLocalStorage` transactions are intentionally not enabled by default.
+
 ## Common commands
 
 ```bash
@@ -86,8 +95,9 @@ just db-reset
 | Layer | Database | Mock/spy | Purpose |
 | --- | --- | --- | --- |
 | Unit / domain | No | Only when useful | Pure behavior |
-| Service | No | Repository mock, collaborator spies | Use-case behavior |
-| Repository integration | Real PostgreSQL | No | Drizzle queries and constraints |
+| Service | No | Transaction manager/repository mocks, collaborator spies | Use-case behavior |
+| Repository integration | Real PostgreSQL | No | Drizzle queries, constraints, and error mapping |
+| Transaction integration | Real PostgreSQL | No | Commit/rollback semantics |
 | API | No by default | Repository behind real services | HTTP validation/contracts |
 
 Repository integration tests use `tests/factories` to insert actual rows. This intentionally avoids mocking Drizzle or PostgreSQL.

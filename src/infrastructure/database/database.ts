@@ -23,3 +23,4 @@ export function createDatabase(options: DatabaseOptions) {
 }
 
 export type Database = ReturnType<typeof createDatabase>["db"];
+export type DatabaseSession = Pick<Database, "select" | "insert" | "update" | "delete" | "execute">;
