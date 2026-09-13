@@ -17,32 +17,42 @@ export function createRequestContextMiddleware(
     const incomingRequestId = CanonicalUuidSchema.safeParse(c.req.header("x-request-id"));
     const requestId = incomingRequestId.success ? incomingRequestId.data : crypto.randomUUID().toLowerCase();
     const trace = createRequestTrace(c.req.header("traceparent") ?? null, c.req.header("tracestate"));
-    const authorization = c.req.header("authorization");
-    const cookie = c.req.header("cookie");
-    const principal = principalResolver
-      ? await principalResolver.resolve({
-          ...(authorization === undefined ? {} : { authorization }),
-          ...(cookie === undefined ? {} : { cookie }),
-        })
-      : undefined;
-    const requestContext: RequestContext = {
+    const baseRequestContext: RequestContext = {
       requestId,
       trace,
       startedAt: performance.now(),
-      ...(principal === undefined ? {} : { principal }),
     };
-    const logger = rootLogger.child({
+    const baseLogger = rootLogger.child({
       requestId,
       traceId: trace.traceId,
       spanId: trace.spanId,
-      ...(principal === undefined ? {} : { subject: principal.subject }),
-      ...(principal?.tenantId === undefined ? {} : { tenantId: principal.tenantId }),
     });
 
-    c.set("requestContext", requestContext);
-    c.set("logger", logger);
+    c.set("requestContext", baseRequestContext);
+    c.set("logger", baseLogger);
     c.header("x-request-id", requestId);
     c.header("traceparent", formatTraceParent(trace));
+
+    if (principalResolver) {
+      const authorization = c.req.header("authorization");
+      const cookie = c.req.header("cookie");
+      const principal = await principalResolver.resolve({
+        ...(authorization === undefined ? {} : { authorization }),
+        ...(cookie === undefined ? {} : { cookie }),
+      });
+
+      if (principal !== undefined) {
+        c.set("requestContext", { ...baseRequestContext, principal });
+        c.set(
+          "logger",
+          baseLogger.child({
+            subject: principal.subject,
+            ...(principal.tenantId === undefined ? {} : { tenantId: principal.tenantId }),
+          }),
+        );
+      }
+    }
+
     await next();
   });
 }
