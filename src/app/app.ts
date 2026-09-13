@@ -1,4 +1,5 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
+import type { PrincipalResolver } from "../core/auth/principal-resolver";
 import { AppError } from "../core/errors/app-error";
 import type { ReadinessChecker } from "../core/health/readiness-checker";
 import type { Logger } from "../core/logging/logger";
@@ -16,6 +17,7 @@ export interface AppDependencies {
   readonly readinessChecker: ReadinessChecker;
   readonly createUserService: CreateUserService;
   readonly getUserService: GetUserService;
+  readonly principalResolver?: PrincipalResolver;
 }
 
 export function createApp(dependencies: AppDependencies) {
@@ -36,7 +38,10 @@ export function createApp(dependencies: AppDependencies) {
     },
   });
 
-  app.use("*", createRequestContextMiddleware(dependencies.logger));
+  app.use(
+    "*",
+    createRequestContextMiddleware(dependencies.logger, dependencies.principalResolver),
+  );
   app.use("*", requestLoggerMiddleware);
   app.onError(createErrorHandler());
 
