@@ -1,6 +1,8 @@
 import { expect, mock, test } from "bun:test";
 import { Hono } from "hono";
 import type { PrincipalResolver } from "../../src/core/auth/principal-resolver";
+import { AppError } from "../../src/core/errors/app-error";
+import { createErrorHandler } from "../../src/http/error-handler";
 import type { AppEnv } from "../../src/http/env";
 import { createRequestContextMiddleware } from "../../src/http/middleware/request-context.middleware";
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
@@ -82,4 +84,33 @@ test("auth secrets are not copied into structured logs", async () => {
   expect(lines[0]).toContain("tenant-456");
   expect(lines[0]).not.toContain("super-secret-token");
   expect(lines[0]).not.toContain("super-secret-cookie");
+});
+
+test("principal resolver failures keep request correlation available to the error handler", async () => {
+  const lines: string[] = [];
+  const resolver: PrincipalResolver = {
+    resolve: mock(async () => {
+      throw new AppError("UNAUTHORIZED", "Invalid credentials", 401);
+    }),
+  };
+  const logger = new JsonConsoleLogger({ service: "test" }, (line) => lines.push(line));
+  const app = new Hono<AppEnv>();
+
+  app.use("*", createRequestContextMiddleware(logger, resolver));
+  app.onError(createErrorHandler());
+  app.get("/context", (c) => c.body(null, 204));
+
+  const response = await app.request("/context", {
+    headers: { authorization: "Bearer invalid-secret" },
+  });
+
+  expect(response.status).toBe(401);
+  const body = await response.json();
+  expect(body).toMatchObject({
+    error: { code: "UNAUTHORIZED", message: "Invalid credentials" },
+  });
+  expect(body.requestId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(body.traceId).toMatch(/^[0-9a-f]{32}$/);
+  expect(lines.some((line) => line.includes("http.request.error"))).toBe(true);
+  expect(lines.join("\n")).not.toContain("invalid-secret");
 });
