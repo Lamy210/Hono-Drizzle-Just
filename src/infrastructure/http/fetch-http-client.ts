@@ -72,10 +72,10 @@ export class FetchHttpClient implements HttpClient {
         });
 
         if (
-          this.retryPolicy.shouldRetry(request, attempt, {
+          this.retryPolicy.nextDelay(request, attempt, {
             kind: "response",
             status: response.status,
-          })
+          }) !== null
         ) {
           continue;
         }
@@ -126,7 +126,7 @@ export class FetchHttpClient implements HttpClient {
       } catch (error) {
         if (
           !(error instanceof AppError) &&
-          this.retryPolicy.shouldRetry(request, attempt, { kind: "network" })
+          this.retryPolicy.nextDelay(request, attempt, { kind: "network" }) !== null
         ) {
           continue;
         }
