@@ -71,7 +71,7 @@ export function createTelemetry(
     new OTLPMetricExporter({ url: signalUrl(options.endpoint, "metrics") });
   const tracerProvider = new TracerProvider({
     resource,
-    spanProcessors: [new BatchSpanProcessor(traceExporter)],
+    spanProcessors: [new BatchSpanProcessor({ exporter: traceExporter })],
   });
   const metricReader = new PeriodicExportingMetricReader({
     exporter: metricExporter,
