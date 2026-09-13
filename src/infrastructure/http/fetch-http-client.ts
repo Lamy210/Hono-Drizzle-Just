@@ -16,33 +16,42 @@ export type FetchLike = (
 
 export type SleepLike = (delayMs: number) => Promise<void>;
 export type MonotonicNow = () => number;
+export type TimeoutSignalFactory = (timeoutMs: number) => AbortSignal;
 
 export interface FetchHttpClientOptions {
   readonly baseUrl: string | URL;
   readonly logger: Logger;
   readonly fetchImpl?: FetchLike;
+  /** Total time budget across attempts and retry delays. */
   readonly defaultTimeoutMs?: number;
+  /** Maximum time budget for one fetch attempt. */
+  readonly defaultAttemptTimeoutMs?: number;
   readonly retryPolicy?: RetryPolicy;
   readonly sleep?: SleepLike;
   readonly now?: MonotonicNow;
+  readonly signalFactory?: TimeoutSignalFactory;
 }
 
 export class FetchHttpClient implements HttpClient {
   private readonly baseUrl: URL;
   private readonly fetchImpl: FetchLike;
   private readonly defaultTimeoutMs: number;
+  private readonly defaultAttemptTimeoutMs: number;
   private readonly retryPolicy: RetryPolicy;
   private readonly sleep: SleepLike;
   private readonly now: MonotonicNow;
+  private readonly signalFactory: TimeoutSignalFactory;
   private readonly logger: Logger;
 
   constructor(options: FetchHttpClientOptions) {
     this.baseUrl = new URL(options.baseUrl);
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 10_000;
+    this.defaultAttemptTimeoutMs = options.defaultAttemptTimeoutMs ?? 3_000;
     this.retryPolicy = options.retryPolicy ?? new DefaultRetryPolicy();
     this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
     this.now = options.now ?? performance.now.bind(performance);
+    this.signalFactory = options.signalFactory ?? ((timeoutMs) => AbortSignal.timeout(timeoutMs));
     this.logger = options.logger.child({ component: "http_client", upstreamHost: this.baseUrl.host });
   }
 
@@ -72,13 +81,28 @@ export class FetchHttpClient implements HttpClient {
     let attempt = 0;
 
     while (true) {
+      const remainingBeforeAttempt = this.remainingMs(deadlineAt);
+      if (remainingBeforeAttempt <= 0) {
+        throw this.timeoutError(url);
+      }
+
       attempt += 1;
+      const attemptTimeoutMs = Math.max(
+        1,
+        Math.ceil(
+          Math.min(
+            request.attemptTimeoutMs ?? this.defaultAttemptTimeoutMs,
+            remainingBeforeAttempt,
+          ),
+        ),
+      );
+
       try {
         const response = await this.fetchImpl(url, {
           method: request.method,
           headers,
           ...(body === undefined ? {} : { body }),
-          signal: AbortSignal.timeout(request.timeoutMs ?? this.defaultTimeoutMs),
+          signal: this.signalFactory(attemptTimeoutMs),
         });
 
         const retryDelay = this.retryPolicy.nextDelay(request, attempt, {
@@ -133,6 +157,7 @@ export class FetchHttpClient implements HttpClient {
           path: url.pathname,
           statusCode: response.status,
           durationMs: Number((this.now() - startedAt).toFixed(2)),
+          attempt,
           traceId: request.context?.trace.traceId,
         });
         return { status: response.status, headers: response.headers, data };
@@ -150,13 +175,7 @@ export class FetchHttpClient implements HttpClient {
           throw error;
         }
         if (error instanceof DOMException && error.name === "TimeoutError") {
-          throw new AppError(
-            "UPSTREAM_TIMEOUT",
-            "Upstream request timed out",
-            504,
-            { host: url.host },
-            { cause: error },
-          );
+          throw this.timeoutError(url, error);
         }
         throw new AppError(
           "UPSTREAM_REQUEST_FAILED",
@@ -167,6 +186,16 @@ export class FetchHttpClient implements HttpClient {
         );
       }
     }
+  }
+
+  private timeoutError(url: URL, cause?: unknown): AppError {
+    return new AppError(
+      "UPSTREAM_TIMEOUT",
+      "Upstream request timed out",
+      504,
+      { host: url.host },
+      cause === undefined ? undefined : { cause },
+    );
   }
 
   private remainingMs(deadlineAt: number): number {
