@@ -12,6 +12,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - UUID input accepts upper/lowercase RFC UUIDs; application-facing canonical values are lowercase.
 - W3C `traceparent` propagation with separate request IDs, trace IDs, and span IDs.
 - Provider-neutral `Principal` / `PrincipalResolver` authentication context without coupling services to Hono or a specific identity provider.
+- Vendor-neutral `Tracer` / `Meter` ports with optional OpenTelemetry trace and metrics export.
 - Structured JSON logging behind an application-owned `Logger` interface with secret redaction.
 - External HTTP access goes through an application-owned `HttpClient` abstraction and `FetchHttpClient` adapter.
 - Outbound HTTP retries are conservative, idempotency-aware, deadline-bounded, and trace-preserving.
@@ -52,7 +53,7 @@ Configuration is loaded once during startup. Application modules should not read
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `NODE_ENV` | `development` | Runtime environment |
-| `SERVICE_NAME` | `hono-drizzle-just` | Structured log service name |
+| `SERVICE_NAME` | `hono-drizzle-just` | Structured log and telemetry service name |
 | `PORT` | `3000` | HTTP listen port |
 | `DATABASE_URL` | required | PostgreSQL connection URL |
 | `DATABASE_POOL_MAX` | `10` | Maximum PostgreSQL pool size |
@@ -62,8 +63,11 @@ Configuration is loaded once during startup. Application modules should not read
 | `HTTP_DEFAULT_ATTEMPT_TIMEOUT_MS` | `3000` | Maximum duration of one outbound fetch attempt |
 | `HEALTH_CHECK_TIMEOUT_MS` | `1500` | Critical dependency readiness deadline |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | Grace period for in-flight HTTP requests |
+| `OTEL_ENABLED` | `false` | Enable OpenTelemetry trace/metrics SDK and exporters |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | Base OTLP/HTTP collector endpoint; `/v1/traces` and `/v1/metrics` are appended |
+| `OTEL_METRIC_EXPORT_INTERVAL_MS` | `60000` | Periodic metrics export interval |
 
-Invalid configuration fails startup before database/service composition. Configuration errors list variable names and validation reasons without echoing secret values.
+Invalid configuration fails startup before database/service composition. Configuration errors list variable names and validation reasons without echoing secret values. The OTLP endpoint accepts only HTTP(S) URLs without embedded credentials, query parameters, or fragments.
 
 ## Health and shutdown
 
@@ -71,7 +75,7 @@ Invalid configuration fails startup before database/service composition. Configu
 
 `/health/ready` checks critical dependencies. The default PostgreSQL check executes `select 1`; failures and timeouts return `503` with a sanitized per-check status.
 
-On `SIGINT` or `SIGTERM`, the server stops accepting new connections and waits for in-flight requests. If they exceed `SHUTDOWN_TIMEOUT_MS`, active connections are force-closed. Registered resources are then closed once in reverse registration order.
+On `SIGINT` or `SIGTERM`, the server stops accepting new connections and waits for in-flight requests. If they exceed `SHUTDOWN_TIMEOUT_MS`, active connections are force-closed. Registered resources are then closed once in reverse registration order. Production composition closes PostgreSQL before flushing/shutting down telemetry, so shutdown work can still be exported.
 
 ## Transactions
 
@@ -98,6 +102,18 @@ Factory infrastructure lives under `tests/factories` only. `TestFactory<T>` expo
 `makeUserFactory()` returns a build-only user factory, while `makeUserFactory(databaseSession)` persists through the supplied root or transactional Drizzle session. Each factory instance owns its own sequence state, UUIDs are generated with `crypto.randomUUID()`, and default emails include a random suffix to avoid collisions between factory instances.
 
 Relations stay explicit rather than being auto-created. Create the related record first, then pass its identifier as an override to the dependent factory. `createMany` preserves order but is not implicitly atomic; pass a transaction session when atomic fixture setup is required.
+
+## Observability
+
+Application code depends on the small `Tracer` and `Meter` ports under `core/observability`, not on OpenTelemetry SDK types. `NoopTracer` and `NoopMeter` are the default behavior when `OTEL_ENABLED=false`; disabled telemetry does not construct exporters or make collector requests.
+
+When enabled, the infrastructure runtime uses OpenTelemetry traces and metrics with an `AsyncLocalStorage` context manager. The runtime exports OTLP/HTTP traces to `<endpoint>/v1/traces` and metrics to `<endpoint>/v1/metrics`, attaches `service.name` and `deployment.environment.name` resource attributes, and flushes both providers during graceful shutdown. The enabled runtime, parent/child propagation, metrics export, shutdown, and same-process reinitialization are exercised by the Bun CI test suite.
+
+Inbound requests create one `http.server.request` server span. A valid remote W3C parent is preserved while a new local span ID becomes the `RequestContext.trace` identity, structured-log correlation identity, and outgoing `traceparent`. Server metrics use the registered Hono route pattern (for example `/users/:id`) rather than the raw URL, avoiding UUID/user-input cardinality.
+
+`FetchHttpClient` creates one `http.client.request` client span per logical outbound request, not per retry attempt. The child span context is propagated consistently across every retry. Client metrics use method, upstream host, outcome, and optional status code; raw request paths are deliberately excluded from labels.
+
+The built-in JSON logger remains the logging path. Trace and span IDs correlate those logs with telemetry without making the application logger depend on the OpenTelemetry Logs SDK.
 
 ## Outbound HTTP policy
 
@@ -159,7 +175,7 @@ Authentication and authorization remain separate concerns. This template does no
 
 ## Request correlation and tracing
 
-Every request receives an `x-request-id`. A valid incoming UUID request ID is accepted and normalized to lowercase; otherwise the server creates one. W3C `traceparent` is accepted only in its lowercase wire format and a new local span ID is generated for the request. The active `traceId` is attached to structured logs and common error responses.
+Every request receives an `x-request-id`. A valid incoming UUID request ID is accepted and normalized to lowercase; otherwise the server creates one. W3C `traceparent` is accepted only in its lowercase wire format. With OpenTelemetry enabled, the server span's trace/span IDs become the canonical request trace context; with telemetry disabled, the built-in W3C trace-context adapter preserves the same correlation behavior. The active `traceId` is attached to structured logs and common error responses.
 
 ## UUID policy
 
