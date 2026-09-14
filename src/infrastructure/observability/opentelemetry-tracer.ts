@@ -99,7 +99,9 @@ export class OpenTelemetryTracer implements Tracer {
         try {
           return await operation(span);
         } catch (error) {
-          span.recordException(error);
+          if (options.recordException !== false) {
+            span.recordException(error);
+          }
           span.setStatus("error");
           throw error;
         } finally {
