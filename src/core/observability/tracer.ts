@@ -18,6 +18,8 @@ export interface SpanOptions {
   readonly attributes?: TelemetryAttributes;
   readonly parent?: TraceContext;
   readonly parentIsRemote?: boolean;
+  /** Disable automatic exception events when the error may contain sensitive payloads. */
+  readonly recordException?: boolean;
 }
 
 export interface Tracer {
