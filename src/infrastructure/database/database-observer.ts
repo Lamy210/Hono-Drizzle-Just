@@ -59,4 +59,24 @@ export class DatabaseObserver {
       },
     );
   }
+
+  async transaction<TResult>(execute: () => Promise<TResult>): Promise<TResult> {
+    const startedAt = this.now();
+    const attributes = { "db.system.name": "postgresql" } as const;
+
+    return this.options.tracer.withSpan(
+      "db.transaction",
+      { kind: "internal", attributes },
+      async (span) => {
+        const result = await execute();
+        span.setStatus("ok");
+        this.options.meter.record(
+          "db.transaction.duration",
+          Math.max(0, this.now() - startedAt) / 1_000,
+          attributes,
+        );
+        return result;
+      },
+    );
+  }
 }
