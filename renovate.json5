@@ -14,7 +14,6 @@
       "matchManagers": ["bun"],
       "matchUpdateTypes": ["patch"],
       "matchPackageNames": [
-        "*",
         "!/^@opentelemetry\\//",
         "!drizzle-orm",
         "!drizzle-kit"
