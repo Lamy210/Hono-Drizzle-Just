@@ -99,3 +99,38 @@ test("findByEmail records SELECT users without email cardinality", async () => {
   });
   expect(JSON.stringify(tracer.spans[0]?.options.attributes)).not.toContain(email);
 });
+
+test("create records INSERT users without input cardinality", async () => {
+  const email = `insert-observed-${crypto.randomUUID()}@example.com`;
+
+  const created = await repository.create({ email, name: "Observed" });
+
+  expect(created.email).toBe(email);
+  expect(tracer.spans).toHaveLength(1);
+  expect(tracer.spans[0]?.name).toBe("INSERT users");
+  expect(tracer.spans[0]?.options.attributes).toEqual({
+    "db.system.name": "postgresql",
+    "db.operation.name": "INSERT",
+    "db.collection.name": "users",
+  });
+  expect(JSON.stringify(tracer.spans[0]?.options.attributes)).not.toContain(email);
+  expect(JSON.stringify(tracer.spans[0]?.options.attributes)).not.toContain("Observed");
+});
+
+test("duplicate create keeps conflict mapping and marks the database span as an error", async () => {
+  const email = `duplicate-observed-${crypto.randomUUID()}@example.com`;
+  await repository.create({ email, name: "First" });
+  tracer.spans.length = 0;
+  meter.records.length = 0;
+
+  await expect(repository.create({ email, name: "Duplicate" })).rejects.toMatchObject({
+    code: "CONFLICT",
+    status: 409,
+  });
+
+  expect(tracer.spans).toHaveLength(1);
+  expect(tracer.spans[0]?.name).toBe("INSERT users");
+  expect(tracer.spans[0]?.span.status).toBe("error");
+  expect(meter.records).toHaveLength(1);
+  expect(JSON.stringify(tracer.spans[0]?.options.attributes)).not.toContain(email);
+});
