@@ -74,7 +74,17 @@ Inbound HTTP instrumentation creates one server span for the logical request. A 
 
 Outbound `FetchHttpClient` instrumentation creates one client span for the complete logical request, including retries. All attempts reuse that child trace context and the same request ID. Client metric attributes are limited to method, configured upstream host, outcome, and optional status code; raw request paths are not metric labels.
 
-The JSON logger remains an application-owned logging path. OpenTelemetry Logs are not required by the template; trace/span IDs provide correlation between structured logs and exported traces. Database tracing/metrics are intentionally a separate adapter concern rather than leaking Drizzle/PostgreSQL details into the core observability ports.
+Database instrumentation is explicit rather than hidden in Drizzle or `pg` global auto-instrumentation. `DatabaseObserver` lives in infrastructure and depends only on the application-owned `Tracer` / `Meter` ports. Repository adapters wrap the actual awaited query execution, so the measured duration covers the database operation rather than unrelated request/service work.
+
+Database query attributes are deliberately bounded to semantic operation metadata: `db.system.name=postgresql`, `db.operation.name`, and a known `db.collection.name` where available. SQL statements, bind values, UUIDs, email addresses, names, and other request/domain values are excluded to avoid secret/PII leakage and unbounded cardinality. Query duration is recorded as `db.client.operation.duration` in seconds.
+
+Transactions are a separate boundary. `DrizzleTransactionManager` optionally wraps its complete transaction callback with `DatabaseObserver.transaction()`, producing a `db.transaction` span and `db.transaction.duration`. Repository operations executed through the transaction session use the same observer, so with OpenTelemetry enabled they become child database-operation spans. Commit marks the transaction span `ok`; rollback/error marks it `error`, records duration in a `finally` path, and rethrows the original error.
+
+`createDatabaseAccess()` is the production composition helper that gives the root repository, transaction manager, and transaction-scoped repositories the same `DatabaseObserver`. This avoids accidentally losing query instrumentation when code crosses from root database access into a transaction.
+
+PostgreSQL pool-state measurements (`totalCount`, `idleCount`, `waitingCount`) are intentionally deferred. Those are instantaneous values and require observable gauge semantics; the current `Meter` contract only exposes counters and histograms, so the template does not misrepresent pool state using an inappropriate metric type.
+
+The JSON logger remains an application-owned logging path. OpenTelemetry Logs are not required by the template; trace/span IDs provide correlation between structured logs and exported traces.
 
 ## Authentication boundary
 
@@ -147,7 +157,7 @@ Health tests explicitly verify that liveness remains successful during dependenc
 
 Authentication-context API tests verify anonymous requests, credential delivery to the resolver, normalized principal propagation, secret-free structured logging, application composition wiring, and correlation-preserving resolver failures.
 
-Observability tests verify Noop behavior, OpenTelemetry adapter mapping, Bun `AsyncLocalStorage` parent/child propagation, in-memory span export, metrics export, inbound route-cardinality control, outbound retry correlation, graceful shutdown, and same-process telemetry reinitialization.
+Observability tests verify Noop behavior, OpenTelemetry adapter mapping, Bun `AsyncLocalStorage` parent/child propagation, in-memory span export, metrics export, inbound route-cardinality control, outbound retry correlation, database operation/transaction measurement, graceful shutdown, and same-process telemetry reinitialization. Database observability integration tests run against real PostgreSQL and assert that identifiers/domain values are not copied into telemetry attributes.
 
 ## External HTTP
 

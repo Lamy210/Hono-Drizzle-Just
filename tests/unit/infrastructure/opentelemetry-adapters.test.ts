@@ -106,6 +106,25 @@ test("OpenTelemetryTracer records and rethrows operation failures", async () => 
   expect(otel.end).toHaveBeenCalledTimes(1);
 });
 
+test("OpenTelemetryTracer can suppress exception events at sensitive boundaries", async () => {
+  const otel = makeSpan();
+  const apiTracer = {
+    startActiveSpan: ((_name: string, _options: unknown, _parentContext: unknown, operation: (span: ApiSpan) => unknown) => operation(otel.span)) as ApiTracer["startActiveSpan"],
+  } as ApiTracer;
+  const tracer = new OpenTelemetryTracer(apiTracer);
+  const failure = new Error("contains-sensitive-database-details");
+
+  await expect(
+    tracer.withSpan("sensitive.failure", { recordException: false }, async () => {
+      throw failure;
+    }),
+  ).rejects.toBe(failure);
+
+  expect(otel.recordException).not.toHaveBeenCalled();
+  expect(otel.setStatus).toHaveBeenCalledWith({ code: SpanStatusCode.ERROR });
+  expect(otel.end).toHaveBeenCalledTimes(1);
+});
+
 test("OpenTelemetryMeter caches instruments and forwards measurements", () => {
   const counter = { add: mock(() => undefined) };
   const histogram = { record: mock(() => undefined) };

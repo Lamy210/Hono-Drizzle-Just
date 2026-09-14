@@ -113,6 +113,12 @@ Inbound requests create one `http.server.request` server span. A valid remote W3
 
 `FetchHttpClient` creates one `http.client.request` client span per logical outbound request, not per retry attempt. The child span context is propagated consistently across every retry. Client metrics use method, upstream host, outcome, and optional status code; raw request paths are deliberately excluded from labels.
 
+Database repositories use an explicit `DatabaseObserver` around actual Drizzle query execution. Query spans and `db.client.operation.duration` use only low-cardinality attributes such as `db.system.name=postgresql`, `db.operation.name`, and a known collection/table name. SQL text, bind parameters, UUIDs, email addresses, names, and other request data are deliberately excluded from trace and metric attributes.
+
+Transaction boundaries are measured separately as `db.transaction` spans and `db.transaction.duration`. The transaction measurement covers the complete Drizzle transaction callback, while individual repository queries remain child operations when OpenTelemetry context propagation is enabled. Commit sets the transaction span to `ok`; rollback/error sets it to `error` while preserving the original application/database exception.
+
+PostgreSQL pool size/idle/waiting metrics are intentionally not represented yet. The current application-owned `Meter` exposes counters and histograms only; pool state requires observable gauge semantics and will be added only when that contract is introduced rather than approximated with the wrong metric type.
+
 The built-in JSON logger remains the logging path. Trace and span IDs correlate those logs with telemetry without making the application logger depend on the OpenTelemetry Logs SDK.
 
 ## Outbound HTTP policy
