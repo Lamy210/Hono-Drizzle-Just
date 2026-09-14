@@ -43,8 +43,14 @@ export class DrizzleUserRepository implements UserRepository {
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    const [row] = await this.db.select().from(users).where(eq(users.email, email)).limit(1);
-    return row ?? null;
+    const execute = async (): Promise<User | null> => {
+      const [row] = await this.db.select().from(users).where(eq(users.email, email)).limit(1);
+      return row ?? null;
+    };
+
+    return this.observer
+      ? this.observer.operation({ operation: "SELECT", collection: "users" }, execute)
+      : execute();
   }
 
   async create(input: CreateUserInput): Promise<User> {
