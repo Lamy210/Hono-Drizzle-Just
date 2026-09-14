@@ -8,6 +8,19 @@ permissions:
   contents: read
 
 jobs:
+  lockfile-bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --lockfile-only
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bun-lock-bootstrap
+          path: bun.lock
+
   quality:
     runs-on: ubuntu-latest
     steps:
