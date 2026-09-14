@@ -41,6 +41,10 @@ just dev
 
 `bun.lock` is committed source-of-truth for the resolved dependency graph. Local development may use `bun install`; when a dependency is added, removed, or updated, commit the resulting `package.json` and `bun.lock` changes together in the same pull request.
 
+`.bun-version` is the repository's exact Bun toolchain target and CI reads it directly. `package.json` keeps `engines.bun` as the compatibility floor for consumers, while CI verifies the installed Bun version exactly matches `.bun-version` before dependency installation.
+
+GitHub Actions are executed from full immutable commit SHAs. The trailing major-version comments such as `# v7` and `# v2` are for human readability only; changing an Action version requires reviewing and committing the new SHA explicitly.
+
 CI first requires the lockfile to exist and then installs with `bun ci`, so dependency metadata that is not reflected in `bun.lock` fails before lint, typecheck, tests, or migrations run. Do not delete or regenerate the lockfile opportunistically in unrelated changes.
 
 The service listens on `http://localhost:3000` by default.
