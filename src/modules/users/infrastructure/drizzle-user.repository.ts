@@ -54,12 +54,18 @@ export class DrizzleUserRepository implements UserRepository {
   }
 
   async create(input: CreateUserInput): Promise<User> {
-    try {
+    const execute = async (): Promise<User> => {
       const [row] = await this.db.insert(users).values(input).returning();
       if (!row) {
         throw new Error("Insert returned no user");
       }
       return row;
+    };
+
+    try {
+      return this.observer
+        ? await this.observer.operation({ operation: "INSERT", collection: "users" }, execute)
+        : await execute();
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new AppError("CONFLICT", "A user with this email already exists", 409, undefined, {
