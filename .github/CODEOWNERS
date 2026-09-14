@@ -1,0 +1,11 @@
+# Default ownership
+* @Lamy210
+
+# Repository governance and automation
+/.github/ @Lamy210
+/renovate.json5 @Lamy210
+
+# Architecture and operational policy
+/docs/ @Lamy210
+/SECURITY.md @Lamy210
+/CONTRIBUTING.md @Lamy210
