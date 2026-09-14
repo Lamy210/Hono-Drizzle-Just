@@ -97,3 +97,31 @@ test("DatabaseObserver records a low-cardinality successful database operation",
     },
   ]);
 });
+
+test("DatabaseObserver records successful transaction duration separately from query metrics", async () => {
+  const tracer = new RecordingTracer();
+  const meter = new RecordingMeter();
+  let now = 2_000;
+  const observer = new DatabaseObserver({ tracer, meter, now: () => now });
+
+  const result = await observer.transaction(async () => {
+    now = 2_400;
+    return "committed";
+  });
+
+  expect(result).toBe("committed");
+  expect(tracer.spans).toHaveLength(1);
+  expect(tracer.spans[0]?.name).toBe("db.transaction");
+  expect(tracer.spans[0]?.options).toEqual({
+    kind: "internal",
+    attributes: { "db.system.name": "postgresql" },
+  });
+  expect(tracer.spans[0]?.span.status).toBe("ok");
+  expect(meter.records).toEqual([
+    {
+      name: "db.transaction.duration",
+      value: 0.4,
+      attributes: { "db.system.name": "postgresql" },
+    },
+  ]);
+});
