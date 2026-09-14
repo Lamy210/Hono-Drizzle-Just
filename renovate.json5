@@ -1,0 +1,46 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    ":maintainLockFilesWeekly"
+  ],
+  "enabledManagers": ["bun", "bun-version", "github-actions"],
+  "dependencyDashboard": true,
+  "automerge": false,
+  "packageRules": [
+    {
+      "description": "Group routine Bun package patch updates",
+      "matchManagers": ["bun"],
+      "matchUpdateTypes": ["patch"],
+      "matchPackageNames": [
+        "*",
+        "!/^@opentelemetry\\//",
+        "!drizzle-orm",
+        "!drizzle-kit"
+      ],
+      "groupName": "patch dependencies",
+      "groupSlug": "patch-dependencies"
+    },
+    {
+      "description": "Keep OpenTelemetry packages compatible",
+      "matchManagers": ["bun"],
+      "matchPackageNames": ["/^@opentelemetry\\//"],
+      "groupName": "OpenTelemetry packages",
+      "groupSlug": "opentelemetry"
+    },
+    {
+      "description": "Keep Drizzle ORM and migration tooling aligned",
+      "matchManagers": ["bun"],
+      "matchPackageNames": ["drizzle-orm", "drizzle-kit"],
+      "groupName": "Drizzle packages",
+      "groupSlug": "drizzle"
+    },
+    {
+      "description": "Keep Bun runtime updates separate from package updates",
+      "matchManagers": ["bun-version"],
+      "groupName": "Bun runtime",
+      "groupSlug": "bun-runtime"
+    }
+  ]
+}
