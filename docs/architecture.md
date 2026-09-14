@@ -29,6 +29,10 @@ OpenTelemetry is opt-in. `OTEL_ENABLED=false` composes the application-owned Noo
 
 `package.json` declares the intended direct dependency versions, while committed `bun.lock` is the resolved dependency graph used by automation. Dependency changes must update both artifacts together so reviewers can inspect the requested version change and the resulting transitive graph in one pull request.
 
+`.bun-version` is the exact repository toolchain target used by CI, while `package.json#engines.bun` remains the consumer compatibility floor. The workflow reads `.bun-version` through `setup-bun` and then verifies `bun --version` exactly matches it before installing dependencies.
+
+Third-party GitHub Actions are referenced by full commit SHA to make workflow execution immutable. A trailing major-version comment documents the human-readable release line, but updating an Action requires an explicit reviewed SHA change rather than following a mutable tag automatically.
+
 CI treats the lockfile as required input rather than generated output. Both quality and integration jobs verify `bun.lock` exists and then use `bun ci`; linting, type checking, tests, migrations, and database integration therefore run against the committed dependency resolution. Local development may use `bun install` to update the lockfile intentionally.
 
 ## Database schema and migrations
