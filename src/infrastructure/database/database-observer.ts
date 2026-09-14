@@ -68,14 +68,20 @@ export class DatabaseObserver {
       "db.transaction",
       { kind: "internal", attributes },
       async (span) => {
-        const result = await execute();
-        span.setStatus("ok");
-        this.options.meter.record(
-          "db.transaction.duration",
-          Math.max(0, this.now() - startedAt) / 1_000,
-          attributes,
-        );
-        return result;
+        try {
+          const result = await execute();
+          span.setStatus("ok");
+          return result;
+        } catch (error) {
+          span.setStatus("error");
+          throw error;
+        } finally {
+          this.options.meter.record(
+            "db.transaction.duration",
+            Math.max(0, this.now() - startedAt) / 1_000,
+            attributes,
+          );
+        }
       },
     );
   }
