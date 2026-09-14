@@ -37,6 +37,12 @@ just db-migrate
 just dev
 ```
 
+## Dependency reproducibility
+
+`bun.lock` is committed source-of-truth for the resolved dependency graph. Local development may use `bun install`; when a dependency is added, removed, or updated, commit the resulting `package.json` and `bun.lock` changes together in the same pull request.
+
+CI first requires the lockfile to exist and then installs with `bun ci`, so dependency metadata that is not reflected in `bun.lock` fails before lint, typecheck, tests, or migrations run. Do not delete or regenerate the lockfile opportunistically in unrelated changes.
+
 The service listens on `http://localhost:3000` by default.
 
 - `GET /health` — compatibility liveness endpoint
