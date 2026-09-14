@@ -40,7 +40,7 @@ export class DatabaseObserver {
 
     return this.options.tracer.withSpan(
       spanName,
-      { kind: "client", attributes },
+      { kind: "client", attributes, recordException: false },
       async (span) => {
         try {
           const result = await execute();
@@ -66,7 +66,7 @@ export class DatabaseObserver {
 
     return this.options.tracer.withSpan(
       "db.transaction",
-      { kind: "internal", attributes },
+      { kind: "internal", attributes, recordException: false },
       async (span) => {
         try {
           const result = await execute();
