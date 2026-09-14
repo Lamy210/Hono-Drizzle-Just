@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { AppError } from "../../../core/errors/app-error";
 import { users } from "../../../db/schema";
 import type { DatabaseSession } from "../../../infrastructure/database/database";
+import type { DatabaseObserver } from "../../../infrastructure/database/database-observer";
 import type { CreateUserInput, User } from "../domain/user";
 import type { UserRepository } from "../domain/user.repository";
 
@@ -25,11 +26,20 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 export class DrizzleUserRepository implements UserRepository {
-  constructor(private readonly db: DatabaseSession) {}
+  constructor(
+    private readonly db: DatabaseSession,
+    private readonly observer?: DatabaseObserver,
+  ) {}
 
   async findById(id: string): Promise<User | null> {
-    const [row] = await this.db.select().from(users).where(eq(users.id, id)).limit(1);
-    return row ?? null;
+    const execute = async (): Promise<User | null> => {
+      const [row] = await this.db.select().from(users).where(eq(users.id, id)).limit(1);
+      return row ?? null;
+    };
+
+    return this.observer
+      ? this.observer.operation({ operation: "SELECT", collection: "users" }, execute)
+      : execute();
   }
 
   async findByEmail(email: string): Promise<User | null> {
