@@ -15,7 +15,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
-      - run: bun install
+      - run: test -f bun.lock
+      - run: bun ci
       - run: bun run db:migrations:verify
       - run: bun run lint
       - run: bun run typecheck
@@ -44,6 +45,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
-      - run: bun install
+      - run: test -f bun.lock
+      - run: bun ci
       - run: bun run db:migrate
       - run: bun run test:integration
