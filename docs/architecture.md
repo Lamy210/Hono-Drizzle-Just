@@ -25,6 +25,12 @@ This keeps configuration failures deterministic and makes composition testable w
 
 OpenTelemetry is opt-in. `OTEL_ENABLED=false` composes the application-owned Noop tracer and meter without constructing exporters. When enabled, the composition root creates one telemetry runtime for the process and registers its shutdown callback with the application lifecycle.
 
+## Dependency reproducibility
+
+`package.json` declares the intended direct dependency versions, while committed `bun.lock` is the resolved dependency graph used by automation. Dependency changes must update both artifacts together so reviewers can inspect the requested version change and the resulting transitive graph in one pull request.
+
+CI treats the lockfile as required input rather than generated output. Both quality and integration jobs verify `bun.lock` exists and then use `bun ci`; linting, type checking, tests, migrations, and database integration therefore run against the committed dependency resolution. Local development may use `bun install` to update the lockfile intentionally.
+
 ## Database schema and migrations
 
 `src/db/schema` is the code-first authoring model. `drizzle/` is the committed deployment history: SQL migrations, the migration journal, and snapshots travel together in source control.
