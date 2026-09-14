@@ -1,11 +1,17 @@
+import type { TraceContext } from "../../core/tracing/trace-context";
 import { AppError } from "../../core/errors/app-error";
 import type {
   HttpClient,
+  HttpMethod,
   HttpRequest,
   HttpResponse,
   SchemaParser,
 } from "../../core/http/http-client";
 import type { Logger } from "../../core/logging/logger";
+import type { Meter } from "../../core/observability/meter";
+import { NoopMeter } from "../../core/observability/noop-meter";
+import { NoopTracer } from "../../core/observability/noop-tracer";
+import type { Tracer } from "../../core/observability/tracer";
 import { DefaultRetryPolicy, type RetryPolicy } from "./retry-policy";
 import { formatTraceParent } from "../tracing/w3c-trace-context";
 
@@ -30,6 +36,8 @@ export interface FetchHttpClientOptions {
   readonly sleep?: SleepLike;
   readonly now?: MonotonicNow;
   readonly signalFactory?: TimeoutSignalFactory;
+  readonly tracer?: Tracer;
+  readonly meter?: Meter;
 }
 
 export class FetchHttpClient implements HttpClient {
@@ -42,6 +50,8 @@ export class FetchHttpClient implements HttpClient {
   private readonly now: MonotonicNow;
   private readonly signalFactory: TimeoutSignalFactory;
   private readonly logger: Logger;
+  private readonly tracer: Tracer;
+  private readonly meter: Meter;
 
   constructor(options: FetchHttpClientOptions) {
     this.baseUrl = new URL(options.baseUrl);
@@ -53,6 +63,8 @@ export class FetchHttpClient implements HttpClient {
     this.now = options.now ?? performance.now.bind(performance);
     this.signalFactory = options.signalFactory ?? ((timeoutMs) => AbortSignal.timeout(timeoutMs));
     this.logger = options.logger.child({ component: "http_client", upstreamHost: this.baseUrl.host });
+    this.tracer = options.tracer ?? new NoopTracer();
+    this.meter = options.meter ?? new NoopMeter();
   }
 
   async request<TResponse>(
@@ -60,14 +72,64 @@ export class FetchHttpClient implements HttpClient {
     responseSchema: SchemaParser<TResponse>,
   ): Promise<HttpResponse<TResponse>> {
     const url = this.resolveUrl(request.path);
+    const startedAt = this.now();
+
+    return this.tracer.withSpan(
+      "http.client.request",
+      {
+        kind: "client",
+        attributes: {
+          "http.request.method": request.method,
+          "server.address": url.hostname,
+          ...(url.port === "" ? {} : { "server.port": Number(url.port) }),
+        },
+        ...(request.context === undefined
+          ? {}
+          : { parent: request.context.trace, parentIsRemote: false }),
+      },
+      async (span) => {
+        const trace = span.traceContext() ?? request.context?.trace;
+        try {
+          const response = await this.executeRequest(
+            request,
+            responseSchema,
+            url,
+            trace,
+            startedAt,
+          );
+          span.setAttribute("http.response.status_code", response.status);
+          this.recordClientMetrics(request.method, url.host, "success", startedAt, response.status);
+          return response;
+        } catch (error) {
+          const statusCode = this.statusFromError(error);
+          if (statusCode !== undefined) {
+            span.setAttribute("http.response.status_code", statusCode);
+          }
+          span.setStatus("error");
+          this.recordClientMetrics(request.method, url.host, "error", startedAt, statusCode);
+          throw error;
+        }
+      },
+    );
+  }
+
+  private async executeRequest<TResponse>(
+    request: HttpRequest,
+    responseSchema: SchemaParser<TResponse>,
+    url: URL,
+    trace: TraceContext | undefined,
+    startedAt: number,
+  ): Promise<HttpResponse<TResponse>> {
     const headers = new Headers(request.headers);
     headers.set("accept", "application/json");
 
     if (request.context) {
       headers.set("x-request-id", request.context.requestId);
-      headers.set("traceparent", formatTraceParent(request.context.trace));
-      if (request.context.trace.traceState) {
-        headers.set("tracestate", request.context.trace.traceState);
+    }
+    if (trace) {
+      headers.set("traceparent", formatTraceParent(trace));
+      if (trace.traceState) {
+        headers.set("tracestate", trace.traceState);
       }
     }
 
@@ -76,7 +138,6 @@ export class FetchHttpClient implements HttpClient {
       headers.set("content-type", "application/json");
     }
 
-    const startedAt = this.now();
     const deadlineAt = startedAt + (request.timeoutMs ?? this.defaultTimeoutMs);
     let attempt = 0;
 
@@ -119,7 +180,7 @@ export class FetchHttpClient implements HttpClient {
             nextAttempt: attempt + 1,
             delayMs: retryDelay,
             reason: "status",
-            traceId: request.context?.trace.traceId,
+            traceId: trace?.traceId,
           });
           if (retryDelay > 0) {
             await this.sleep(retryDelay);
@@ -168,7 +229,7 @@ export class FetchHttpClient implements HttpClient {
           statusCode: response.status,
           durationMs: Number((this.now() - startedAt).toFixed(2)),
           attempt,
-          traceId: request.context?.trace.traceId,
+          traceId: trace?.traceId,
         });
         return { status: response.status, headers: response.headers, data };
       } catch (error) {
@@ -185,7 +246,7 @@ export class FetchHttpClient implements HttpClient {
                 error instanceof DOMException && error.name === "TimeoutError"
                   ? "timeout"
                   : "network",
-              traceId: request.context?.trace.traceId,
+              traceId: trace?.traceId,
             });
             if (retryDelay > 0) {
               await this.sleep(retryDelay);
@@ -208,6 +269,35 @@ export class FetchHttpClient implements HttpClient {
         );
       }
     }
+  }
+
+  private recordClientMetrics(
+    method: HttpMethod,
+    upstream: string,
+    outcome: "success" | "error",
+    startedAt: number,
+    statusCode?: number,
+  ): void {
+    const attributes = {
+      method,
+      upstream,
+      outcome,
+      ...(statusCode === undefined ? {} : { status_code: statusCode }),
+    } as const;
+    this.meter.increment("http.client.requests", 1, attributes);
+    this.meter.record(
+      "http.client.duration",
+      Math.max(0, this.now() - startedAt) / 1_000,
+      attributes,
+    );
+  }
+
+  private statusFromError(error: unknown): number | undefined {
+    if (!(error instanceof AppError) || typeof error.details !== "object" || error.details === null) {
+      return undefined;
+    }
+    const status = "status" in error.details ? error.details.status : undefined;
+    return typeof status === "number" ? status : undefined;
   }
 
   private timeoutError(url: URL, cause?: unknown): AppError {

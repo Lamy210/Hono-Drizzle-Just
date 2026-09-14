@@ -6,22 +6,24 @@
 HTTP / Hono / Zod contracts
           |
           v
-Application services ---> core ports (Logger, HttpClient, TransactionManager, PrincipalResolver, health, lifecycle, tracing/context)
+Application services ---> core ports (Logger, HttpClient, TransactionManager, PrincipalResolver, Tracer, Meter, health, lifecycle, tracing/context)
           |
           v
 Domain repository ports
           ^
           |
-Infrastructure adapters (Drizzle/PostgreSQL, transactions, fetch, health probes, JSON logger, identity-provider adapters)
+Infrastructure adapters (Drizzle/PostgreSQL, transactions, fetch, health probes, JSON logger, OpenTelemetry, identity-provider adapters)
 ```
 
-`core` contains stable application-owned abstractions and does not import Hono, Drizzle, Zod, or PostgreSQL. `contracts` owns API schemas. `infrastructure` implements adapters. `modules` are feature-first and keep domain/application code independent of HTTP.
+`core` contains stable application-owned abstractions and does not import Hono, Drizzle, Zod, PostgreSQL, or OpenTelemetry SDK types. `contracts` owns API schemas. `infrastructure` implements adapters. `modules` are feature-first and keep domain/application code independent of HTTP.
 
 ## Composition and configuration
 
 Environment variables are read only at startup and parsed by `loadConfig()` into `AppConfig`. The composition root receives typed config and constructs infrastructure adapters. Feature code must not read `process.env` or `Bun.env` directly.
 
 This keeps configuration failures deterministic and makes composition testable without mutating process-global environment state. Outbound HTTP composition receives separate total-deadline and per-attempt timeout defaults so adding retries cannot silently multiply the caller's latency budget.
+
+OpenTelemetry is opt-in. `OTEL_ENABLED=false` composes the application-owned Noop tracer and meter without constructing exporters. When enabled, the composition root creates one telemetry runtime for the process and registers its shutdown callback with the application lifecycle.
 
 ## Database schema and migrations
 
@@ -61,6 +63,18 @@ PostgreSQL constraints remain authoritative. Drizzle wraps driver errors in `Dri
 `requestId` identifies one inbound API request. `traceId` follows the complete distributed trace. `spanId` identifies the local operation. Incoming W3C `traceparent` values retain the trace ID while the server creates a fresh local span ID.
 
 `RequestContext` also carries an optional normalized `Principal`. This keeps identity available to application services without exposing Hono request objects or identity-provider-specific session/JWT structures.
+
+## Observability boundary
+
+`core/observability` owns small `Tracer`, `Span`, and `Meter` contracts. Application code can create spans and measurements without importing `@opentelemetry/*`. Noop implementations preserve exactly the same application behavior when telemetry is disabled.
+
+The OpenTelemetry implementation lives entirely under `infrastructure/observability`. It composes a trace provider, metrics provider, OTLP/HTTP exporters, resource attributes, and an `AsyncLocalStorage` context manager. The context manager is process-global by OpenTelemetry API design, so an enabled production process must create one telemetry runtime at a time. Shutdown calls `context.disable()` after provider flush/shutdown so a later same-process initialization, such as a development/test restart, can register a fresh manager safely.
+
+Inbound HTTP instrumentation creates one server span for the logical request. A valid incoming W3C parent is represented as a remote parent; the local span identity becomes the canonical `RequestContext.trace`, structured-log correlation identity, and response `traceparent`. HTTP metrics label the registered Hono route pattern rather than raw URLs, so identifiers and arbitrary path input do not create unbounded cardinality.
+
+Outbound `FetchHttpClient` instrumentation creates one client span for the complete logical request, including retries. All attempts reuse that child trace context and the same request ID. Client metric attributes are limited to method, configured upstream host, outcome, and optional status code; raw request paths are not metric labels.
+
+The JSON logger remains an application-owned logging path. OpenTelemetry Logs are not required by the template; trace/span IDs provide correlation between structured logs and exported traces. Database tracing/metrics are intentionally a separate adapter concern rather than leaking Drizzle/PostgreSQL details into the core observability ports.
 
 ## Authentication boundary
 
@@ -115,7 +129,9 @@ A dependency outage can therefore remove the instance from traffic without causi
 1. Stop accepting new requests with `server.stop(false)`.
 2. Allow in-flight requests to complete up to the configured grace period.
 3. Force active connections closed with `server.stop(true)` if the deadline is exceeded.
-4. Close database and future application resources through `ApplicationLifecycle`.
+4. Close registered infrastructure resources through `ApplicationLifecycle`.
+
+Production composition registers telemetry before PostgreSQL. Reverse shutdown order therefore closes the database first and telemetry last, allowing shutdown-related telemetry to be flushed after other resources finish closing.
 
 The coordinator does not call `process.exit`; only the executable entry point controls process exit behavior.
 
@@ -130,6 +146,8 @@ Factory sequences are instance-local. Defaults generate valid UUIDs rather than 
 Health tests explicitly verify that liveness remains successful during dependency failure and readiness returns a controlled 503. Lifecycle tests verify reverse shutdown order, idempotence, and forced connection termination after the deadline.
 
 Authentication-context API tests verify anonymous requests, credential delivery to the resolver, normalized principal propagation, secret-free structured logging, application composition wiring, and correlation-preserving resolver failures.
+
+Observability tests verify Noop behavior, OpenTelemetry adapter mapping, Bun `AsyncLocalStorage` parent/child propagation, in-memory span export, metrics export, inbound route-cardinality control, outbound retry correlation, graceful shutdown, and same-process telemetry reinitialization.
 
 ## External HTTP
 

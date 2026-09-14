@@ -3,6 +3,8 @@ import type { PrincipalResolver } from "../core/auth/principal-resolver";
 import { AppError } from "../core/errors/app-error";
 import type { ReadinessChecker } from "../core/health/readiness-checker";
 import type { Logger } from "../core/logging/logger";
+import type { Meter } from "../core/observability/meter";
+import type { Tracer } from "../core/observability/tracer";
 import { createErrorHandler } from "../http/error-handler";
 import type { AppEnv } from "../http/env";
 import { registerHealthRoutes } from "../http/health/health.routes";
@@ -18,6 +20,8 @@ export interface AppDependencies {
   readonly createUserService: CreateUserService;
   readonly getUserService: GetUserService;
   readonly principalResolver?: PrincipalResolver;
+  readonly tracer?: Tracer;
+  readonly meter?: Meter;
 }
 
 export function createApp(dependencies: AppDependencies) {
@@ -40,7 +44,13 @@ export function createApp(dependencies: AppDependencies) {
 
   app.use(
     "*",
-    createRequestContextMiddleware(dependencies.logger, dependencies.principalResolver),
+    createRequestContextMiddleware(
+      dependencies.logger,
+      dependencies.principalResolver,
+      dependencies.tracer && dependencies.meter
+        ? { tracer: dependencies.tracer, meter: dependencies.meter }
+        : undefined,
+    ),
   );
   app.use("*", requestLoggerMiddleware);
   app.onError(createErrorHandler());

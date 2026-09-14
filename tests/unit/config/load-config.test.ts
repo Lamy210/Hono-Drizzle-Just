@@ -20,7 +20,38 @@ describe("loadConfig", () => {
       databaseConnectionTimeoutMs: 5_000,
       healthCheckTimeoutMs: 1_500,
       shutdownTimeoutMs: 10_000,
+      otelEnabled: false,
+      otelExporterOtlpEndpoint: "http://localhost:4318",
+      otelMetricExportIntervalMs: 60_000,
     });
+  });
+
+  test("parses explicit OpenTelemetry settings", () => {
+    const config = loadConfig({
+      ...required,
+      OTEL_ENABLED: "true",
+      OTEL_EXPORTER_OTLP_ENDPOINT: "https://collector.example.com/otel/",
+      OTEL_METRIC_EXPORT_INTERVAL_MS: "15000",
+    });
+
+    expect(config).toMatchObject({
+      otelEnabled: true,
+      otelExporterOtlpEndpoint: "https://collector.example.com/otel",
+      otelMetricExportIntervalMs: 15_000,
+    });
+  });
+
+  test("rejects malformed OpenTelemetry configuration", () => {
+    expect(() => loadConfig({ ...required, OTEL_ENABLED: "yes" })).toThrow(ConfigurationError);
+    expect(() =>
+      loadConfig({ ...required, OTEL_EXPORTER_OTLP_ENDPOINT: "ftp://collector.example.com" }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      loadConfig({
+        ...required,
+        OTEL_EXPORTER_OTLP_ENDPOINT: "https://user:secret@collector.example.com",
+      }),
+    ).toThrow(ConfigurationError);
   });
 
   test("rejects ports outside the TCP range", () => {

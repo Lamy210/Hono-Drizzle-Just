@@ -13,6 +13,18 @@ function integerEnv(defaultValue: number, min: number, max: number) {
   );
 }
 
+function booleanEnv(defaultValue: boolean) {
+  return z.preprocess(
+    (value) => {
+      if (value === undefined || value === "") {
+        return defaultValue ? "true" : "false";
+      }
+      return value;
+    },
+    z.enum(["true", "false"]).transform((value) => value === "true"),
+  );
+}
+
 function isPostgresUrl(value: string): boolean {
   try {
     const protocol = new URL(value).protocol;
@@ -20,6 +32,25 @@ function isPostgresUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isOtlpHttpEndpoint(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.username === "" &&
+      url.password === "" &&
+      url.search === "" &&
+      url.hash === ""
+    );
+  } catch {
+    return false;
+  }
+}
+
+function normalizeOtlpHttpEndpoint(value: string): string {
+  return value.replace(/\/+$/, "");
 }
 
 const RawConfigSchema = z.object({
@@ -36,6 +67,11 @@ const RawConfigSchema = z.object({
   DATABASE_CONNECTION_TIMEOUT_MS: integerEnv(5_000, 100, 120_000),
   HEALTH_CHECK_TIMEOUT_MS: integerEnv(1_500, 50, 30_000),
   SHUTDOWN_TIMEOUT_MS: integerEnv(10_000, 100, 120_000),
+  OTEL_ENABLED: booleanEnv(false),
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().default("http://localhost:4318").refine(isOtlpHttpEndpoint, {
+    message: "must be an HTTP(S) URL without credentials, query, or fragment",
+  }),
+  OTEL_METRIC_EXPORT_INTERVAL_MS: integerEnv(60_000, 1_000, 300_000),
 });
 
 export interface AppConfig {
@@ -50,6 +86,9 @@ export interface AppConfig {
   readonly databaseConnectionTimeoutMs: number;
   readonly healthCheckTimeoutMs: number;
   readonly shutdownTimeoutMs: number;
+  readonly otelEnabled: boolean;
+  readonly otelExporterOtlpEndpoint: string;
+  readonly otelMetricExportIntervalMs: number;
 }
 
 export const AppConfigSchema = RawConfigSchema.transform(
@@ -65,5 +104,8 @@ export const AppConfigSchema = RawConfigSchema.transform(
     databaseConnectionTimeoutMs: raw.DATABASE_CONNECTION_TIMEOUT_MS,
     healthCheckTimeoutMs: raw.HEALTH_CHECK_TIMEOUT_MS,
     shutdownTimeoutMs: raw.SHUTDOWN_TIMEOUT_MS,
+    otelEnabled: raw.OTEL_ENABLED,
+    otelExporterOtlpEndpoint: normalizeOtlpHttpEndpoint(raw.OTEL_EXPORTER_OTLP_ENDPOINT),
+    otelMetricExportIntervalMs: raw.OTEL_METRIC_EXPORT_INTERVAL_MS,
   }),
 );
