@@ -125,3 +125,28 @@ test("DatabaseObserver records successful transaction duration separately from q
     },
   ]);
 });
+
+test("DatabaseObserver records failed transaction duration and preserves the original error", async () => {
+  const tracer = new RecordingTracer();
+  const meter = new RecordingMeter();
+  let now = 3_000;
+  const observer = new DatabaseObserver({ tracer, meter, now: () => now });
+  const failure = new Error("rollback");
+
+  await expect(
+    observer.transaction(async () => {
+      now = 3_350;
+      throw failure;
+    }),
+  ).rejects.toBe(failure);
+
+  expect(tracer.spans).toHaveLength(1);
+  expect(tracer.spans[0]?.span.status).toBe("error");
+  expect(meter.records).toEqual([
+    {
+      name: "db.transaction.duration",
+      value: 0.35,
+      attributes: { "db.system.name": "postgresql" },
+    },
+  ]);
+});
