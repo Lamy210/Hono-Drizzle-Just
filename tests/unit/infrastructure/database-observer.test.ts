@@ -78,6 +78,7 @@ test("DatabaseObserver records a low-cardinality successful database operation",
   expect(tracer.spans[0]?.name).toBe("SELECT users");
   expect(tracer.spans[0]?.options).toMatchObject({
     kind: "client",
+    recordException: false,
     attributes: {
       "db.system.name": "postgresql",
       "db.operation.name": "SELECT",
@@ -114,6 +115,7 @@ test("DatabaseObserver records successful transaction duration separately from q
   expect(tracer.spans[0]?.name).toBe("db.transaction");
   expect(tracer.spans[0]?.options).toEqual({
     kind: "internal",
+    recordException: false,
     attributes: { "db.system.name": "postgresql" },
   });
   expect(tracer.spans[0]?.span.status).toBe("ok");
@@ -141,6 +143,7 @@ test("DatabaseObserver records failed transaction duration and preserves the ori
   ).rejects.toBe(failure);
 
   expect(tracer.spans).toHaveLength(1);
+  expect(tracer.spans[0]?.options.recordException).toBe(false);
   expect(tracer.spans[0]?.span.status).toBe("error");
   expect(meter.records).toEqual([
     {
