@@ -82,3 +82,20 @@ test("findById records SELECT users without identifier cardinality", async () =>
   expect(JSON.stringify(tracer.spans[0]?.options.attributes)).not.toContain(seeded.id);
   expect(meter.records[0]?.name).toBe("db.client.operation.duration");
 });
+
+test("findByEmail records SELECT users without email cardinality", async () => {
+  const email = `email-observed-${crypto.randomUUID()}@example.com`;
+  await userFactory.create({ email });
+
+  const found = await repository.findByEmail(email);
+
+  expect(found?.email).toBe(email);
+  expect(tracer.spans).toHaveLength(1);
+  expect(tracer.spans[0]?.name).toBe("SELECT users");
+  expect(tracer.spans[0]?.options.attributes).toEqual({
+    "db.system.name": "postgresql",
+    "db.operation.name": "SELECT",
+    "db.collection.name": "users",
+  });
+  expect(JSON.stringify(tracer.spans[0]?.options.attributes)).not.toContain(email);
+});
