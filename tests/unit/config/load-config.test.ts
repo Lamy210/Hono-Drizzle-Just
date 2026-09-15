@@ -16,6 +16,8 @@ describe("loadConfig", () => {
       logLevel: "info",
       httpDefaultTimeoutMs: 10_000,
       httpDefaultAttemptTimeoutMs: 3_000,
+      httpMaxRequestBodyBytes: 1_048_576,
+      httpTransportMaxRequestBodyBytes: 2_097_152,
       databasePoolMax: 20,
       databaseConnectionTimeoutMs: 5_000,
       healthCheckTimeoutMs: 1_500,
@@ -24,6 +26,16 @@ describe("loadConfig", () => {
       otelExporterOtlpEndpoint: "http://localhost:4318",
       otelMetricExportIntervalMs: 60_000,
     });
+  });
+
+  test("rejects a transport body cap that does not exceed the application body limit", () => {
+    expect(() =>
+      loadConfig({
+        ...required,
+        HTTP_MAX_REQUEST_BODY_BYTES: "4096",
+        HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES: "4096",
+      }),
+    ).toThrow(ConfigurationError);
   });
 
   test("parses explicit OpenTelemetry settings", () => {
