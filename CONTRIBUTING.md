@@ -47,11 +47,12 @@ The repository's testing policy is intentional:
 - API tests use Hono's in-process request API.
 - Database migrations are applied before integration tests.
 
-Verification is split into three stable layers:
+Verification is split into stable layers:
 
 - `just check-fast` runs lint, typecheck, and unit/API tests. It does not require PostgreSQL and is intended for the normal edit loop.
 - `just check` adds committed migration-history verification and matches the GitHub Actions `quality` job.
-- `just ci` runs `just check`, applies committed migrations to `DATABASE_URL`, and runs the PostgreSQL integration suite. With the same database environment, this is the local full-CI equivalent.
+- `just coverage` runs unit/API tests with Bun's native coverage gate. The repository requires at least 80% line coverage and 75% function coverage and generates `coverage/lcov.info`.
+- `just ci` composes `just check`, the coverage gate, committed migration application, and the PostgreSQL integration suite. With the same database environment, this is the local full-CI equivalent.
 
 Before opening a pull request, start PostgreSQL and run:
 
@@ -59,7 +60,11 @@ Before opening a pull request, start PostgreSQL and run:
 just ci
 ```
 
-GitHub Actions installs dependencies with `bun ci`, runs `bun run check` in the `quality` job, and runs migration application plus integration tests in the parallel `integration` job. The aggregate `required` job succeeds only when both jobs succeed.
+For a DB-free preflight, run `just check` and `just coverage` separately.
+
+Coverage is intentionally repository-owned: thresholds and reporters live in `bunfig.toml`, and no external coverage SaaS is required. Bun reports coverage for files loaded by the selected test run; a source file that is never imported may not appear in the report. Treat the aggregate percentage as a regression gate for executed code, not as proof that every source file was measured. Test files themselves are excluded from the coverage calculation.
+
+GitHub Actions installs dependencies with `bun ci`, runs `bun run check` in the `quality` job, runs `bun run test:coverage` in an independent `coverage` job, and runs migration application plus integration tests in the parallel `integration` job. The aggregate `required` job succeeds only when all three component jobs succeed.
 
 ## Architecture boundaries
 
@@ -101,7 +106,7 @@ Use the pull request template and explain the problem, design choice, and verifi
 - the change is focused and documented where needed;
 - new or changed behavior has regression coverage;
 - `just ci` passes locally, or any environment-specific exception is explained;
-- quality, integration, and required CI are green;
+- quality, coverage, integration, and required CI are green;
 - schema changes include reviewed migrations;
 - dependency changes include the lockfile;
 - no secrets, raw credentials, PII, or high-cardinality telemetry were introduced;
