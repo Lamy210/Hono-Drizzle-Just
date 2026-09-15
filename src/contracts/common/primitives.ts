@@ -13,10 +13,18 @@ export const DateTimeSchema = z.iso.datetime().openapi({ example: "2026-09-13T00
 
 export const TraceIdSchema = z
   .string()
-  .regex(/^(?!0{32}$)[0-9a-f]{32}$/, "traceId must be 32 lowercase hexadecimal characters and non-zero")
+  .length(32, "traceId must be 32 lowercase hexadecimal characters and non-zero")
+  .regex(
+    /^[0-9a-f]*[1-9a-f][0-9a-f]*$/,
+    "traceId must be 32 lowercase hexadecimal characters and non-zero",
+  )
   .openapi({ example: "4bf92f3577b34da6a3ce929d0e0e4736" });
 
 export const SpanIdSchema = z
   .string()
-  .regex(/^(?!0{16}$)[0-9a-f]{16}$/, "spanId must be 16 lowercase hexadecimal characters and non-zero")
+  .length(16, "spanId must be 16 lowercase hexadecimal characters and non-zero")
+  .regex(
+    /^[0-9a-f]*[1-9a-f][0-9a-f]*$/,
+    "spanId must be 16 lowercase hexadecimal characters and non-zero",
+  )
   .openapi({ example: "00f067aa0ba902b7" });

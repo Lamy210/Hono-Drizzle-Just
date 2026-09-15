@@ -69,7 +69,7 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
   registerHealthRoutes(app, dependencies.readinessChecker);
   registerUserRoutes(app, dependencies);
 
-  app.doc("/openapi.json", {
+  app.doc31("/openapi.json", {
     openapi: "3.1.0",
     info: {
       title: "Hono Drizzle Just API",

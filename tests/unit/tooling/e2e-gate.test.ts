@@ -18,7 +18,7 @@ test("package scripts expose standalone and full-CI E2E commands", async () => {
   expect(packageJson.scripts?.["test:e2e"]).toBe("bun test tests/e2e");
   expect(packageJson.scripts?.["ci:e2e"]).toBe("bun run db:migrate && bun run test:e2e");
   expect(packageJson.scripts?.ci).toBe(
-    "bun run check && bun run test:coverage && bun run ci:integration && bun run test:e2e",
+    "bun run check && bun run openapi:contract && bun run test:coverage && bun run ci:integration && bun run test:e2e",
   );
 });
 
@@ -35,7 +35,7 @@ test("GitHub Actions makes E2E an independent required job", async () => {
 
   expect(workflow).toContain("  e2e:\n");
   expect(workflow).toContain("- run: bun run ci:e2e\n");
-  expect(workflow).toContain("needs: [quality, integration, coverage, e2e]");
+  expect(workflow).toContain("needs: [quality, integration, coverage, e2e, contract]");
   expect(workflow).toContain(`E2E_RESULT: ${e2eResultExpression}`);
   expect(workflow).toContain('test "$E2E_RESULT" = "success"');
 });
