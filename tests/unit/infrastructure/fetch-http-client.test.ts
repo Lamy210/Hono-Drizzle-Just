@@ -19,8 +19,10 @@ const context: RequestContext = {
 
 test("fetch wrapper propagates tracing headers and validates the response", async () => {
   let captured: Request | undefined;
+  let capturedRedirect: RequestRedirect | undefined;
   const fetchImpl: FetchLike = async (input, init) => {
     captured = new Request(input, init);
+    capturedRedirect = init?.redirect;
     return Response.json({ id: "550e8400-e29b-41d4-a716-446655440000", name: "Lamy" });
   };
   const logger = new JsonConsoleLogger({}, () => undefined);
@@ -40,6 +42,26 @@ test("fetch wrapper propagates tracing headers and validates the response", asyn
   expect(captured?.headers.get("traceparent")).toBe(
     "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
   );
+  expect(capturedRedirect).toBe("manual");
+});
+
+test("fetch wrapper surfaces redirects instead of following them", async () => {
+  const fetchImpl: FetchLike = async () =>
+    new Response(null, {
+      status: 302,
+      headers: { location: "https://evil.example/redirected" },
+    });
+  const logger = new JsonConsoleLogger({}, () => undefined);
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger,
+    fetchImpl,
+  });
+
+  await expect(client.request({ method: "GET", path: "/redirect" }, z.unknown())).rejects.toMatchObject({
+    code: "UPSTREAM_REQUEST_FAILED",
+    details: { status: 302, host: "example.test" },
+  });
 });
 
 test("fetch wrapper rejects absolute paths so callers cannot override the configured host", async () => {
@@ -53,4 +75,30 @@ test("fetch wrapper rejects absolute paths so callers cannot override the config
   await expect(
     client.request({ method: "GET", path: "https://evil.example/data" }, z.unknown()),
   ).rejects.toMatchObject({ code: "INVALID_HTTP_PATH" });
+});
+
+test("fetch wrapper rejects non-HTTP base URLs", () => {
+  const logger = new JsonConsoleLogger({}, () => undefined);
+
+  expect(
+    () =>
+      new FetchHttpClient({
+        baseUrl: "ftp://example.test",
+        logger,
+        fetchImpl: fetch,
+      }),
+  ).toThrow(RangeError);
+});
+
+test("fetch wrapper rejects base URLs with embedded credentials", () => {
+  const logger = new JsonConsoleLogger({}, () => undefined);
+
+  expect(
+    () =>
+      new FetchHttpClient({
+        baseUrl: "https://user:secret@example.test",
+        logger,
+        fetchImpl: fetch,
+      }),
+  ).toThrow(RangeError);
 });

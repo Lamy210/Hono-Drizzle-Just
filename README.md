@@ -174,6 +174,8 @@ The built-in JSON logger remains the logging path. Trace and span IDs correlate 
 
 Application code should depend on `HttpClient` instead of calling global `fetch` directly. `FetchHttpClient` fixes the upstream origin, rejects absolute caller-provided URLs, propagates request/trace correlation headers, validates successful JSON responses, and maps transport failures into stable application errors.
 
+Configured `baseUrl` values must use HTTP or HTTPS and must not contain embedded username/password credentials. Each physical fetch attempt uses `redirect: "manual"`, so redirects are surfaced as upstream failures instead of being followed automatically to another origin. Redirect support, if required by an application, should be added as an explicit allowlisted policy rather than by relying on the platform fetch default.
+
 `timeoutMs` is a **total request deadline** covering all network attempts and retry delays. `attemptTimeoutMs` limits one fetch attempt and is always capped by the remaining total deadline. Adapter defaults are 10 seconds total and 3 seconds per attempt; composition should normally supply the typed configuration values above.
 
 Retry behavior is deliberately conservative:

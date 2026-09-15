@@ -22,6 +22,17 @@ function positiveFiniteNumber(name: string, value: number): number {
   return value;
 }
 
+function parseBaseUrl(value: string | URL): URL {
+  const url = new URL(value);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new RangeError("baseUrl must use http or https");
+  }
+  if (url.username !== "" || url.password !== "") {
+    throw new RangeError("baseUrl must not contain credentials");
+  }
+  return url;
+}
+
 export type FetchLike = (
   input: Parameters<typeof fetch>[0],
   init?: Parameters<typeof fetch>[1],
@@ -61,7 +72,7 @@ export class FetchHttpClient implements HttpClient {
   private readonly meter: Meter;
 
   constructor(options: FetchHttpClientOptions) {
-    this.baseUrl = new URL(options.baseUrl);
+    this.baseUrl = parseBaseUrl(options.baseUrl);
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.defaultTimeoutMs = positiveFiniteNumber(
       "defaultTimeoutMs",
@@ -183,6 +194,7 @@ export class FetchHttpClient implements HttpClient {
           method: request.method,
           headers,
           ...(body === undefined ? {} : { body }),
+          redirect: "manual",
           signal: this.signalFactory(attemptTimeoutMs),
         });
 
