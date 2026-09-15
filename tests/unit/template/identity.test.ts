@@ -32,11 +32,12 @@ describe("parseGitHubRepository", () => {
   });
 
   test.each([
+    "http://github.com/acme/example.git",
     "https://gitlab.com/acme/example.git",
     "git@example.com:acme/example.git",
     "file:///tmp/example",
     "not-a-url",
-  ])("rejects non-GitHub or malformed remote %s", (remote) => {
+  ])("rejects non-GitHub, insecure, or malformed remote %s", (remote) => {
     expect(parseGitHubRepository(remote)).toBeUndefined();
   });
 });
