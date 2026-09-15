@@ -23,6 +23,7 @@
 - [ ] `just test-all` passes, or I explained why a narrower suite is sufficient.
 - [ ] CI `quality` passes.
 - [ ] CI `integration` passes.
+- [ ] CI `required` passes.
 
 ### Evidence
 

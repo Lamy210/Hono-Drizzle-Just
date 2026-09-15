@@ -1,6 +1,6 @@
 # Repository governance
 
-This document defines the repository-side governance policy and the GitHub settings that should enforce it. Files in the repository are versioned and reviewable; GitHub repository settings must be configured separately by an administrator.
+This document defines the repository-side governance policy and the GitHub settings that should enforce it. Files in the repository are versioned and reviewable; GitHub repository settings must be configured separately through repository administration controls.
 
 ## Ownership
 
@@ -16,6 +16,7 @@ Before merge:
 
 - `quality` CI must succeed;
 - `integration` CI must succeed;
+- the aggregate `required` CI gate must succeed;
 - review conversations must be resolved;
 - database schema changes must include reviewed Drizzle migration history;
 - dependency changes must preserve `bun.lock` reproducibility;
@@ -39,12 +40,15 @@ Create a repository ruleset targeting the default branch (`main`) with the follo
 
 ### Required status checks
 
-Require these exact job names from `.github/workflows/ci.yml`:
+Require this exact job name from `.github/workflows/ci.yml`:
 
-- `quality`
-- `integration`
+- `required`
 
-Do not treat a skipped or cancelled job as successful. If these job names change, update the ruleset in the same operational change.
+`required` is the stable governance interface for CI. It uses `needs: [quality, integration]` plus `if: always()` and fails unless both component jobs conclude with `success`. Keep `quality` and `integration` as independently visible diagnostic jobs, but do not couple the GitHub ruleset directly to their names.
+
+Do not treat a cancelled component job as success. If the aggregate gate name changes, update the ruleset in the same operational change. Internal decomposition or renaming of component jobs is allowed only when the `required` gate is updated to preserve equivalent coverage.
+
+GitHub's strict required-check mode should remain enabled so a pull request must be up to date with `main` before its `required` result is accepted for merge.
 
 ### Review count
 
@@ -65,9 +69,19 @@ Keep bypass scope minimal. Administrator bypass should be reserved for recovery 
 
 ## Repository merge settings
 
-Prefer enabling squash merge and disabling merge commits for routine changes. Rebase merge may remain disabled unless the project deliberately adopts a different history policy.
+Prefer enabling squash merge and disabling merge commits for routine changes. Rebase merge should remain disabled unless the project deliberately adopts a different history policy.
 
 Automatically deleting merged feature branches is safe for the repository's short-lived branch model and reduces stale branch accumulation.
+
+## CI execution policy
+
+The CI workflow uses explicit time bounds rather than the platform's long default timeout:
+
+- `quality`: 10 minutes;
+- `integration`: 15 minutes;
+- `required`: 2 minutes.
+
+Workflow-level concurrency cancels an obsolete run when a newer run starts for the same pull request or the same push ref. Push and pull-request event streams remain separate so a cancelled run from one event type cannot obscure the required-check result produced by the other event type.
 
 ## Security reporting
 
@@ -79,6 +93,8 @@ Automatically deleting merged feature branches is safe for the repository's shor
 
 ## Applying GitHub settings
 
-Repository policy files can be changed through normal pull requests, but branch rulesets and repository merge settings require repository administration permission. After this governance change is merged, configure the GitHub settings to match this document and verify the required check names against an actual pull request run.
+Repository policy files can be changed through normal pull requests, but branch rulesets and repository merge settings are administration state and must be configured through an administration-capable GitHub surface.
 
-The connected automation used to maintain this repository does not have repository administration access, so it must not claim that branch protection or ruleset settings were changed when only the versioned policy files were updated.
+The connected GitHub integration used in this workflow can read repository/ruleset state and modify repository contents, but it does not currently expose write operations for repository rulesets or merge settings. It therefore must not claim that those settings were changed when only the versioned policy files were updated.
+
+After this governance change is merged, configure the GitHub settings to match this document and verify the `required` check name against an actual pull-request run before making it mandatory.
