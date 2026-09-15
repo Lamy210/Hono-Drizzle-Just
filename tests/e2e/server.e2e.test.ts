@@ -89,8 +89,8 @@ test("production server serves a persisted user flow and shuts down on SIGTERM",
     stdout: "pipe",
     stderr: "pipe",
   });
-  const stdoutPromise = child.stdout.text();
-  const stderrPromise = child.stderr.text();
+  const stdoutPromise = new Response(child.stdout).text();
+  const stderrPromise = new Response(child.stderr).text();
   const baseUrl = `http://127.0.0.1:${port}`;
   let gracefulShutdownVerified = false;
 
