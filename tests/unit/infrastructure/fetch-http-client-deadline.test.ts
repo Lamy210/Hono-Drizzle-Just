@@ -9,6 +9,63 @@ import {
 import type { RetryPolicy } from "../../../src/infrastructure/http/retry-policy";
 import { JsonConsoleLogger } from "../../../src/infrastructure/logging/json-console-logger";
 
+function logger() {
+  return new JsonConsoleLogger({}, () => undefined);
+}
+
+test("constructor rejects invalid default timeout values", () => {
+  for (const invalidTimeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    expect(
+      () =>
+        new FetchHttpClient({
+          baseUrl: "https://example.test",
+          logger: logger(),
+          defaultTimeoutMs: invalidTimeoutMs,
+        }),
+    ).toThrow(RangeError);
+
+    expect(
+      () =>
+        new FetchHttpClient({
+          baseUrl: "https://example.test",
+          logger: logger(),
+          defaultAttemptTimeoutMs: invalidTimeoutMs,
+        }),
+    ).toThrow(RangeError);
+  }
+});
+
+test("request rejects invalid timeout overrides before calling fetch", async () => {
+  let attempts = 0;
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: logger(),
+    fetchImpl,
+  });
+
+  for (const invalidTimeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    await expect(
+      client.request(
+        { method: "GET", path: "/resource", timeoutMs: invalidTimeoutMs },
+        z.unknown(),
+      ),
+    ).rejects.toBeInstanceOf(RangeError);
+
+    await expect(
+      client.request(
+        { method: "GET", path: "/resource", attemptTimeoutMs: invalidTimeoutMs },
+        z.unknown(),
+      ),
+    ).rejects.toBeInstanceOf(RangeError);
+  }
+
+  expect(attempts).toBe(0);
+});
+
 test("attempt timeout is capped by the remaining total deadline", async () => {
   let nowMs = 0;
   let attempts = 0;
@@ -29,7 +86,7 @@ test("attempt timeout is capped by the remaining total deadline", async () => {
 
   const options = {
     baseUrl: "https://example.test",
-    logger: new JsonConsoleLogger({}, () => undefined),
+    logger: logger(),
     fetchImpl,
     defaultTimeoutMs: 1_000,
     retryPolicy,
