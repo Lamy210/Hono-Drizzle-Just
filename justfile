@@ -15,8 +15,14 @@ init *args:
 doctor:
   bun run template:doctor
 
+check-fast:
+  bun run check:fast
+
 check:
   bun run check
+
+ci:
+  DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/app} bun run ci
 
 test:
   bun run test
