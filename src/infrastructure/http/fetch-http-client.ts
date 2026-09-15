@@ -15,6 +15,13 @@ import type { Tracer } from "../../core/observability/tracer";
 import { DefaultRetryPolicy, type RetryPolicy } from "./retry-policy";
 import { formatTraceParent } from "../tracing/w3c-trace-context";
 
+function positiveFiniteNumber(name: string, value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new RangeError(`${name} must be a finite number greater than 0`);
+  }
+  return value;
+}
+
 export type FetchLike = (
   input: Parameters<typeof fetch>[0],
   init?: Parameters<typeof fetch>[1],
@@ -56,8 +63,14 @@ export class FetchHttpClient implements HttpClient {
   constructor(options: FetchHttpClientOptions) {
     this.baseUrl = new URL(options.baseUrl);
     this.fetchImpl = options.fetchImpl ?? fetch;
-    this.defaultTimeoutMs = options.defaultTimeoutMs ?? 10_000;
-    this.defaultAttemptTimeoutMs = options.defaultAttemptTimeoutMs ?? 3_000;
+    this.defaultTimeoutMs = positiveFiniteNumber(
+      "defaultTimeoutMs",
+      options.defaultTimeoutMs ?? 10_000,
+    );
+    this.defaultAttemptTimeoutMs = positiveFiniteNumber(
+      "defaultAttemptTimeoutMs",
+      options.defaultAttemptTimeoutMs ?? 3_000,
+    );
     this.retryPolicy = options.retryPolicy ?? new DefaultRetryPolicy();
     this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
     this.now = options.now ?? performance.now.bind(performance);
@@ -71,6 +84,13 @@ export class FetchHttpClient implements HttpClient {
     request: HttpRequest,
     responseSchema: SchemaParser<TResponse>,
   ): Promise<HttpResponse<TResponse>> {
+    if (request.timeoutMs !== undefined) {
+      positiveFiniteNumber("timeoutMs", request.timeoutMs);
+    }
+    if (request.attemptTimeoutMs !== undefined) {
+      positiveFiniteNumber("attemptTimeoutMs", request.attemptTimeoutMs);
+    }
+
     const url = this.resolveUrl(request.path);
     const startedAt = this.now();
 
