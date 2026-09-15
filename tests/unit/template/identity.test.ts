@@ -1,9 +1,25 @@
 import { describe, expect, test } from "bun:test";
 import {
   SOURCE_TEMPLATE_IDENTITY,
+  inferIdentityFromOrigin,
   parseGitHubRepository,
   resolveTemplateIdentity,
 } from "../../../scripts/template/identity";
+import type { CommandRunner } from "../../../scripts/template/process-runner";
+
+function fakeRunner(result: { exitCode: number; stdout?: string; stderr?: string }): CommandRunner {
+  return {
+    run: async (argv, cwd) => {
+      expect(argv).toEqual(["git", "remote", "get-url", "origin"]);
+      expect(cwd).toBe("/repo");
+      return {
+        exitCode: result.exitCode,
+        stdout: result.stdout ?? "",
+        stderr: result.stderr ?? "",
+      };
+    },
+  };
+}
 
 describe("parseGitHubRepository", () => {
   test.each([
@@ -79,5 +95,57 @@ describe("resolveTemplateIdentity", () => {
       serviceName: "hono-drizzle-just",
       repositorySlug: "Lamy210/Hono-Drizzle-Just",
     });
+  });
+});
+
+describe("inferIdentityFromOrigin", () => {
+  test("uses an explicit repository override without invoking git", async () => {
+    let called = false;
+    const runner: CommandRunner = {
+      run: async () => {
+        called = true;
+        return { exitCode: 0, stdout: "https://github.com/wrong/repo.git\n", stderr: "" };
+      },
+    };
+
+    const identity = await inferIdentityFromOrigin(runner, "/repo", {
+      repository: "acme/ExampleAPI",
+      displayName: "Example API",
+    });
+
+    expect(called).toBe(false);
+    expect(identity.repositorySlug).toBe("acme/ExampleAPI");
+    expect(identity.displayName).toBe("Example API");
+  });
+
+  test("infers identity from the GitHub origin", async () => {
+    const identity = await inferIdentityFromOrigin(
+      fakeRunner({ exitCode: 0, stdout: "git@github.com:acme/ExampleAPI.git\n" }),
+      "/repo",
+      {},
+    );
+
+    expect(identity).toEqual({
+      displayName: "ExampleAPI",
+      packageName: "exampleapi",
+      serviceName: "example-api",
+      repositorySlug: "acme/ExampleAPI",
+    });
+  });
+
+  test("requires --repository when origin is unavailable", async () => {
+    await expect(
+      inferIdentityFromOrigin(fakeRunner({ exitCode: 2, stderr: "origin missing" }), "/repo", {}),
+    ).rejects.toThrow(/--repository/i);
+  });
+
+  test("requires --repository when origin is not GitHub", async () => {
+    await expect(
+      inferIdentityFromOrigin(
+        fakeRunner({ exitCode: 0, stdout: "https://gitlab.com/acme/example.git\n" }),
+        "/repo",
+        {},
+      ),
+    ).rejects.toThrow(/--repository/i);
   });
 });
