@@ -21,21 +21,24 @@
 - [ ] I confirmed the intended failure first for behavior changes where TDD applies.
 - [ ] `just check-fast` passes for the normal edit loop.
 - [ ] `just check` passes and matches CI `quality`.
+- [ ] `just openapi-verify` passes the committed OpenAPI snapshot and specification checks.
 - [ ] `just coverage` passes the repository coverage thresholds.
 - [ ] `bun run ci:e2e` passes the standalone migration + production-process E2E gate, or I explained why local PostgreSQL/E2E execution is unavailable.
 - [ ] `just ci` passes, or I explained why local PostgreSQL/full-CI execution is unavailable.
 - [ ] CI `quality` passes.
 - [ ] CI `coverage` passes.
+- [ ] CI `contract` passes.
 - [ ] CI `integration` passes.
 - [ ] CI `e2e` passes.
 - [ ] CI `required` passes.
 
 ### Evidence
 
-<!-- Include the relevant commands, tests, CI runs, coverage/E2E result, or reproduction result. -->
+<!-- Include the relevant commands, tests, CI runs, coverage/E2E/contract result, or reproduction result. -->
 
-## Database / dependency / security review
+## Database / API contract / dependency / security review
 
+- [ ] No public API contract change, or `openapi/openapi.json` was regenerated with `just openapi-generate` and the compatibility impact was reviewed.
 - [ ] No database schema change, or committed Drizzle migration history is included and reviewed.
 - [ ] No dependency change, or `package.json` and `bun.lock` were updated together.
 - [ ] GitHub Actions remain pinned to immutable full commit SHAs.
@@ -48,4 +51,4 @@
 
 ## Notes for reviewers
 
-<!-- Call out risky assumptions, trade-offs, migration concerns, or areas that deserve extra attention. -->
+<!-- Call out risky assumptions, trade-offs, API compatibility, migration concerns, or areas that deserve extra attention. -->
