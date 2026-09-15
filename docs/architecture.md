@@ -74,6 +74,25 @@ PostgreSQL constraints remain authoritative. Drizzle wraps driver errors in `Dri
 
 `RequestContext` also carries an optional normalized `Principal`. This keeps identity available to application services without exposing Hono request objects or identity-provider-specific session/JWT structures.
 
+## Inbound HTTP safety boundary
+
+Inbound body size is enforced at two layers with intentionally different responsibilities. Hono owns the application-visible boundary through its built-in `bodyLimit()` middleware. Bun owns the final transport/process boundary through `Bun.serve({ maxRequestBodySize })`.
+
+The middleware order is deliberate:
+
+```text
+request context / tracing
+  -> request logger
+    -> body limit
+      -> route validation / handler
+```
+
+The default Hono limit is 1 MiB (`HTTP_MAX_REQUEST_BODY_BYTES=1048576`). Because request context and logging execute first, an application-level overflow is mapped through the common error handler as `REQUEST_BODY_TOO_LARGE` / HTTP 413 and retains request/trace correlation. The limit is enforced before route validation and application services, so oversized bodies do not reach use-case or persistence code.
+
+The default Bun hard cap is 2 MiB (`HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES=2097152`). Startup configuration requires this value to be strictly greater than the Hono limit. This ordering gives the application boundary room to return its structured error for normal oversized requests while still protecting the process from substantially larger bodies. A request rejected by Bun can fail before Hono creates correlation state, so transport-level 413 responses are not promised to use the common JSON envelope.
+
+The global defaults are intended for ordinary JSON APIs. Multipart uploads, per-route limit overrides, decompressed-body accounting, slow-request protection, rate limiting, and reverse-proxy/WAF limits remain separate policies rather than being folded into this boundary.
+
 ## Observability boundary
 
 `core/observability` owns small `Tracer`, `Span`, and `Meter` contracts. Application code can create spans and measurements without importing `@opentelemetry/*`. Noop implementations preserve exactly the same application behavior when telemetry is disabled.
