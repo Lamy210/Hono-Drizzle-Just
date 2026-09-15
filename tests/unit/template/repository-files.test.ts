@@ -123,16 +123,15 @@ describe("managed repository state", () => {
     const target = resolveTemplateIdentity({ repository: "acme/ExampleAPI", displayName: "Example API" });
     const changes = planIdentityChanges(snapshot, target);
     const byPath = new Map(changes.map((change) => [change.path, change.content]));
+    const expectedPaths: Array<(typeof changes)[number]["path"]> = [
+      ".env.example",
+      "README.md",
+      "package.json",
+      "src/config/config.schema.ts",
+      "tests/unit/config/load-config.test.ts",
+    ];
 
-    expect(changes.map((change) => change.path).sort()).toEqual(
-      [
-        ".env.example",
-        "README.md",
-        "package.json",
-        "src/config/config.schema.ts",
-        "tests/unit/config/load-config.test.ts",
-      ].sort(),
-    );
+    expect(changes.map((change) => change.path).sort()).toEqual(expectedPaths.sort());
 
     const packageJson = JSON.parse(byPath.get("package.json") ?? "{}");
     expect(packageJson).toMatchObject({
