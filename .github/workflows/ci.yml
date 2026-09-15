@@ -54,8 +54,7 @@ jobs:
         run: test "$(bun --version)" = "$(tr -d '\r\n' < .bun-version)"
       - run: test -f bun.lock
       - run: bun ci
-      - run: bun run db:migrate
-      - run: bun run test:integration
+      - run: bun run ci:integration
 
   required:
     name: required
