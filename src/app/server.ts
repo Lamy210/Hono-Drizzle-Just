@@ -2,11 +2,12 @@ import { loadConfig } from "../config/load-config";
 import { createApp } from "./app";
 import { createProductionContainer } from "./composition/container";
 import { GracefulShutdownCoordinator } from "./lifecycle/graceful-shutdown";
+import { createBunServerOptions } from "./server-options";
 
 const config = loadConfig(Bun.env);
 const container = createProductionContainer(config);
 const app = createApp(container.dependencies);
-const server = Bun.serve({ port: config.port, fetch: app.fetch });
+const server = Bun.serve(createBunServerOptions({ port: config.port, fetch: app.fetch }));
 const shutdown = new GracefulShutdownCoordinator({
   server,
   lifecycle: container.lifecycle,
