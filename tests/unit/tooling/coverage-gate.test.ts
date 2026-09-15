@@ -17,7 +17,7 @@ test("Bun coverage config keeps reports and thresholds repository-owned", async 
   expect(bunfig).toContain('coverageReporter = ["text", "lcov"]');
   expect(bunfig).toContain('coverageDir = "coverage"');
   expect(bunfig).toContain("coverageSkipTestFiles = true");
-  expect(bunfig).toContain("coverageThreshold = { lines = 0.8, functions = 0.75 }");
+  expect(bunfig).toContain("coverageThreshold = { line = 0.8, function = 0.75 }");
 });
 
 test("package and just commands expose the coverage gate", async () => {
