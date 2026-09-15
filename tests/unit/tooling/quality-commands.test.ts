@@ -17,9 +17,10 @@ test("package scripts expose fast, quality, and full CI verification layers", as
     "bun run lint && bun run typecheck && bun run test",
   );
   expect(packageJson.scripts?.check).toBe("bun run db:migrations:verify && bun run check:fast");
-  expect(packageJson.scripts?.ci).toBe(
-    "bun run check && bun run db:migrate && bun run test:integration",
+  expect(packageJson.scripts?.["ci:integration"]).toBe(
+    "bun run db:migrate && bun run test:integration",
   );
+  expect(packageJson.scripts?.ci).toBe("bun run check && bun run ci:integration");
 });
 
 test("just exposes the same three verification layers", async () => {
@@ -32,9 +33,11 @@ test("just exposes the same three verification layers", async () => {
   );
 });
 
-test("GitHub Actions reuses the public quality command instead of duplicating it", async () => {
+test("GitHub Actions reuses shared quality and integration commands", async () => {
   const workflow = await readText(".github/workflows/ci.yml");
 
   expect(workflow).toContain("- run: bun run check\n");
+  expect(workflow).toContain("- run: bun run ci:integration\n");
   expect(workflow).not.toContain("- run: bun run db:migrations:verify\n      - run: bun run lint\n");
+  expect(workflow).not.toContain("- run: bun run db:migrate\n      - run: bun run test:integration\n");
 });
