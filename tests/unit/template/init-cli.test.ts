@@ -60,7 +60,7 @@ async function makeFixture() {
 }
 
 class CliRunner implements CommandRunner {
-  readonly calls: readonly string[][] extends never ? never : string[][] = [];
+  readonly calls: string[][] = [];
 
   async run(argv: readonly string[], cwd: string): Promise<CommandResult> {
     this.calls.push([...argv]);
@@ -118,6 +118,24 @@ test("dry-run accepts explicit identity overrides and writes a plan only", async
   expect(JSON.parse(await readFile(join(root, "package.json"), "utf8")).name).toBe(
     "hono-drizzle-just-template",
   );
+});
+
+test("accepts a leading -- separator from package-script invocation", async () => {
+  const root = await makeFixture();
+  const runner = new CliRunner();
+  const out: string[] = [];
+
+  const exitCode = await runInitCli({
+    argv: ["--", "--repository", "acme/ExampleAPI", "--dry-run"],
+    root,
+    runner,
+    stdout: (line) => out.push(line),
+    stderr: () => undefined,
+  });
+
+  expect(exitCode).toBe(0);
+  expect(runner.calls).toEqual([]);
+  expect(out.join("\n")).toContain("Dry run for ExampleAPI");
 });
 
 test("infers the repository from origin and reports changed files", async () => {
