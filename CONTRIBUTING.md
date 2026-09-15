@@ -47,14 +47,19 @@ The repository's testing policy is intentional:
 - API tests use Hono's in-process request API.
 - Database migrations are applied before integration tests.
 
-Before opening a pull request, run:
+Verification is split into three stable layers:
+
+- `just check-fast` runs lint, typecheck, and unit/API tests. It does not require PostgreSQL and is intended for the normal edit loop.
+- `just check` adds committed migration-history verification and matches the GitHub Actions `quality` job.
+- `just ci` runs `just check`, applies committed migrations to `DATABASE_URL`, and runs the PostgreSQL integration suite. With the same database environment, this is the local full-CI equivalent.
+
+Before opening a pull request, start PostgreSQL and run:
 
 ```bash
-just check
-just test-all
+just ci
 ```
 
-CI additionally verifies committed migration history and installs dependencies with `bun ci`.
+GitHub Actions installs dependencies with `bun ci`, runs `bun run check` in the `quality` job, and runs migration application plus integration tests in the parallel `integration` job. The aggregate `required` job succeeds only when both jobs succeed.
 
 ## Architecture boundaries
 
@@ -95,7 +100,8 @@ Use the pull request template and explain the problem, design choice, and verifi
 
 - the change is focused and documented where needed;
 - new or changed behavior has regression coverage;
-- quality and integration CI are green;
+- `just ci` passes locally, or any environment-specific exception is explained;
+- quality, integration, and required CI are green;
 - schema changes include reviewed migrations;
 - dependency changes include the lockfile;
 - no secrets, raw credentials, PII, or high-cardinality telemetry were introduced;
