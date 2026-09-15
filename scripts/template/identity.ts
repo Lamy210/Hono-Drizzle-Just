@@ -54,7 +54,7 @@ export function parseGitHubRepository(value: string): string | undefined {
     if (url.hostname.toLowerCase() !== "github.com") {
       return undefined;
     }
-    if (url.protocol !== "https:" && url.protocol !== "http:" && url.protocol !== "ssh:") {
+    if (url.protocol !== "https:" && url.protocol !== "ssh:") {
       return undefined;
     }
     return normalizeRepositorySlug(url.pathname.replace(/^\/+/, ""));
