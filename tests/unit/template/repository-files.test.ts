@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { resolveTemplateIdentity } from "../../../scripts/template/identity";
 import {
   classifyRepositoryState,
@@ -60,7 +60,7 @@ async function makeFixture(overrides: Partial<Record<keyof typeof sourceFiles, s
   roots.push(root);
   for (const [path, content] of Object.entries({ ...sourceFiles, ...overrides })) {
     const fullPath = join(root, path);
-    await mkdir(join(fullPath, ".."), { recursive: true });
+    await mkdir(dirname(fullPath), { recursive: true });
     await writeFile(fullPath, content, "utf8");
   }
   return root;
@@ -136,9 +136,11 @@ describe("managed repository state", () => {
     });
 
     const readme = byPath.get("README.md") ?? "";
-    expect(readme).toStartWith(
-      "# Example API\n\nBackend API template for Example API, built around **Bun + Hono + Drizzle ORM + PostgreSQL + Zod + just**.\n",
-    );
+    expect(
+      readme.startsWith(
+        "# Example API\n\nBackend API template for Example API, built around **Bun + Hono + Drizzle ORM + PostgreSQL + Zod + just**.\n",
+      ),
+    ).toBe(true);
     expect(readme).toContain(
       "Historical/reference text keeps Hono-Drizzle-Just and hono-drizzle-just-template unchanged.",
     );
