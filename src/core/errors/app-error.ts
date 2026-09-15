@@ -3,13 +3,14 @@ export type AppErrorCode =
   | "UNAUTHORIZED"
   | "NOT_FOUND"
   | "CONFLICT"
+  | "REQUEST_BODY_TOO_LARGE"
   | "INVALID_HTTP_PATH"
   | "UPSTREAM_REQUEST_FAILED"
   | "UPSTREAM_TIMEOUT"
   | "UPSTREAM_RESPONSE_INVALID"
   | "INTERNAL_ERROR";
 
-export type AppErrorStatus = 400 | 401 | 404 | 409 | 500 | 502 | 504;
+export type AppErrorStatus = 400 | 401 | 404 | 409 | 413 | 500 | 502 | 504;
 
 export class AppError extends Error {
   readonly name = "AppError";
