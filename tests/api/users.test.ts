@@ -13,13 +13,6 @@ function transactions(repository: UserRepository): TransactionManager<UserUnitOf
   return { run: async (operation) => operation({ users: repository }) };
 }
 
-type CreateAppWithOptions = (
-  dependencies: Parameters<typeof createApp>[0],
-  options?: { readonly maxRequestBodyBytes?: number },
-) => ReturnType<typeof createApp>;
-
-const createAppWithOptions = createApp as CreateAppWithOptions;
-
 function buildApp(principalResolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
   const user = {
     id: "550e8400-e29b-41d4-a716-446655440000",
@@ -34,7 +27,7 @@ function buildApp(principalResolver?: PrincipalResolver, maxRequestBodyBytes?: n
   };
   const logger = new JsonConsoleLogger({ service: "test" }, () => undefined);
   return {
-    app: createAppWithOptions(
+    app: createApp(
       {
         logger,
         readinessChecker: new ReadinessChecker([]),
