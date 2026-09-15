@@ -8,11 +8,14 @@ import type { Tracer } from "../core/observability/tracer";
 import { createErrorHandler } from "../http/error-handler";
 import type { AppEnv } from "../http/env";
 import { registerHealthRoutes } from "../http/health/health.routes";
+import { createRequestBodyLimitMiddleware } from "../http/middleware/request-body-limit.middleware";
 import { createRequestContextMiddleware } from "../http/middleware/request-context.middleware";
 import { requestLoggerMiddleware } from "../http/middleware/request-logger.middleware";
 import type { CreateUserService } from "../modules/users/application/create-user.service";
 import type { GetUserService } from "../modules/users/application/get-user.service";
 import { registerUserRoutes } from "../modules/users/presentation/user.routes";
+
+const DEFAULT_MAX_REQUEST_BODY_BYTES = 1_048_576;
 
 export interface AppDependencies {
   readonly logger: Logger;
@@ -24,7 +27,11 @@ export interface AppDependencies {
   readonly meter?: Meter;
 }
 
-export function createApp(dependencies: AppDependencies) {
+export interface AppOptions {
+  readonly maxRequestBodyBytes?: number;
+}
+
+export function createApp(dependencies: AppDependencies, options: AppOptions = {}) {
   const app = new OpenAPIHono<AppEnv>({
     defaultHook: (result) => {
       if (!result.success) {
@@ -53,6 +60,10 @@ export function createApp(dependencies: AppDependencies) {
     ),
   );
   app.use("*", requestLoggerMiddleware);
+  app.use(
+    "*",
+    createRequestBodyLimitMiddleware(options.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES),
+  );
   app.onError(createErrorHandler());
 
   registerHealthRoutes(app, dependencies.readinessChecker);
