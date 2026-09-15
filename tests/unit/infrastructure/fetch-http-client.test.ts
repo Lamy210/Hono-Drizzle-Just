@@ -76,3 +76,29 @@ test("fetch wrapper rejects absolute paths so callers cannot override the config
     client.request({ method: "GET", path: "https://evil.example/data" }, z.unknown()),
   ).rejects.toMatchObject({ code: "INVALID_HTTP_PATH" });
 });
+
+test("fetch wrapper rejects non-HTTP base URLs", () => {
+  const logger = new JsonConsoleLogger({}, () => undefined);
+
+  expect(
+    () =>
+      new FetchHttpClient({
+        baseUrl: "ftp://example.test",
+        logger,
+        fetchImpl: fetch,
+      }),
+  ).toThrow(RangeError);
+});
+
+test("fetch wrapper rejects base URLs with embedded credentials", () => {
+  const logger = new JsonConsoleLogger({}, () => undefined);
+
+  expect(
+    () =>
+      new FetchHttpClient({
+        baseUrl: "https://user:secret@example.test",
+        logger,
+        fetchImpl: fetch,
+      }),
+  ).toThrow(RangeError);
+});
