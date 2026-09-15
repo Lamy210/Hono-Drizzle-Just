@@ -75,6 +75,14 @@ Automatically deleting merged feature branches is safe for the repository's shor
 
 ## CI execution policy
 
+Verification has three repository-level command layers:
+
+- `just check-fast` / `bun run check:fast`: lint, typecheck, and unit/API tests with no PostgreSQL requirement;
+- `just check` / `bun run check`: committed migration-history verification plus `check-fast`; this is the command executed by the CI `quality` job;
+- `just ci` / `bun run ci`: `check` plus migration application and PostgreSQL integration tests; with the same database environment, this is the local full-CI equivalent.
+
+GitHub Actions keeps `quality` and `integration` as separate jobs so the fast quality path and PostgreSQL path can run in parallel. The workflow should call the same public package commands rather than duplicating their internal lint/typecheck/test sequence.
+
 The CI workflow uses explicit time bounds rather than the platform's long default timeout:
 
 - `quality`: 10 minutes;
