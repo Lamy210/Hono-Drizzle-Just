@@ -39,6 +39,10 @@ const createUserRoute = createRoute({
       description: "Email already exists",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
+    413: {
+      description: "Request body too large",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
   },
 });
 

@@ -13,7 +13,7 @@ function transactions(repository: UserRepository): TransactionManager<UserUnitOf
   return { run: async (operation) => operation({ users: repository }) };
 }
 
-function buildApp(principalResolver?: PrincipalResolver) {
+function buildApp(principalResolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
   const user = {
     id: "550e8400-e29b-41d4-a716-446655440000",
     email: "lamy@example.com",
@@ -27,13 +27,16 @@ function buildApp(principalResolver?: PrincipalResolver) {
   };
   const logger = new JsonConsoleLogger({ service: "test" }, () => undefined);
   return {
-    app: createApp({
-      logger,
-      readinessChecker: new ReadinessChecker([]),
-      createUserService: new CreateUserService(transactions(repository), logger),
-      getUserService: new GetUserService(repository),
-      ...(principalResolver === undefined ? {} : { principalResolver }),
-    }),
+    app: createApp(
+      {
+        logger,
+        readinessChecker: new ReadinessChecker([]),
+        createUserService: new CreateUserService(transactions(repository), logger),
+        getUserService: new GetUserService(repository),
+        ...(principalResolver === undefined ? {} : { principalResolver }),
+      },
+      maxRequestBodyBytes === undefined ? undefined : { maxRequestBodyBytes },
+    ),
     repository,
   };
 }
@@ -51,6 +54,38 @@ test("invalid request body returns the common validation error schema", async ()
   expect(body).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
   expect(typeof body.requestId).toBe("string");
   expect(body.traceId).toMatch(/^[0-9a-f]{32}$/);
+});
+
+test("oversized request body returns a correlated common 413 before service work", async () => {
+  const { app, repository } = buildApp(undefined, 128);
+  const requestId = "550e8400-e29b-41d4-a716-446655440000";
+  const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+  const request = new Request("http://localhost/users", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-request-id": requestId,
+      traceparent: `00-${traceId}-00f067aa0ba902b7-01`,
+    },
+    body: JSON.stringify({ email: "lamy@example.com", name: "L".repeat(100) }),
+  });
+
+  expect(request.headers.get("content-length")).toBeNull();
+  const response = await app.fetch(request);
+
+  expect(response.status).toBe(413);
+  const body = await response.json();
+  expect(body).toMatchObject({
+    error: {
+      code: "REQUEST_BODY_TOO_LARGE",
+      message: "Request body is too large",
+      details: { maxBytes: 128 },
+    },
+    requestId,
+    traceId,
+  });
+  expect(repository.findByEmail).not.toHaveBeenCalled();
+  expect(repository.create).not.toHaveBeenCalled();
 });
 
 test("uppercase UUID path input is accepted and normalized before repository access", async () => {

@@ -110,6 +110,8 @@ Configuration is loaded once during startup. Application modules should not read
 | `LOG_LEVEL` | `info` | Minimum structured log level |
 | `HTTP_DEFAULT_TIMEOUT_MS` | `10000` | Total outbound HTTP deadline across attempts and retry delays |
 | `HTTP_DEFAULT_ATTEMPT_TIMEOUT_MS` | `3000` | Maximum duration of one outbound fetch attempt |
+| `HTTP_MAX_REQUEST_BODY_BYTES` | `1048576` | Application-level inbound request body limit; Hono returns the common 413 error contract when exceeded |
+| `HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES` | `2097152` | Bun transport hard cap; must be greater than `HTTP_MAX_REQUEST_BODY_BYTES` |
 | `HEALTH_CHECK_TIMEOUT_MS` | `1500` | Critical dependency readiness deadline |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | Grace period for in-flight HTTP requests |
 | `OTEL_ENABLED` | `false` | Enable OpenTelemetry trace/metrics SDK and exporters |
@@ -117,6 +119,14 @@ Configuration is loaded once during startup. Application modules should not read
 | `OTEL_METRIC_EXPORT_INTERVAL_MS` | `60000` | Periodic metrics export interval |
 
 Invalid configuration fails startup before database/service composition. Configuration errors list variable names and validation reasons without echoing secret values. The OTLP endpoint accepts only HTTP(S) URLs without embedded credentials, query parameters, or fragments.
+
+## Inbound HTTP policy
+
+Inbound request bodies use two independent safety boundaries. Hono enforces the application-visible limit (`HTTP_MAX_REQUEST_BODY_BYTES`, 1 MiB by default) after request correlation and request logging are established. Requests that cross this limit receive HTTP `413` with the common `REQUEST_BODY_TOO_LARGE` JSON envelope, including `requestId` and `traceId` when available.
+
+Bun separately enforces `HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES` (2 MiB by default) as the process-level hard cap. This value must be strictly greater than the Hono limit so ordinary oversized requests can reach the application boundary and receive the structured error response. A payload that exceeds Bun's hard cap may be rejected before Hono runs, so that transport-level `413` is not guaranteed to use the application JSON error envelope or correlation fields.
+
+The defaults target JSON APIs. Applications that intentionally accept large uploads should review global and route-specific limits rather than simply increasing both values. Multipart upload policy, decompressed-body limits, slow-request protection, rate limiting, and reverse-proxy/WAF limits are separate concerns.
 
 ## Health and shutdown
 
