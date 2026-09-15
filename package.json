@@ -24,6 +24,8 @@
     "test:integration": "bun test tests/integration",
     "test:all": "bun run test && bun run test:integration",
     "check": "bun run lint && bun run typecheck && bun run test",
+    "template:init": "bun scripts/template/init.ts",
+    "template:doctor": "bun scripts/template/doctor.ts",
     "db:generate": "drizzle-kit generate",
     "db:check": "drizzle-kit check",
     "db:migrate": "drizzle-kit migrate",
