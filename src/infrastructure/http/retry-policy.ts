@@ -3,6 +3,20 @@ import type { HttpRequest } from "../../core/http/http-client";
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 502, 503, 504]);
 const DEFAULT_RETRY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+function nonNegativeFiniteNumber(name: string, value: number): number {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError(`${name} must be a finite number greater than or equal to 0`);
+  }
+  return value;
+}
+
+function nonNegativeInteger(name: string, value: number): number {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new RangeError(`${name} must be a non-negative integer`);
+  }
+  return value;
+}
+
 export type RetryFailure =
   | { readonly kind: "response"; readonly status: number; readonly headers?: Headers }
   | { readonly kind: "network" };
@@ -27,9 +41,9 @@ export class DefaultRetryPolicy implements RetryPolicy {
   private readonly random: () => number;
 
   constructor(options: DefaultRetryPolicyOptions = {}) {
-    this.maxRetries = options.maxRetries ?? 1;
-    this.baseDelayMs = options.baseDelayMs ?? 100;
-    this.maxDelayMs = options.maxDelayMs ?? 2_000;
+    this.maxRetries = nonNegativeInteger("maxRetries", options.maxRetries ?? 1);
+    this.baseDelayMs = nonNegativeFiniteNumber("baseDelayMs", options.baseDelayMs ?? 100);
+    this.maxDelayMs = nonNegativeFiniteNumber("maxDelayMs", options.maxDelayMs ?? 2_000);
     this.now = options.now ?? Date.now;
     this.random = options.random ?? Math.random;
   }
