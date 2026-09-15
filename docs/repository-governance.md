@@ -17,6 +17,7 @@ Before merge:
 - `quality` CI must succeed;
 - `coverage` CI must succeed;
 - `integration` CI must succeed;
+- `e2e` CI must succeed;
 - the aggregate `required` CI gate must succeed;
 - review conversations must be resolved;
 - database schema changes must include reviewed Drizzle migration history;
@@ -45,7 +46,7 @@ Require this exact job name from `.github/workflows/ci.yml`:
 
 - `required`
 
-`required` is the stable governance interface for CI. It uses `needs: [quality, integration, coverage]` plus `if: always()` and fails unless all three component jobs conclude with `success`. Keep `quality`, `coverage`, and `integration` as independently visible diagnostic jobs, but do not couple the GitHub ruleset directly to their names.
+`required` is the stable governance interface for CI. It uses `needs: [quality, integration, coverage, e2e]` plus `if: always()` and fails unless all four component jobs conclude with `success`. Keep `quality`, `coverage`, `integration`, and `e2e` as independently visible diagnostic jobs, but do not couple the GitHub ruleset directly to their names.
 
 Do not treat a cancelled component job as success. If the aggregate gate name changes, update the ruleset in the same operational change. Internal decomposition or renaming of component jobs is allowed only when the `required` gate is updated to preserve equivalent coverage.
 
@@ -81,9 +82,13 @@ Verification has repository-level command layers:
 - `just check-fast` / `bun run check:fast`: lint, typecheck, and unit/API tests with no PostgreSQL requirement;
 - `just check` / `bun run check`: committed migration-history verification plus `check-fast`; this is the command executed by the CI `quality` job;
 - `just coverage` / `bun run test:coverage`: unit/API coverage using Bun's native runner, with repository-owned minimums of 80% line coverage and 75% function coverage plus LCOV output;
-- `just ci` / `bun run ci`: `check`, coverage, migration application, and PostgreSQL integration tests; with the same database environment, this is the local full-CI equivalent.
+- `just test-e2e` / `bun run test:e2e`: launch the real production entrypoint against an already-migrated `DATABASE_URL`, verify readiness and the critical user flow over loopback TCP, then verify SIGTERM shutdown;
+- `bun run ci:e2e`: apply committed migrations and then run the standalone production-process E2E gate;
+- `just ci` / `bun run ci`: `check`, coverage, one committed-migration application through `ci:integration`, PostgreSQL integration tests, and the E2E suite against that already-migrated database; with the same database environment, this is the local full-CI equivalent.
 
-GitHub Actions keeps `quality`, `coverage`, and `integration` as separate jobs so the quality path, coverage gate, and PostgreSQL path can run in parallel. The workflow should call the same package commands rather than duplicating their internal lint/typecheck/test sequence.
+The E2E layer is intentionally broad and shallow. Detailed HTTP validation/error behavior remains in `tests/api`, while Drizzle, transaction, and persistence-adapter detail remains in `tests/integration`. `tests/e2e` proves that the production entrypoint, dependency composition, TCP server, PostgreSQL path, and shutdown lifecycle are connected correctly.
+
+GitHub Actions keeps `quality`, `coverage`, `integration`, and `e2e` as separate jobs so the quality path, coverage gate, persistence path, and production-process path can run in parallel. The workflow should call the same package commands rather than duplicating their internal lint/typecheck/test sequence.
 
 Coverage configuration lives in `bunfig.toml`; generated output lives under the ignored `coverage/` directory and CI verifies that `coverage/lcov.info` is non-empty. No external coverage SaaS is required by the default template. Bun coverage reflects files loaded by the selected test run, so the aggregate percentage is a regression gate and must not be interpreted as proof that every source file was included in measurement.
 
@@ -92,6 +97,7 @@ The CI workflow uses explicit time bounds rather than the platform's long defaul
 - `quality`: 10 minutes;
 - `coverage`: 10 minutes;
 - `integration`: 15 minutes;
+- `e2e`: 15 minutes;
 - `required`: 2 minutes.
 
 Workflow-level concurrency cancels an obsolete run when a newer run starts for the same pull request or the same push ref. Push and pull-request event streams remain separate so a cancelled run from one event type cannot obscure the required-check result produced by the other event type.

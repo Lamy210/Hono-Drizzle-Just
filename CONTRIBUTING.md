@@ -45,14 +45,18 @@ The repository's testing policy is intentional:
 - Service and domain tests do not require PostgreSQL.
 - Repository and transaction integration tests use a real PostgreSQL database and do not mock Drizzle.
 - API tests use Hono's in-process request API.
-- Database migrations are applied before integration tests.
+- Black-box E2E tests launch the public `bun run start` production entrypoint, communicate over loopback TCP, use a real PostgreSQL database, and verify process lifecycle behavior.
+- Database migrations are applied before integration and standalone E2E CI runs.
+
+Keep E2E broad and shallow. Validation/error matrices belong in `tests/api`; repository, transaction, and persistence details belong in `tests/integration`. `tests/e2e` proves that the production process wiring works end to end rather than duplicating those lower-level suites.
 
 Verification is split into stable layers:
 
 - `just check-fast` runs lint, typecheck, and unit/API tests. It does not require PostgreSQL and is intended for the normal edit loop.
 - `just check` adds committed migration-history verification and matches the GitHub Actions `quality` job.
 - `just coverage` runs unit/API tests with Bun's native coverage gate. The repository requires at least 80% line coverage and 75% function coverage and generates `coverage/lcov.info`.
-- `just ci` composes `just check`, the coverage gate, committed migration application, and the PostgreSQL integration suite. With the same database environment, this is the local full-CI equivalent.
+- `just test-e2e` runs the production-process E2E suite against the configured, already-migrated `DATABASE_URL`. Use `bun run ci:e2e` when you want the standalone migration-plus-E2E sequence.
+- `just ci` composes `just check`, the coverage gate, committed migration application, the PostgreSQL integration suite, and black-box E2E. With the same database environment, this is the local full-CI equivalent.
 
 Before opening a pull request, start PostgreSQL and run:
 
@@ -64,7 +68,7 @@ For a DB-free preflight, run `just check` and `just coverage` separately.
 
 Coverage is intentionally repository-owned: thresholds and reporters live in `bunfig.toml`, and no external coverage SaaS is required. Bun reports coverage for files loaded by the selected test run; a source file that is never imported may not appear in the report. Treat the aggregate percentage as a regression gate for executed code, not as proof that every source file was measured. Test files themselves are excluded from the coverage calculation.
 
-GitHub Actions installs dependencies with `bun ci`, runs `bun run check` in the `quality` job, runs `bun run test:coverage` in an independent `coverage` job, and runs migration application plus integration tests in the parallel `integration` job. The aggregate `required` job succeeds only when all three component jobs succeed.
+GitHub Actions installs dependencies with `bun ci`, runs `bun run check` in the `quality` job, runs `bun run test:coverage` in an independent `coverage` job, runs migration application plus persistence tests in the parallel `integration` job, and runs `bun run ci:e2e` in a separate PostgreSQL-backed `e2e` job. The aggregate `required` job succeeds only when all four component jobs succeed.
 
 ## Architecture boundaries
 
@@ -106,7 +110,7 @@ Use the pull request template and explain the problem, design choice, and verifi
 - the change is focused and documented where needed;
 - new or changed behavior has regression coverage;
 - `just ci` passes locally, or any environment-specific exception is explained;
-- quality, coverage, integration, and required CI are green;
+- quality, coverage, integration, E2E, and required CI are green;
 - schema changes include reviewed migrations;
 - dependency changes include the lockfile;
 - no secrets, raw credentials, PII, or high-cardinality telemetry were introduced;
