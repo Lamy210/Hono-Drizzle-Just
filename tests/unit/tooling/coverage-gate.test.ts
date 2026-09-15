@@ -5,6 +5,7 @@ interface PackageJson {
 }
 
 const root = new URL("../../../", import.meta.url);
+const coverageResultExpression = "$" + "{{ needs.coverage.result }}";
 
 async function readText(path: string): Promise<string> {
   return Bun.file(new URL(path, root)).text();
@@ -28,7 +29,7 @@ test("package and just commands expose the coverage gate", async () => {
     "bun test --coverage tests/unit tests/api",
   );
   expect(packageJson.scripts?.ci).toBe(
-    "bun run check && bun run test:coverage && bun run ci:integration",
+    "bun run check && bun run test:coverage && bun run ci:integration && bun run test:e2e",
   );
   expect(justfile).toContain("coverage:\n  bun run test:coverage\n");
 });
@@ -39,7 +40,7 @@ test("GitHub Actions makes coverage an independent required gate", async () => {
   expect(workflow).toContain("  coverage:\n");
   expect(workflow).toContain("      - run: bun run test:coverage\n");
   expect(workflow).toContain("      - run: test -s coverage/lcov.info\n");
-  expect(workflow).toContain("    needs: [quality, integration, coverage]\n");
-  expect(workflow).toContain("        COVERAGE_RESULT: ${{ needs.coverage.result }}\n");
+  expect(workflow).toContain("    needs: [quality, integration, coverage, e2e]\n");
+  expect(workflow).toContain(`        COVERAGE_RESULT: ${coverageResultExpression}\n`);
   expect(workflow).toContain('        test "$COVERAGE_RESULT" = "success"\n');
 });

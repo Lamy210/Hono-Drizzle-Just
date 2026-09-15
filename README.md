@@ -108,9 +108,9 @@ The default local database name is `app`; renaming it is not required and `just 
 - `compose.yaml` (`POSTGRES_DB` and the health-check database)
 - `drizzle.config.ts` fallback URL
 - `justfile` fallback URLs
-- `.github/workflows/ci.yml` integration-test `DATABASE_URL`
+- `.github/workflows/ci.yml` integration/E2E `DATABASE_URL` values and PostgreSQL database names
 
-The CI database may use a separate test name such as `app_test`; keep local tooling, migration tooling, and CI consistent with the naming convention you choose.
+The CI databases may use separate names such as `app_test` and `app_e2e`; keep local tooling, migration tooling, and CI consistent with the naming convention you choose.
 
 Before the first production deployment, review every variable in `.env.example`, never commit local credentials or production secrets, and explicitly review `SERVICE_NAME`, `DATABASE_URL`, `LOG_LEVEL`, shutdown deadlines, and OpenTelemetry settings for the target environment.
 
@@ -124,12 +124,13 @@ GitHub Actions are executed from full immutable commit SHAs. The trailing major-
 
 CI first requires the lockfile to exist and then installs with `bun ci`, so dependency metadata that is not reflected in `bun.lock` fails before lint, typecheck, tests, or migrations run. Do not delete or regenerate the lockfile opportunistically in unrelated changes.
 
-Verification commands have four stable layers:
+Verification commands have five stable layers:
 
 - `just check-fast` runs lint, typecheck, and unit/API tests without requiring PostgreSQL. Use it in the normal edit loop.
 - `just check` adds committed Drizzle migration-history verification and is the same quality command used by GitHub Actions.
 - `just coverage` runs the unit/API suite with Bun's native coverage gate, requiring at least 80% line coverage and 75% function coverage and producing `coverage/lcov.info`.
-- `just ci` runs the quality checks, coverage gate, applies committed migrations to `DATABASE_URL`, and runs the PostgreSQL integration suite. With the same database environment, it is the local full-CI equivalent.
+- `just test-e2e` launches the real production entrypoint and exercises readiness, a persisted user flow over loopback TCP, and SIGTERM shutdown against an already-migrated `DATABASE_URL`. Use `bun run ci:e2e` to apply committed migrations first and run the standalone E2E gate.
+- `just ci` runs the quality checks, coverage gate, applies committed migrations once, runs the PostgreSQL integration suite, and then runs black-box E2E against the migrated database. With the same database environment, it is the local full-CI equivalent.
 
 The service listens on `http://localhost:3000` by default.
 
@@ -193,7 +194,7 @@ Automatic transaction retries and implicit `AsyncLocalStorage` transactions are 
 
 The TypeScript schema under `src/db/schema` is the authoring model, while committed files under `drizzle/` are the deployable database history. After changing the schema, run `just db-generate`, review the generated SQL and metadata, and commit all resulting migration files together.
 
-Use `just db-migrate` to apply committed migrations. CI starts with an empty PostgreSQL database, applies the committed history, and only then runs integration tests. The quality job runs `bun run check`, which includes `just db-verify` semantics (`drizzle-kit check`, `drizzle-kit generate`, then a clean-diff check), so a schema change without a committed migration fails before merge.
+Use `just db-migrate` to apply committed migrations. CI starts DB-backed jobs with empty PostgreSQL databases and applies the committed history before the integration or E2E suite runs. The quality job runs `bun run check`, which includes `just db-verify` semantics (`drizzle-kit check`, `drizzle-kit generate`, then a clean-diff check), so a schema change without a committed migration fails before merge.
 
 `just db-push` remains available only as a local-development convenience for disposable databases. It is not used by CI or deployment workflows. The API process also does not run migrations during startup; schema deployment is a separate operational step.
 
@@ -259,6 +260,7 @@ just coverage
 just ci
 just test
 just test-integration
+just test-e2e
 just test-all
 just format
 just db-generate
@@ -278,8 +280,11 @@ just db-reset
 | Repository integration | Real PostgreSQL | No | Drizzle queries, constraints, and error mapping |
 | Transaction integration | Real PostgreSQL | No | Commit/rollback semantics |
 | API | No by default | Repository behind real services | HTTP validation/contracts |
+| Black-box E2E | Real PostgreSQL | No | Production entrypoint, TCP/readiness, persisted critical flow, and graceful shutdown |
 
 Repository integration tests use persistent factories to insert actual rows. This intentionally avoids mocking Drizzle or PostgreSQL. The same factory defaults can be used through build-only factories in database-free tests.
+
+The black-box E2E suite intentionally remains small. It launches `bun run start`, waits for `/health/ready`, checks liveness/readiness, creates and fetches one user over real HTTP, then sends SIGTERM and requires a clean process exit. Detailed negative HTTP cases stay in API tests and persistence details stay in integration tests.
 
 ### Coverage
 

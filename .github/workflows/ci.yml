@@ -71,10 +71,40 @@ jobs:
       - run: bun ci
       - run: bun run ci:integration
 
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d app_e2e"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/app_e2e
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: ".bun-version"
+      - name: Verify Bun toolchain version
+        run: test "$(bun --version)" = "$(tr -d '\r\n' < .bun-version)"
+      - run: test -f bun.lock
+      - run: bun ci
+      - run: bun run ci:e2e
+
   required:
     name: required
     if: ${{ always() }}
-    needs: [quality, integration, coverage]
+    needs: [quality, integration, coverage, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -83,7 +113,9 @@ jobs:
           QUALITY_RESULT: ${{ needs.quality.result }}
           INTEGRATION_RESULT: ${{ needs.integration.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
         run: |
           test "$QUALITY_RESULT" = "success"
           test "$INTEGRATION_RESULT" = "success"
           test "$COVERAGE_RESULT" = "success"
+          test "$E2E_RESULT" = "success"

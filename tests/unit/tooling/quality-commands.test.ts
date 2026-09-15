@@ -21,7 +21,7 @@ test("package scripts expose fast, quality, and full CI verification layers", as
     "bun run db:migrate && bun run test:integration",
   );
   expect(packageJson.scripts?.ci).toBe(
-    "bun run check && bun run test:coverage && bun run ci:integration",
+    "bun run check && bun run test:coverage && bun run ci:integration && bun run test:e2e",
   );
 });
 
