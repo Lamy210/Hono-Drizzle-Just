@@ -6,7 +6,7 @@ on:
       - test/openapi-contract-gate
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   preview:
@@ -20,11 +20,14 @@ jobs:
       - run: bun install
       - run: bun run openapi:generate
       - run: bun run openapi:contract
-      - name: Print generated assets
+      - name: Commit generated contract assets
         run: |
-          echo "=== BUN_LOCK_DIFF_BEGIN ==="
-          git diff -- bun.lock
-          echo "=== BUN_LOCK_DIFF_END ==="
-          echo "=== OPENAPI_SNAPSHOT_BEGIN ==="
-          cat openapi/openapi.json
-          echo "=== OPENAPI_SNAPSHOT_END ==="
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bun.lock openapi/openapi.json
+          if git diff --cached --quiet; then
+            echo "Generated contract assets are already committed."
+          else
+            git commit -m "chore: commit generated OpenAPI contract"
+            git push origin HEAD:test/openapi-contract-gate
+          fi
