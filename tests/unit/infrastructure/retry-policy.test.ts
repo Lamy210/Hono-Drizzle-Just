@@ -51,3 +51,25 @@ test("fallback retry delay uses capped exponential backoff with jitter", () => {
   expect(policy.nextDelay(getRequest, 2, failure)).toBe(100);
   expect(policy.nextDelay(getRequest, 3, failure)).toBeNull();
 });
+
+test("constructor rejects invalid maxRetries values", () => {
+  for (const maxRetries of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    expect(() => new DefaultRetryPolicy({ maxRetries })).toThrow(RangeError);
+  }
+});
+
+test("constructor rejects invalid delay values", () => {
+  for (const baseDelayMs of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    expect(() => new DefaultRetryPolicy({ baseDelayMs })).toThrow(RangeError);
+  }
+
+  for (const maxDelayMs of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    expect(() => new DefaultRetryPolicy({ maxDelayMs })).toThrow(RangeError);
+  }
+});
+
+test("constructor accepts zero retry and delay values", () => {
+  const policy = new DefaultRetryPolicy({ maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 });
+
+  expect(policy.nextDelay(getRequest, 1, { kind: "network" })).toBeNull();
+});
