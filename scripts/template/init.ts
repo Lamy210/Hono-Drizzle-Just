@@ -15,8 +15,9 @@ function parseIdentityArgs(argv: readonly string[]): {
   readonly identity: IdentityInput;
   readonly dryRun: boolean;
 } {
+  const normalizedArgv = argv[0] === "--" ? argv.slice(1) : argv;
   const parsed = parseArgs({
-    args: [...argv],
+    args: [...normalizedArgv],
     options: {
       name: { type: "string" },
       "package-name": { type: "string" },
