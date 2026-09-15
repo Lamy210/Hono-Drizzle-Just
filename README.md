@@ -37,6 +37,45 @@ just db-migrate
 just dev
 ```
 
+## Using this template
+
+After creating a repository with **Use this template**, customize the project identity before starting feature work.
+
+### Required project identity changes
+
+- Change `package.json#name` from `hono-drizzle-just-template` to your package/project name. Keep `private: true` unless you intentionally want npm publication. Because the root workspace name is also recorded in `bun.lock`, run `bun install` after changing the package name and commit `package.json` and `bun.lock` together.
+- Update `package.json#repository.url`, `package.json#bugs.url`, and `package.json#homepage` so they point to the new repository rather than this template repository.
+- Replace the `# Hono-Drizzle-Just` heading and opening README description with the new project identity while retaining technical documentation that still applies.
+- Set `SERVICE_NAME` in your local/deployment environment to the service name used for structured logs and OpenTelemetry. Update `.env.example` when the new repository should advertise a different default.
+
+If you want the application-level `SERVICE_NAME` default to change even when the environment variable is absent, update `src/config/config.schema.ts` and its configuration tests in the same change. Do not rely on a README-only rename for runtime identity.
+
+### Optional database naming
+
+The default local database name is `app`; renaming it is not required. If you choose a project-specific database name, update the coordinated references rather than editing only one URL:
+
+- `.env.example`
+- `compose.yaml` (`POSTGRES_DB` and the health-check database)
+- `drizzle.config.ts` fallback URL
+- `justfile` fallback URLs
+- `.github/workflows/ci.yml` integration-test `DATABASE_URL`
+
+The CI database may use a separate test name such as `app_test`; keep local tooling, migration tooling, and CI consistent with the naming convention you choose.
+
+### Verify the customized repository
+
+Review every variable in `.env.example`, create your local `.env`, and never commit local credentials or production secrets. Then run:
+
+```bash
+bun install
+just check
+just test-all
+```
+
+Do not blindly replace every occurrence of `Hono-Drizzle-Just`, `hono-drizzle-just`, `app`, or `app_test`. Some occurrences may be documentation, historical design records, test fixtures, or intentionally generic defaults. Change active project identity/configuration deliberately and use CI to catch inconsistencies.
+
+Before the first production deployment, explicitly review `SERVICE_NAME`, `DATABASE_URL`, `LOG_LEVEL`, shutdown deadlines, and OpenTelemetry settings for the target environment.
+
 ## Dependency reproducibility
 
 `bun.lock` is committed source-of-truth for the resolved dependency graph. Local development may use `bun install`; when a dependency is added, removed, or updated, commit the resulting `package.json` and `bun.lock` changes together in the same pull request.
