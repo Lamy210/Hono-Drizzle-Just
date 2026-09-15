@@ -39,6 +39,7 @@ jobs:
       - run: test -f bun.lock
       - run: bun ci
       - run: bun run test:coverage
+      - run: test -s coverage/lcov.info
 
   integration:
     runs-on: ubuntu-latest
