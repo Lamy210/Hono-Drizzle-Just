@@ -1,3 +1,5 @@
+import type { CommandRunner } from "./process-runner";
+
 export interface TemplateIdentity {
   readonly displayName: string;
   readonly packageName: string;
@@ -129,4 +131,26 @@ export function resolveTemplateIdentity(input: IdentityInput): TemplateIdentity 
     serviceName: assertServiceName(input.serviceName ?? deriveServiceName(repositoryName)),
     repositorySlug,
   };
+}
+
+export async function inferIdentityFromOrigin(
+  runner: CommandRunner,
+  root: string,
+  overrides: IdentityInput,
+): Promise<TemplateIdentity> {
+  if (overrides.repository) {
+    return resolveTemplateIdentity(overrides);
+  }
+
+  const result = await runner.run(["git", "remote", "get-url", "origin"], root);
+  if (result.exitCode !== 0) {
+    throw new Error("unable to read a GitHub origin; pass --repository <owner/repo>");
+  }
+
+  const repository = parseGitHubRepository(result.stdout.trim());
+  if (!repository) {
+    throw new Error("origin is not a recognized GitHub repository; pass --repository <owner/repo>");
+  }
+
+  return resolveTemplateIdentity({ ...overrides, repository });
 }
