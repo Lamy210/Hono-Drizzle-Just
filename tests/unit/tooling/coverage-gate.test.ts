@@ -38,6 +38,7 @@ test("GitHub Actions makes coverage an independent required gate", async () => {
 
   expect(workflow).toContain("  coverage:\n");
   expect(workflow).toContain("      - run: bun run test:coverage\n");
+  expect(workflow).toContain("      - run: test -s coverage/lcov.info\n");
   expect(workflow).toContain("    needs: [quality, integration, coverage]\n");
   expect(workflow).toContain("        COVERAGE_RESULT: ${{ needs.coverage.result }}\n");
   expect(workflow).toContain('        test "$COVERAGE_RESULT" = "success"\n');
