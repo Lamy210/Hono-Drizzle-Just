@@ -15,6 +15,7 @@ Changes to `main` should normally arrive through pull requests and use the repos
 Before merge:
 
 - `quality` CI must succeed;
+- `coverage` CI must succeed;
 - `integration` CI must succeed;
 - the aggregate `required` CI gate must succeed;
 - review conversations must be resolved;
@@ -44,7 +45,7 @@ Require this exact job name from `.github/workflows/ci.yml`:
 
 - `required`
 
-`required` is the stable governance interface for CI. It uses `needs: [quality, integration]` plus `if: always()` and fails unless both component jobs conclude with `success`. Keep `quality` and `integration` as independently visible diagnostic jobs, but do not couple the GitHub ruleset directly to their names.
+`required` is the stable governance interface for CI. It uses `needs: [quality, integration, coverage]` plus `if: always()` and fails unless all three component jobs conclude with `success`. Keep `quality`, `coverage`, and `integration` as independently visible diagnostic jobs, but do not couple the GitHub ruleset directly to their names.
 
 Do not treat a cancelled component job as success. If the aggregate gate name changes, update the ruleset in the same operational change. Internal decomposition or renaming of component jobs is allowed only when the `required` gate is updated to preserve equivalent coverage.
 
@@ -75,17 +76,21 @@ Automatically deleting merged feature branches is safe for the repository's shor
 
 ## CI execution policy
 
-Verification has three repository-level command layers:
+Verification has repository-level command layers:
 
 - `just check-fast` / `bun run check:fast`: lint, typecheck, and unit/API tests with no PostgreSQL requirement;
 - `just check` / `bun run check`: committed migration-history verification plus `check-fast`; this is the command executed by the CI `quality` job;
-- `just ci` / `bun run ci`: `check` plus migration application and PostgreSQL integration tests; with the same database environment, this is the local full-CI equivalent.
+- `just coverage` / `bun run test:coverage`: unit/API coverage using Bun's native runner, with repository-owned minimums of 80% line coverage and 75% function coverage plus LCOV output;
+- `just ci` / `bun run ci`: `check`, coverage, migration application, and PostgreSQL integration tests; with the same database environment, this is the local full-CI equivalent.
 
-GitHub Actions keeps `quality` and `integration` as separate jobs so the fast quality path and PostgreSQL path can run in parallel. The workflow should call the same public package commands rather than duplicating their internal lint/typecheck/test sequence.
+GitHub Actions keeps `quality`, `coverage`, and `integration` as separate jobs so the quality path, coverage gate, and PostgreSQL path can run in parallel. The workflow should call the same package commands rather than duplicating their internal lint/typecheck/test sequence.
+
+Coverage configuration lives in `bunfig.toml`; generated output lives under the ignored `coverage/` directory and CI verifies that `coverage/lcov.info` is non-empty. No external coverage SaaS is required by the default template. Bun coverage reflects files loaded by the selected test run, so the aggregate percentage is a regression gate and must not be interpreted as proof that every source file was included in measurement.
 
 The CI workflow uses explicit time bounds rather than the platform's long default timeout:
 
 - `quality`: 10 minutes;
+- `coverage`: 10 minutes;
 - `integration`: 15 minutes;
 - `required`: 2 minutes.
 

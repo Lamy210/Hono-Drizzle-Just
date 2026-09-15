@@ -20,7 +20,9 @@ test("package scripts expose fast, quality, and full CI verification layers", as
   expect(packageJson.scripts?.["ci:integration"]).toBe(
     "bun run db:migrate && bun run test:integration",
   );
-  expect(packageJson.scripts?.ci).toBe("bun run check && bun run ci:integration");
+  expect(packageJson.scripts?.ci).toBe(
+    "bun run check && bun run test:coverage && bun run ci:integration",
+  );
 });
 
 test("just exposes the same three verification layers", async () => {

@@ -21,6 +21,9 @@ check-fast:
 check:
   bun run check
 
+coverage:
+  bun run test:coverage
+
 ci:
   DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/app} bun run ci
 

@@ -124,11 +124,12 @@ GitHub Actions are executed from full immutable commit SHAs. The trailing major-
 
 CI first requires the lockfile to exist and then installs with `bun ci`, so dependency metadata that is not reflected in `bun.lock` fails before lint, typecheck, tests, or migrations run. Do not delete or regenerate the lockfile opportunistically in unrelated changes.
 
-Verification commands have three stable levels:
+Verification commands have four stable layers:
 
 - `just check-fast` runs lint, typecheck, and unit/API tests without requiring PostgreSQL. Use it in the normal edit loop.
 - `just check` adds committed Drizzle migration-history verification and is the same quality command used by GitHub Actions.
-- `just ci` runs the quality checks, applies committed migrations to `DATABASE_URL`, and runs the PostgreSQL integration suite. With the same database environment, it is the local full-CI equivalent.
+- `just coverage` runs the unit/API suite with Bun's native coverage gate, requiring at least 80% line coverage and 75% function coverage and producing `coverage/lcov.info`.
+- `just ci` runs the quality checks, coverage gate, applies committed migrations to `DATABASE_URL`, and runs the PostgreSQL integration suite. With the same database environment, it is the local full-CI equivalent.
 
 The service listens on `http://localhost:3000` by default.
 
@@ -254,6 +255,7 @@ just init
 just doctor
 just check-fast
 just check
+just coverage
 just ci
 just test
 just test-integration
@@ -278,6 +280,12 @@ just db-reset
 | API | No by default | Repository behind real services | HTTP validation/contracts |
 
 Repository integration tests use persistent factories to insert actual rows. This intentionally avoids mocking Drizzle or PostgreSQL. The same factory defaults can be used through build-only factories in database-free tests.
+
+### Coverage
+
+`just coverage` (equivalent to `bun run test:coverage`) runs the unit and API suites with Bun's native coverage collector. `bunfig.toml` enforces minimum aggregate coverage of **80% lines** and **75% functions**, excludes test files from the calculation, emits a text summary, and writes LCOV output to `coverage/lcov.info`. The generated `coverage/` directory is gitignored; CI verifies that the LCOV file is non-empty but does not require Codecov, Coveralls, or another external coverage service.
+
+Bun reports coverage for source files that are loaded by the selected test run. A source module that is never imported can be absent from the report, so the aggregate percentage is a regression gate for measured code and is **not** proof that every source file in the repository was included. Use the coverage report together with test design and integration/E2E coverage rather than optimizing only for the percentage.
 
 ## Authentication context
 

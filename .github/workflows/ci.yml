@@ -26,6 +26,21 @@ jobs:
       - run: bun ci
       - run: bun run check
 
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: ".bun-version"
+      - name: Verify Bun toolchain version
+        run: test "$(bun --version)" = "$(tr -d '\r\n' < .bun-version)"
+      - run: test -f bun.lock
+      - run: bun ci
+      - run: bun run test:coverage
+      - run: test -s coverage/lcov.info
+
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -59,7 +74,7 @@ jobs:
   required:
     name: required
     if: ${{ always() }}
-    needs: [quality, integration]
+    needs: [quality, integration, coverage]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -67,6 +82,8 @@ jobs:
         env:
           QUALITY_RESULT: ${{ needs.quality.result }}
           INTEGRATION_RESULT: ${{ needs.integration.result }}
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
         run: |
           test "$QUALITY_RESULT" = "success"
           test "$INTEGRATION_RESULT" = "success"
+          test "$COVERAGE_RESULT" = "success"
