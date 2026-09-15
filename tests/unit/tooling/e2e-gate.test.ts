@@ -5,6 +5,8 @@ interface PackageJson {
 }
 
 const root = new URL("../../../", import.meta.url);
+const localDatabaseDefault = "$" + "{DATABASE_URL:-postgres://postgres:postgres@localhost:5432/app}";
+const e2eResultExpression = "$" + "{{ needs.e2e.result }}";
 
 async function readText(path: string): Promise<string> {
   return Bun.file(new URL(path, root)).text();
@@ -24,7 +26,7 @@ test("just exposes the E2E test command", async () => {
   const justfile = await readText("justfile");
 
   expect(justfile).toContain(
-    "test-e2e:\n  DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/app} bun run test:e2e\n",
+    `test-e2e:\n  DATABASE_URL=${localDatabaseDefault} bun run test:e2e\n`,
   );
 });
 
@@ -34,6 +36,6 @@ test("GitHub Actions makes E2E an independent required job", async () => {
   expect(workflow).toContain("  e2e:\n");
   expect(workflow).toContain("- run: bun run ci:e2e\n");
   expect(workflow).toContain("needs: [quality, integration, coverage, e2e]");
-  expect(workflow).toContain("E2E_RESULT: ${{ needs.e2e.result }}");
+  expect(workflow).toContain(`E2E_RESULT: ${e2eResultExpression}`);
   expect(workflow).toContain('test "$E2E_RESULT" = "success"');
 });
