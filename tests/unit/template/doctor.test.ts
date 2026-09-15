@@ -68,7 +68,7 @@ async function makeFixture(overrides: Partial<Record<FixturePath, string>> = {})
 
 class DoctorRunner implements CommandRunner {
   constructor(
-    private readonly origin: string | undefined = "https://github.com/acme/ExampleAPI.git",
+    private readonly origin: string | null = "https://github.com/acme/ExampleAPI.git",
     private readonly bunVersion = "1.4.2",
   ) {}
 
@@ -77,7 +77,7 @@ class DoctorRunner implements CommandRunner {
       return { exitCode: 0, stdout: `${this.bunVersion}\n`, stderr: "" };
     }
     if (argv.join(" ") === "git remote get-url origin") {
-      return this.origin === undefined
+      return this.origin === null
         ? { exitCode: 2, stdout: "", stderr: "origin missing" }
         : { exitCode: 0, stdout: `${this.origin}\n`, stderr: "" };
     }
@@ -138,7 +138,7 @@ describe("runDoctor", () => {
 
   test("missing origin is WARN only", async () => {
     const root = await makeFixture();
-    const report = await runDoctor({ root, runner: new DoctorRunner(undefined) });
+    const report = await runDoctor({ root, runner: new DoctorRunner(null) });
 
     expect(report.exitCode).toBe(0);
     expect(findResult(report.results, "git-origin").status).toBe("WARN");
