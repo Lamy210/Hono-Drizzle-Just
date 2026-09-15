@@ -61,7 +61,7 @@ test("package and just commands expose OpenAPI contract verification", async () 
 
   expect(packageJson.scripts?.["openapi:generate"]).toBe("bun scripts/openapi/generate.ts");
   expect(packageJson.scripts?.["openapi:verify"]).toBe("bun scripts/openapi/verify.ts");
-  expect(packageJson.scripts?.["openapi:lint"]).toContain("redocly lint");
+  expect(packageJson.scripts?.["openapi:lint"]).toContain("@redocly/cli");
   expect(packageJson.scripts?.["openapi:contract"]).toContain("openapi:verify");
   expect(packageJson.scripts?.ci).toContain("openapi:contract");
   expect(justfile).toContain("openapi-generate:\n  bun run openapi:generate\n");
@@ -73,7 +73,7 @@ test("GitHub Actions makes contract verification independently required", async 
 
   expect(workflow).toContain("  contract:\n");
   expect(workflow).toContain("bun run openapi:contract");
-  expect(workflow).toContain("oasdiff breaking");
+  expect(workflow).toContain("scripts/openapi/oasdiff.sh breaking");
   expect(workflow).toContain("needs: [quality, integration, coverage, e2e, contract]");
   expect(workflow).toContain(`CONTRACT_RESULT: ${contractResultExpression}`);
   expect(workflow).toContain('test "$CONTRACT_RESULT" = "success"');

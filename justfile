@@ -24,6 +24,12 @@ check:
 coverage:
   bun run test:coverage
 
+openapi-generate:
+  bun run openapi:generate
+
+openapi-verify:
+  bun run openapi:contract
+
 ci:
   DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/app} bun run ci
 
