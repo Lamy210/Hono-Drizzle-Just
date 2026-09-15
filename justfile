@@ -1,4 +1,5 @@
 set shell := ["bash", "-uc"]
+set positional-arguments
 
 default: check
 
@@ -7,6 +8,12 @@ dev:
 
 install:
   bun install
+
+init *args:
+  bun run template:init -- "$@"
+
+doctor:
+  bun run template:doctor
 
 check:
   bun run check
