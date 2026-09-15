@@ -47,9 +47,7 @@ just init
 just doctor
 cp .env.example .env
 just db-up
-just db-migrate
-just check
-just test-all
+just ci
 just dev
 ```
 
@@ -126,6 +124,12 @@ GitHub Actions are executed from full immutable commit SHAs. The trailing major-
 
 CI first requires the lockfile to exist and then installs with `bun ci`, so dependency metadata that is not reflected in `bun.lock` fails before lint, typecheck, tests, or migrations run. Do not delete or regenerate the lockfile opportunistically in unrelated changes.
 
+Verification commands have three stable levels:
+
+- `just check-fast` runs lint, typecheck, and unit/API tests without requiring PostgreSQL. Use it in the normal edit loop.
+- `just check` adds committed Drizzle migration-history verification and is the same quality command used by GitHub Actions.
+- `just ci` runs the quality checks, applies committed migrations to `DATABASE_URL`, and runs the PostgreSQL integration suite. With the same database environment, it is the local full-CI equivalent.
+
 The service listens on `http://localhost:3000` by default.
 
 - `GET /health` — compatibility liveness endpoint
@@ -188,7 +192,7 @@ Automatic transaction retries and implicit `AsyncLocalStorage` transactions are 
 
 The TypeScript schema under `src/db/schema` is the authoring model, while committed files under `drizzle/` are the deployable database history. After changing the schema, run `just db-generate`, review the generated SQL and metadata, and commit all resulting migration files together.
 
-Use `just db-migrate` to apply committed migrations. CI starts with an empty PostgreSQL database, applies the committed history, and only then runs integration tests. The quality job runs `just db-verify` semantics (`drizzle-kit check`, `drizzle-kit generate`, then a clean-diff check) so a schema change without a committed migration fails before merge.
+Use `just db-migrate` to apply committed migrations. CI starts with an empty PostgreSQL database, applies the committed history, and only then runs integration tests. The quality job runs `bun run check`, which includes `just db-verify` semantics (`drizzle-kit check`, `drizzle-kit generate`, then a clean-diff check), so a schema change without a committed migration fails before merge.
 
 `just db-push` remains available only as a local-development convenience for disposable databases. It is not used by CI or deployment workflows. The API process also does not run migrations during startup; schema deployment is a separate operational step.
 
@@ -248,7 +252,9 @@ Retry eligibility and delay calculation live in `RetryPolicy`, so an application
 just init --dry-run
 just init
 just doctor
+just check-fast
 just check
+just ci
 just test
 just test-integration
 just test-all
