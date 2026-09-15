@@ -6,8 +6,16 @@ import { createBunServerOptions } from "./server-options";
 
 const config = loadConfig(Bun.env);
 const container = createProductionContainer(config);
-const app = createApp(container.dependencies);
-const server = Bun.serve(createBunServerOptions({ port: config.port, fetch: app.fetch }));
+const app = createApp(container.dependencies, {
+  maxRequestBodyBytes: config.httpMaxRequestBodyBytes,
+});
+const server = Bun.serve(
+  createBunServerOptions({
+    port: config.port,
+    fetch: app.fetch,
+    maxRequestBodySize: config.httpTransportMaxRequestBodyBytes,
+  }),
+);
 const shutdown = new GracefulShutdownCoordinator({
   server,
   lifecycle: container.lifecycle,
