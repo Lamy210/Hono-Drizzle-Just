@@ -55,13 +55,22 @@ Historical/reference text keeps Hono-Drizzle-Just and hono-drizzle-just-template
 `,
 } as const;
 
-async function makeFixture(overrides: Partial<Record<keyof typeof sourceFiles, string>> = {}) {
+type SourceFilePath = keyof typeof sourceFiles;
+
+async function makeFixture(overrides: Partial<Record<SourceFilePath, string>> = {}) {
   const root = await mkdtemp(join(tmpdir(), "hono-template-test-"));
   roots.push(root);
-  for (const [path, content] of Object.entries({ ...sourceFiles, ...overrides })) {
+  const files: Record<SourceFilePath, string> = { ...sourceFiles };
+  for (const path of Object.keys(overrides) as SourceFilePath[]) {
+    const content = overrides[path];
+    if (content !== undefined) {
+      files[path] = content;
+    }
+  }
+  for (const path of Object.keys(files) as SourceFilePath[]) {
     const fullPath = join(root, path);
     await mkdir(dirname(fullPath), { recursive: true });
-    await writeFile(fullPath, content, "utf8");
+    await writeFile(fullPath, files[path], "utf8");
   }
   return root;
 }
