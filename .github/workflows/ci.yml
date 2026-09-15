@@ -7,9 +7,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -26,6 +31,7 @@ jobs:
 
   integration:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:18-alpine
@@ -53,3 +59,18 @@ jobs:
       - run: bun ci
       - run: bun run db:migrate
       - run: bun run test:integration
+
+  required:
+    name: required
+    if: ${{ always() }}
+    needs: [quality, integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Verify required jobs
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+        run: |
+          test "$QUALITY_RESULT" = "success"
+          test "$INTEGRATION_RESULT" = "success"
