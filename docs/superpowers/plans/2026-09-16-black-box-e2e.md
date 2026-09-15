@@ -36,7 +36,7 @@
 
 - [ ] **Step 1: Add the failing tooling contract test**
 
-Create `tests/unit/tooling/e2e-gate.test.ts` with this structure:
+Create `tests/unit/tooling/e2e-gate.test.ts`:
 
 ```ts
 import { expect, test } from "bun:test";
@@ -89,7 +89,7 @@ git commit -m "test: define black-box E2E gate contract"
 
 - [ ] **Step 3: Verify the intended RED state in branch CI**
 
-Expected `quality` failure: `tests/unit/tooling/e2e-gate.test.ts` fails because `test:e2e`, `ci:e2e`, `just test-e2e`, the Actions `e2e` job, and `required` E2E aggregation do not exist yet. Existing migration/lint/typecheck behavior should remain green before the unit assertion failure.
+Expected `quality` failure: the new tooling test fails because `test:e2e`, `ci:e2e`, `just test-e2e`, the Actions `e2e` job, and `required` E2E aggregation do not exist yet. Existing migration/lint/typecheck steps must remain green before the unit assertion failure.
 
 ---
 
@@ -100,8 +100,8 @@ Expected `quality` failure: `tests/unit/tooling/e2e-gate.test.ts` fails because 
 - Create: `tests/e2e/server.e2e.ts`
 
 **Interfaces:**
-- Consumes: `DATABASE_URL` from the environment, public `bun run start`, `/health/live`, `/health/ready`, `POST /users`, `GET /users/{id}`.
-- Produces: `getFreeLoopbackPort(): Promise<number>` and one black-box E2E test that owns child startup, diagnostics, SIGTERM shutdown, and forced cleanup.
+- Consumes: `DATABASE_URL`, public `bun run start`, `/health/live`, `/health/ready`, `POST /users`, `GET /users/{id}`.
+- Produces: `getFreeLoopbackPort(): Promise<number>` and one black-box E2E test owning startup, diagnostics, SIGTERM shutdown, and forced cleanup.
 
 - [ ] **Step 1: Add the free-port helper**
 
@@ -115,7 +115,7 @@ export async function getFreeLoopbackPort(): Promise<number> {
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => resolve());
+    server.listen(0, "127.0.0.1", resolve);
   });
 
   const address = server.address();
@@ -125,24 +125,20 @@ export async function getFreeLoopbackPort(): Promise<number> {
   }
 
   await new Promise<void>((resolve, reject) => {
-    server.close((error) => {
-      if (error) reject(error);
-      else resolve();
-    });
+    server.close((error) => (error ? reject(error) : resolve()));
   });
 
   return address.port;
 }
 ```
 
-- [ ] **Step 2: Write the black-box E2E test before command/CI wiring**
+- [ ] **Step 2: Add exact process/readiness/diagnostic helpers to the E2E file**
 
-Create `tests/e2e/server.e2e.ts`. Keep all production interaction over HTTP and process boundaries; do not import application modules.
-
-Use these constants and helpers:
+Create `tests/e2e/server.e2e.ts` beginning with:
 
 ```ts
 import { expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import { getFreeLoopbackPort } from "./helpers/free-port";
 
 const root = new URL("../../", import.meta.url);
@@ -170,34 +166,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
     }),
   ]);
 }
-```
 
-Spawn the server with piped output and immediately start draining both streams:
-
-```ts
-const port = await getFreeLoopbackPort();
-const child = Bun.spawn({
-  cmd: ["bun", "run", "start"],
-  cwd: root.pathname,
-  env: {
-    ...process.env,
-    NODE_ENV: "test",
-    DATABASE_URL: requiredDatabaseUrl(),
-    PORT: String(port),
-    OTEL_ENABLED: "false",
-  },
-  stdin: "ignore",
-  stdout: "pipe",
-  stderr: "pipe",
-});
-const stdoutPromise = child.stdout.text();
-const stderrPromise = child.stderr.text();
-const baseUrl = `http://127.0.0.1:${port}`;
-```
-
-Implement bounded readiness polling. Each HTTP attempt must be bounded, and early child exit must fail immediately:
-
-```ts
 async function waitUntilReady(baseUrl: string, child: Bun.Subprocess): Promise<void> {
   const deadline = Date.now() + startupTimeoutMs;
   let lastState = "not attempted";
@@ -225,55 +194,102 @@ async function waitUntilReady(baseUrl: string, child: Bun.Subprocess): Promise<v
 
   throw new Error(`server did not become ready: ${lastState}`);
 }
+
+function failureWithLogs(error: unknown, stdout: string, stderr: string): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(`${message}\n--- child stdout ---\n${stdout}\n--- child stderr ---\n${stderr}`, {
+    cause: error,
+  });
+}
 ```
 
-The test body must exercise the real network flow:
+- [ ] **Step 3: Write the black-box test around the real child process**
+
+Use the public production command and start draining output immediately:
 
 ```ts
-const live = await fetch(`${baseUrl}/health/live`);
-expect(live.status).toBe(200);
-expect(await live.json()).toEqual({ status: "ok" });
+test("production server serves a persisted user flow and shuts down on SIGTERM", async () => {
+  const port = await getFreeLoopbackPort();
+  const child = Bun.spawn({
+    cmd: ["bun", "run", "start"],
+    cwd: fileURLToPath(root),
+    env: {
+      ...process.env,
+      NODE_ENV: "test",
+      DATABASE_URL: requiredDatabaseUrl(),
+      PORT: String(port),
+      OTEL_ENABLED: "false",
+    },
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const stdoutPromise = child.stdout.text();
+  const stderrPromise = child.stderr.text();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  let gracefulShutdownVerified = false;
 
-const ready = await fetch(`${baseUrl}/health/ready`);
-expect(ready.status).toBe(200);
-expect((await ready.json() as { status: string }).status).toBe("ready");
+  try {
+    await waitUntilReady(baseUrl, child);
 
-const email = `e2e-${crypto.randomUUID()}@example.com`;
-const name = "E2E User";
-const createdResponse = await fetch(`${baseUrl}/users`, {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify({ email, name }),
+    const live = await fetch(`${baseUrl}/health/live`);
+    expect(live.status).toBe(200);
+    expect(await live.json()).toEqual({ status: "ok" });
+
+    const ready = await fetch(`${baseUrl}/health/ready`);
+    expect(ready.status).toBe(200);
+    expect((await ready.json() as { status: string }).status).toBe("ready");
+
+    const email = `e2e-${crypto.randomUUID()}@example.com`;
+    const name = "E2E User";
+    const createdResponse = await fetch(`${baseUrl}/users`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, name }),
+    });
+    expect(createdResponse.status).toBe(201);
+    const created = (await createdResponse.json()) as UserResponse;
+    expect(created.email).toBe(email);
+    expect(created.name).toBe(name);
+    expect(created.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(Number.isNaN(Date.parse(created.createdAt))).toBe(false);
+
+    const fetchedResponse = await fetch(`${baseUrl}/users/${created.id}`);
+    expect(fetchedResponse.status).toBe(200);
+    const fetched = (await fetchedResponse.json()) as UserResponse;
+    expect(fetched).toEqual(created);
+
+    child.kill("SIGTERM");
+    const exitCode = await withTimeout(child.exited, shutdownTimeoutMs, "server shutdown");
+    expect(exitCode).toBe(0);
+
+    const stdout = await stdoutPromise;
+    const stderr = await stderrPromise;
+    expect(stdout).toContain('"message":"server.stopping"');
+    expect(stdout).toContain('"message":"server.stopped"');
+    gracefulShutdownVerified = true;
+
+    // Keep stderr captured for diagnostics, but do not require it to be empty:
+    // package runners may legitimately write command metadata there.
+    void stderr;
+  } catch (error) {
+    if (child.exitCode === null) {
+      child.kill("SIGKILL");
+      await child.exited;
+    }
+    throw failureWithLogs(error, await stdoutPromise, await stderrPromise);
+  } finally {
+    if (!gracefulShutdownVerified && child.exitCode === null) {
+      child.kill("SIGKILL");
+      await child.exited;
+    }
+  }
 });
-expect(createdResponse.status).toBe(201);
-const created = (await createdResponse.json()) as UserResponse;
-expect(created.email).toBe(email);
-expect(created.name).toBe(name);
-expect(created.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
-expect(Number.isNaN(Date.parse(created.createdAt))).toBe(false);
-
-const fetchedResponse = await fetch(`${baseUrl}/users/${created.id}`);
-expect(fetchedResponse.status).toBe(200);
-const fetched = (await fetchedResponse.json()) as UserResponse;
-expect(fetched).toEqual(created);
 ```
 
-Then prove graceful shutdown:
-
-```ts
-child.kill("SIGTERM");
-const exitCode = await withTimeout(child.exited, shutdownTimeoutMs, "server shutdown");
-expect(exitCode).toBe(0);
-
-const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
-expect(stderr).toBe("");
-expect(stdout).toContain('"message":"server.stopping"');
-expect(stdout).toContain('"message":"server.stopped"');
-```
-
-Wrap startup/scenario/shutdown in `try/finally`. If the child has not exited successfully by the time cleanup runs, send `SIGKILL`, await `child.exited`, and include captured stdout/stderr in any thrown startup/HTTP/shutdown error. Do not accept forced cleanup as graceful success.
-
-- [ ] **Step 3: Run the E2E directly against a migrated local PostgreSQL instance**
+- [ ] **Step 4: Run the E2E directly against a migrated local PostgreSQL instance**
 
 Run:
 
@@ -282,9 +298,9 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/app bun run db:migrate
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/app bun test tests/e2e
 ```
 
-Expected: PASS when PostgreSQL is available and migrated. If the production child fails, use captured stdout/stderr to fix the harness or real startup wiring without replacing `bun run start` with an in-process shortcut.
+Expected: PASS when PostgreSQL is available and migrated. Any failure must include child stdout/stderr. Do not replace `bun run start` with an in-process shortcut to make the test pass.
 
-- [ ] **Step 4: Commit the E2E harness and scenario**
+- [ ] **Step 5: Commit the E2E harness and scenario**
 
 ```bash
 git add tests/e2e/helpers/free-port.ts tests/e2e/server.e2e.ts
@@ -299,8 +315,8 @@ git commit -m "test: add production-process E2E scenario"
 - Modify: `package.json`
 - Modify: `justfile`
 - Modify: `.github/workflows/ci.yml`
+- Modify: `tests/unit/tooling/quality-commands.test.ts`
 - Test: `tests/unit/tooling/e2e-gate.test.ts`
-- Modify if exact full-CI expectation changes: `tests/unit/tooling/quality-commands.test.ts`
 
 **Interfaces:**
 - Consumes: `tests/e2e`, `db:migrate`, existing PostgreSQL Actions service pattern.
@@ -311,35 +327,31 @@ git commit -m "test: add production-process E2E scenario"
 Set these exact scripts in `package.json`:
 
 ```json
-{
-  "test:e2e": "bun test tests/e2e",
-  "ci:e2e": "bun run db:migrate && bun run test:e2e",
-  "ci": "bun run check && bun run test:coverage && bun run ci:integration && bun run test:e2e"
-}
+"test:e2e": "bun test tests/e2e",
+"ci:e2e": "bun run db:migrate && bun run test:e2e",
+"ci": "bun run check && bun run test:coverage && bun run ci:integration && bun run test:e2e"
 ```
 
-Keep `ci:integration` unchanged as:
+Keep:
 
 ```json
 "ci:integration": "bun run db:migrate && bun run test:integration"
 ```
 
-This means standalone `ci:e2e` owns migration, while full `ci` migrates once in `ci:integration` and then runs `test:e2e` directly.
+Standalone `ci:e2e` owns migration. Full `ci` migrates once in `ci:integration` and runs `test:e2e` directly afterward.
 
 - [ ] **Step 2: Add the Just wrapper**
 
-Add to `justfile` near the existing test recipes:
+Add near the existing test recipes:
 
 ```make
 test-e2e:
   DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/app} bun run test:e2e
 ```
 
-Do not add another migration wrapper here; callers wanting setup plus E2E use `bun run ci:e2e`, while `just ci` remains the full verification entrypoint.
-
 - [ ] **Step 3: Add the independent GitHub Actions job**
 
-Add an `e2e` job parallel to `integration` using the same immutable checkout/setup-bun SHAs and a dedicated PostgreSQL 18 service:
+Add:
 
 ```yaml
   e2e:
@@ -375,19 +387,16 @@ Add an `e2e` job parallel to `integration` using the same immutable checkout/set
 
 - [ ] **Step 4: Make E2E mandatory in `required`**
 
-Change the aggregate job to:
+Set:
 
 ```yaml
-  required:
-    name: required
-    if: ${{ always() }}
-    needs: [quality, integration, coverage, e2e]
+needs: [quality, integration, coverage, e2e]
 ```
 
 Add:
 
 ```yaml
-          E2E_RESULT: ${{ needs.e2e.result }}
+E2E_RESULT: ${{ needs.e2e.result }}
 ```
 
 and:
@@ -396,9 +405,9 @@ and:
 test "$E2E_RESULT" = "success"
 ```
 
-- [ ] **Step 5: Update the existing full-CI string contract**
+- [ ] **Step 5: Update the existing exact full-CI contract**
 
-In `tests/unit/tooling/quality-commands.test.ts`, update only the expected `scripts.ci` value to:
+In `tests/unit/tooling/quality-commands.test.ts` change only the expected `scripts.ci` value to:
 
 ```ts
 expect(packageJson.scripts?.ci).toBe(
@@ -406,9 +415,7 @@ expect(packageJson.scripts?.ci).toBe(
 );
 ```
 
-Keep the existing quality/integration reuse assertions unchanged.
-
-- [ ] **Step 6: Verify the contract turns GREEN and the real E2E job executes**
+- [ ] **Step 6: Verify tooling GREEN and real E2E execution in CI**
 
 Run locally where possible:
 
@@ -418,7 +425,7 @@ bun test tests/unit/tooling/e2e-gate.test.ts tests/unit/tooling/quality-commands
 
 Expected: PASS.
 
-Then push the branch and inspect CI. Expected jobs:
+Push the branch and require:
 
 ```text
 quality      success
@@ -428,7 +435,7 @@ e2e          success
 required     success
 ```
 
-The `e2e` job must show successful `bun run ci:e2e`, meaning migrations and the real child-process test both ran.
+The `e2e` job must show successful `bun run ci:e2e`.
 
 - [ ] **Step 7: Commit command and CI wiring**
 
@@ -449,11 +456,11 @@ git commit -m "ci: require black-box E2E verification"
 
 **Interfaces:**
 - Consumes: final public commands and CI semantics from Task 3.
-- Produces: contributor-facing documentation that consistently describes the four verification layers and five CI jobs including the aggregate gate.
+- Produces: contributor-facing documentation that consistently describes the E2E layer and the five CI jobs including the aggregate gate.
 
 - [ ] **Step 1: Update README testing/command documentation**
 
-Document:
+Document these public commands:
 
 ```text
 just test-e2e     # real production process + PostgreSQL over TCP
@@ -461,21 +468,21 @@ bun run ci:e2e    # migrate then run standalone E2E
 just ci           # quality + coverage + integration + E2E
 ```
 
-State explicitly that E2E launches `bun run start`, waits for `/health/ready`, exercises create/fetch user over real HTTP, and verifies SIGTERM shutdown. Keep negative HTTP edge cases assigned to `tests/api` and persistence detail tests assigned to `tests/integration`.
+State that E2E launches `bun run start`, waits for `/health/ready`, exercises create/fetch user over real HTTP, and verifies SIGTERM shutdown. Keep negative HTTP cases in `tests/api` and persistence-detail tests in `tests/integration`.
 
 - [ ] **Step 2: Update CONTRIBUTING**
 
-Add `test-e2e` to the contributor verification ladder and recommend `just ci` before opening a PR when PostgreSQL is available. Explain that the independent `e2e` Actions job is required even when lower-level tests pass.
+Add `test-e2e` to the contributor verification ladder and recommend `just ci` before opening a PR when PostgreSQL is available. State that the independent `e2e` Actions job is required even when lower-level suites pass.
 
 - [ ] **Step 3: Update governance and PR checklist**
 
-In `docs/repository-governance.md`, define the required CI components as `quality`, `coverage`, `integration`, and `e2e`, aggregated by `required`.
+In `docs/repository-governance.md`, define required CI components as `quality`, `coverage`, `integration`, and `e2e`, aggregated by `required`.
 
-In `.github/pull_request_template.md`, add checkboxes for local E2E/full CI where relevant and for the Actions `e2e` job.
+In `.github/pull_request_template.md`, add local E2E/full-CI verification and Actions `e2e` checks.
 
 - [ ] **Step 4: Run the final branch verification**
 
-Use the exact final branch head. Confirm:
+On the exact final branch head require:
 
 ```text
 quality      completed / success
@@ -485,37 +492,29 @@ e2e          completed / success
 required     completed / success
 ```
 
-Also compare `main...test/black-box-e2e` and verify there are no unrelated runtime/dependency/schema changes.
+Compare `main...test/black-box-e2e` and verify there are no unrelated runtime dependency, database schema, or production behavior changes.
 
-- [ ] **Step 5: Open PR #25 and review before merge**
+- [ ] **Step 5: Open PR #25 and perform review checks**
 
-PR title:
+Use title:
 
 ```text
 test: add black-box production E2E gate
 ```
 
-PR body must include the initial RED CI evidence, the first real E2E GREEN evidence, the exact final head SHA, the production path covered, and confirmation that no dependency or schema change was introduced.
+The PR body must include initial RED CI evidence, first real E2E GREEN evidence, exact final head SHA, production path covered, and confirmation that no dependency/schema change was introduced.
 
 Inspect the PR patch, review submissions, and review threads. Do not merge with unresolved review threads or a changed/unverified head SHA.
 
 - [ ] **Step 6: Verify PR-triggered CI on the exact PR head**
 
-Require all five jobs to succeed on that exact SHA:
+Require `quality`, `coverage`, `integration`, `e2e`, and `required` to succeed on that exact SHA.
 
-```text
-quality
-coverage
-integration
-e2e
-required
-```
+- [ ] **Step 7: Squash merge and verify `main`**
 
-- [ ] **Step 7: Squash merge with expected head SHA and verify `main`**
+Squash merge only with the validated expected head SHA. Then verify the merge commit itself on `main` has all five jobs completed with conclusion `success`.
 
-Squash merge only with the validated head SHA. Then verify the merge commit itself on `main` has all five jobs completed with conclusion `success`.
-
-- [ ] **Step 8: Commit documentation if it was not already included in the final implementation commit**
+- [ ] **Step 8: Commit documentation**
 
 ```bash
 git add README.md CONTRIBUTING.md docs/repository-governance.md .github/pull_request_template.md
