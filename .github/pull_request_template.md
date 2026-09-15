@@ -19,8 +19,9 @@
 ## Verification
 
 - [ ] I confirmed the intended failure first for behavior changes where TDD applies.
-- [ ] `just check` passes.
-- [ ] `just test-all` passes, or I explained why a narrower suite is sufficient.
+- [ ] `just check-fast` passes for the normal edit loop.
+- [ ] `just check` passes and matches CI `quality`.
+- [ ] `just ci` passes, or I explained why local PostgreSQL/full-CI execution is unavailable.
 - [ ] CI `quality` passes.
 - [ ] CI `integration` passes.
 - [ ] CI `required` passes.
