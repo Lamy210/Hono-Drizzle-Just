@@ -183,6 +183,7 @@ export class FetchHttpClient implements HttpClient {
           method: request.method,
           headers,
           ...(body === undefined ? {} : { body }),
+          redirect: "manual",
           signal: this.signalFactory(attemptTimeoutMs),
         });
 
