@@ -2,6 +2,16 @@
   "name": "hono-drizzle-just-template",
   "version": "0.1.0",
   "private": true,
+  "description": "A reusable Bun, Hono, Drizzle ORM, and PostgreSQL backend template.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lamy210/Hono-Drizzle-Just.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Lamy210/Hono-Drizzle-Just/issues"
+  },
+  "homepage": "https://github.com/Lamy210/Hono-Drizzle-Just#readme",
   "type": "module",
   "scripts": {
     "dev": "bun --watch src/app/server.ts",
