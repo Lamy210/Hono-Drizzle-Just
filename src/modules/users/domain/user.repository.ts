@@ -1,7 +1,7 @@
-import type { CreateUserInput, User } from "./user";
+import type { TenantScopedCreateUserInput, User } from "./user";
 
 export interface UserRepository {
-  findById(id: string): Promise<User | null>;
-  findByEmail(email: string): Promise<User | null>;
-  create(input: CreateUserInput): Promise<User>;
+  findById(tenantId: string, id: string): Promise<User | null>;
+  findByEmail(tenantId: string, email: string): Promise<User | null>;
+  create(input: TenantScopedCreateUserInput): Promise<User>;
 }

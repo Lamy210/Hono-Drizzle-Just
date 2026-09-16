@@ -234,6 +234,26 @@
             },
             "description": "Validation error"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or credentials invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated principal lacks tenant access or the required scope"
+          },
           "409": {
             "content": {
               "application/json": {
@@ -242,7 +262,7 @@
                 }
               }
             },
-            "description": "Email already exists"
+            "description": "Email already exists within the tenant"
           },
           "413": {
             "content": {
@@ -295,6 +315,26 @@
             },
             "description": "Validation error"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or credentials invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated principal lacks tenant access or the required scope"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -303,7 +343,7 @@
                 }
               }
             },
-            "description": "User not found"
+            "description": "User not found in the current tenant"
           }
         },
         "tags": [

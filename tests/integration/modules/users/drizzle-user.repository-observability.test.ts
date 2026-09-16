@@ -66,10 +66,13 @@ afterAll(async () => {
   await database.close();
 });
 
-test("findById records SELECT users without identifier cardinality", async () => {
-  const seeded = await userFactory.create({ email: `observed-${crypto.randomUUID()}@example.com` });
+test("findById records SELECT users without tenant or identifier cardinality", async () => {
+  const seeded = await userFactory.create({
+    tenantId: "tenant-observed-id",
+    email: `observed-${crypto.randomUUID()}@example.com`,
+  });
 
-  const found = await repository.findById(seeded.id);
+  const found = await repository.findById(seeded.tenantId, seeded.id);
 
   expect(found?.id).toBe(seeded.id);
   expect(tracer.spans).toHaveLength(1);
@@ -79,15 +82,18 @@ test("findById records SELECT users without identifier cardinality", async () =>
     "db.operation.name": "SELECT",
     "db.collection.name": "users",
   });
-  expect(JSON.stringify(tracer.spans[0]?.options.attributes)).not.toContain(seeded.id);
+  const attributes = JSON.stringify(tracer.spans[0]?.options.attributes);
+  expect(attributes).not.toContain(seeded.id);
+  expect(attributes).not.toContain(seeded.tenantId);
   expect(meter.records[0]?.name).toBe("db.client.operation.duration");
 });
 
-test("findByEmail records SELECT users without email cardinality", async () => {
+test("findByEmail records SELECT users without tenant or email cardinality", async () => {
   const email = `email-observed-${crypto.randomUUID()}@example.com`;
-  await userFactory.create({ email });
+  const tenantId = "tenant-observed-email";
+  await userFactory.create({ tenantId, email });
 
-  const found = await repository.findByEmail(email);
+  const found = await repository.findByEmail(tenantId, email);
 
   expect(found?.email).toBe(email);
   expect(tracer.spans).toHaveLength(1);
@@ -97,13 +103,16 @@ test("findByEmail records SELECT users without email cardinality", async () => {
     "db.operation.name": "SELECT",
     "db.collection.name": "users",
   });
-  expect(JSON.stringify(tracer.spans[0]?.options.attributes)).not.toContain(email);
+  const attributes = JSON.stringify(tracer.spans[0]?.options.attributes);
+  expect(attributes).not.toContain(email);
+  expect(attributes).not.toContain(tenantId);
 });
 
-test("create records INSERT users without input cardinality", async () => {
+test("create records INSERT users without tenant or input cardinality", async () => {
   const email = `insert-observed-${crypto.randomUUID()}@example.com`;
+  const tenantId = "tenant-observed-create";
 
-  const created = await repository.create({ email, name: "Observed" });
+  const created = await repository.create({ tenantId, email, name: "Observed" });
 
   expect(created.email).toBe(email);
   expect(tracer.spans).toHaveLength(1);
@@ -113,17 +122,20 @@ test("create records INSERT users without input cardinality", async () => {
     "db.operation.name": "INSERT",
     "db.collection.name": "users",
   });
-  expect(JSON.stringify(tracer.spans[0]?.options.attributes)).not.toContain(email);
-  expect(JSON.stringify(tracer.spans[0]?.options.attributes)).not.toContain("Observed");
+  const attributes = JSON.stringify(tracer.spans[0]?.options.attributes);
+  expect(attributes).not.toContain(email);
+  expect(attributes).not.toContain("Observed");
+  expect(attributes).not.toContain(tenantId);
 });
 
-test("duplicate create keeps conflict mapping and marks the database span as an error", async () => {
+test("duplicate tenant-local create keeps conflict mapping and marks the database span as an error", async () => {
   const email = `duplicate-observed-${crypto.randomUUID()}@example.com`;
-  await repository.create({ email, name: "First" });
+  const tenantId = "tenant-observed-duplicate";
+  await repository.create({ tenantId, email, name: "First" });
   tracer.spans.length = 0;
   meter.records.length = 0;
 
-  await expect(repository.create({ email, name: "Duplicate" })).rejects.toMatchObject({
+  await expect(repository.create({ tenantId, email, name: "Duplicate" })).rejects.toMatchObject({
     code: "CONFLICT",
     status: 409,
   });
@@ -132,5 +144,7 @@ test("duplicate create keeps conflict mapping and marks the database span as an 
   expect(tracer.spans[0]?.name).toBe("INSERT users");
   expect(tracer.spans[0]?.span.status).toBe("error");
   expect(meter.records).toHaveLength(1);
-  expect(JSON.stringify(tracer.spans[0]?.options.attributes)).not.toContain(email);
+  const attributes = JSON.stringify(tracer.spans[0]?.options.attributes);
+  expect(attributes).not.toContain(email);
+  expect(attributes).not.toContain(tenantId);
 });

@@ -35,8 +35,16 @@ const createUserRoute = createRoute({
       description: "Validation error",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
+    401: {
+      description: "Authentication required or credentials invalid",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    403: {
+      description: "Authenticated principal lacks tenant access or the required scope",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
     409: {
-      description: "Email already exists",
+      description: "Email already exists within the tenant",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     413: {
@@ -60,8 +68,16 @@ const getUserRoute = createRoute({
       description: "Validation error",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
+    401: {
+      description: "Authentication required or credentials invalid",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    403: {
+      description: "Authenticated principal lacks tenant access or the required scope",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
     404: {
-      description: "User not found",
+      description: "User not found in the current tenant",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
   },
@@ -78,7 +94,7 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
   app.openapi(getUserRoute, async (c) => {
     const { id } = c.req.valid("param");
     const canonicalId = CanonicalUuidSchema.parse(id);
-    const user = await dependencies.getUserService.execute(canonicalId);
+    const user = await dependencies.getUserService.execute(canonicalId, c.get("requestContext"));
     const response = UserResponseSchema.parse(toUserResponse(user));
     return c.json(response, 200);
   });

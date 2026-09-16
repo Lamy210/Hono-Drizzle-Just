@@ -5,6 +5,14 @@ const required = {
   DATABASE_URL: "postgres://postgres:postgres@localhost:5432/app",
 };
 
+const staticAuth = {
+  AUTH_DEV_STATIC_ENABLED: "true",
+  AUTH_DEV_STATIC_BEARER_TOKEN: "0123456789abcdef0123456789abcdef",
+  AUTH_DEV_STATIC_SUBJECT: "test-user",
+  AUTH_DEV_STATIC_TENANT_ID: "tenant-a",
+  AUTH_DEV_STATIC_SCOPES: "users:read users:write users:read",
+};
+
 describe("loadConfig", () => {
   test("applies safe defaults and coerces numeric values", () => {
     const config = loadConfig({ ...required, PORT: "8080", DATABASE_POOL_MAX: "20" });
@@ -25,7 +33,69 @@ describe("loadConfig", () => {
       otelEnabled: false,
       otelExporterOtlpEndpoint: "http://localhost:4318",
       otelMetricExportIntervalMs: 60_000,
+      authDevStaticEnabled: false,
+      authDevStaticScopes: [],
     });
+  });
+
+  test("parses enabled static bearer configuration and deduplicates scopes", () => {
+    const config = loadConfig({ ...required, ...staticAuth, NODE_ENV: "test" });
+
+    expect(config).toMatchObject({
+      authDevStaticEnabled: true,
+      authDevStaticBearerToken: staticAuth.AUTH_DEV_STATIC_BEARER_TOKEN,
+      authDevStaticSubject: "test-user",
+      authDevStaticTenantId: "tenant-a",
+      authDevStaticScopes: ["users:read", "users:write"],
+    });
+  });
+
+  test("rejects static bearer authentication in production", () => {
+    expect(() => loadConfig({ ...required, ...staticAuth, NODE_ENV: "production" })).toThrow(
+      ConfigurationError,
+    );
+  });
+
+  test("requires complete valid static auth fields only when enabled", () => {
+    for (const missing of [
+      "AUTH_DEV_STATIC_BEARER_TOKEN",
+      "AUTH_DEV_STATIC_SUBJECT",
+      "AUTH_DEV_STATIC_TENANT_ID",
+      "AUTH_DEV_STATIC_SCOPES",
+    ] as const) {
+      const env: Record<string, string | undefined> = { ...required, ...staticAuth, NODE_ENV: "test" };
+      delete env[missing];
+      expect(() => loadConfig(env)).toThrow(ConfigurationError);
+    }
+
+    expect(() =>
+      loadConfig({ ...required, ...staticAuth, NODE_ENV: "test", AUTH_DEV_STATIC_BEARER_TOKEN: "short" }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      loadConfig({ ...required, ...staticAuth, NODE_ENV: "test", AUTH_DEV_STATIC_TENANT_ID: " __bad " }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      loadConfig({ ...required, ...staticAuth, NODE_ENV: "test", AUTH_DEV_STATIC_TENANT_ID: "__legacy__:1" }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      loadConfig({ ...required, ...staticAuth, NODE_ENV: "test", AUTH_DEV_STATIC_SCOPES: "users:read bad/scope" }),
+    ).toThrow(ConfigurationError);
+  });
+
+  test("does not include static bearer token contents in configuration errors", () => {
+    const secret = "super-secret-static-bearer-token-that-must-not-leak";
+    try {
+      loadConfig({
+        ...required,
+        ...staticAuth,
+        NODE_ENV: "production",
+        AUTH_DEV_STATIC_BEARER_TOKEN: secret,
+      });
+      throw new Error("expected loadConfig to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigurationError);
+      expect(String(error)).not.toContain(secret);
+    }
   });
 
   test("rejects a transport body cap that does not exceed the application body limit", () => {

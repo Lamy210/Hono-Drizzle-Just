@@ -27,16 +27,18 @@ test("persistent user factory creates valid rows readable through the real repos
   expect(new Set(created.map((user) => user.email)).size).toBe(3);
   for (const user of created) {
     expect(user.id).toMatch(/^[0-9a-f-]{36}$/);
-    expect(await repository.findById(user.id)).toEqual(user);
+    expect(await repository.findById(user.tenantId, user.id)).toEqual(user);
   }
 });
 
-test("user factory supports explicit overrides for deterministic repository tests", async () => {
+test("user factory supports explicit tenant overrides for deterministic repository tests", async () => {
   const created = await userFactory.create({
+    tenantId: "tenant-factory",
     email: "factory@example.com",
     name: "Factory User",
   });
 
+  expect(created.tenantId).toBe("tenant-factory");
   expect(created.email).toBe("factory@example.com");
   expect(created.name).toBe("Factory User");
 });

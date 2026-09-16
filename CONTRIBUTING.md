@@ -21,7 +21,7 @@ just db-migrate
 just check
 ```
 
-Do not commit local `.env` files, credentials, tokens, or generated secrets.
+Do not commit local `.env` files, credentials, tokens, or generated secrets. The built-in static bearer resolver is a development/test adapter only; never configure it as production authentication, and never commit a real bearer token into `.env.example`, tests, documentation, or fixtures.
 
 ## Branches and change scope
 
@@ -45,7 +45,7 @@ The repository's testing policy is intentional:
 - Service and domain tests do not require PostgreSQL.
 - Repository and transaction integration tests use a real PostgreSQL database and do not mock Drizzle.
 - API tests use Hono's in-process request API.
-- Black-box E2E tests launch the public `bun run start` production entrypoint, communicate over loopback TCP, use a real PostgreSQL database, and verify process lifecycle behavior.
+- Black-box E2E tests launch the public `bun run start` production entrypoint, communicate over loopback TCP, use a real PostgreSQL database, and verify process lifecycle behavior. Tenant authorization E2E uses sequential tenant A/B production processes over the same database rather than a test-only server path.
 - Database migrations are applied before integration and standalone E2E CI runs.
 - The committed `openapi/openapi.json` artifact is generated from the same `createApp()` runtime document served at `/openapi.json`; it is not maintained by hand.
 
@@ -98,6 +98,8 @@ In particular:
 - Application services depend on ports such as repositories and transaction managers, not concrete infrastructure adapters.
 - External HTTP calls go through the application-owned `HttpClient` abstraction.
 - Authentication provider data is normalized into the provider-neutral `Principal` boundary.
+- Authorization stays in the application layer: protected use cases derive tenant ownership only from `RequestContext.principal`, and authorization failures must not disclose required scopes, other tenant IDs, or row existence.
+- Tenant-owned repositories must keep tenant ID in their public method signatures and SQL predicates; do not add an unscoped user lookup as a convenience method.
 - Telemetry attributes must remain low-cardinality and must not contain SQL bind values, credentials, email addresses, UUIDs, or other sensitive/request-specific values.
 
 ## Database changes

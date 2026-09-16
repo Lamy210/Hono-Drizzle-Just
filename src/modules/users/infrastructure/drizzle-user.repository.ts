@@ -1,9 +1,9 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { AppError } from "../../../core/errors/app-error";
 import { users } from "../../../db/schema";
 import type { DatabaseSession } from "../../../infrastructure/database/database";
 import type { DatabaseObserver } from "../../../infrastructure/database/database-observer";
-import type { CreateUserInput, User } from "../domain/user";
+import type { TenantScopedCreateUserInput, User } from "../domain/user";
 import type { UserRepository } from "../domain/user.repository";
 
 function hasErrorCode(error: unknown, code: string): boolean {
@@ -31,9 +31,13 @@ export class DrizzleUserRepository implements UserRepository {
     private readonly observer?: DatabaseObserver,
   ) {}
 
-  async findById(id: string): Promise<User | null> {
+  async findById(tenantId: string, id: string): Promise<User | null> {
     const execute = async (): Promise<User | null> => {
-      const [row] = await this.db.select().from(users).where(eq(users.id, id)).limit(1);
+      const [row] = await this.db
+        .select()
+        .from(users)
+        .where(and(eq(users.tenantId, tenantId), eq(users.id, id)))
+        .limit(1);
       return row ?? null;
     };
 
@@ -42,9 +46,13 @@ export class DrizzleUserRepository implements UserRepository {
       : execute();
   }
 
-  async findByEmail(email: string): Promise<User | null> {
+  async findByEmail(tenantId: string, email: string): Promise<User | null> {
     const execute = async (): Promise<User | null> => {
-      const [row] = await this.db.select().from(users).where(eq(users.email, email)).limit(1);
+      const [row] = await this.db
+        .select()
+        .from(users)
+        .where(and(eq(users.tenantId, tenantId), eq(users.email, email)))
+        .limit(1);
       return row ?? null;
     };
 
@@ -53,7 +61,7 @@ export class DrizzleUserRepository implements UserRepository {
       : execute();
   }
 
-  async create(input: CreateUserInput): Promise<User> {
+  async create(input: TenantScopedCreateUserInput): Promise<User> {
     const execute = async (): Promise<User> => {
       const [row] = await this.db.insert(users).values(input).returning();
       if (!row) {

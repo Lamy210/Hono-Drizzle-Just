@@ -1,6 +1,7 @@
 import type { AppConfig } from "../../config/load-config";
 import { ReadinessChecker } from "../../core/health/readiness-checker";
 import { ApplicationLifecycle } from "../../core/lifecycle/application-lifecycle";
+import { StaticBearerPrincipalResolver } from "../../infrastructure/auth/static-bearer-principal-resolver";
 import { createDatabase } from "../../infrastructure/database/database";
 import { DatabaseObserver } from "../../infrastructure/database/database-observer";
 import { DatabaseHealthCheck } from "../../infrastructure/health/database-health-check";
@@ -49,6 +50,14 @@ export function createProductionContainer(config: AppConfig): {
   const readinessChecker = new ReadinessChecker([
     new DatabaseHealthCheck(database.pool, config.healthCheckTimeoutMs),
   ]);
+  const principalResolver = config.authDevStaticEnabled
+    ? new StaticBearerPrincipalResolver({
+        token: config.authDevStaticBearerToken,
+        subject: config.authDevStaticSubject,
+        tenantId: config.authDevStaticTenantId,
+        scopes: config.authDevStaticScopes,
+      })
+    : undefined;
 
   return {
     dependencies: {
@@ -56,6 +65,7 @@ export function createProductionContainer(config: AppConfig): {
       readinessChecker,
       createUserService: new CreateUserService(userTransactions, logger),
       getUserService: new GetUserService(userRepository),
+      ...(principalResolver === undefined ? {} : { principalResolver }),
       tracer: telemetry.tracer,
       meter: telemetry.meter,
     },

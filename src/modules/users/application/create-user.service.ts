@@ -1,3 +1,4 @@
+import { requireTenantScope } from "../../../core/auth/tenant-authorization";
 import type { RequestContext } from "../../../core/context/request-context";
 import { AppError } from "../../../core/errors/app-error";
 import type { Logger } from "../../../core/logging/logger";
@@ -11,17 +12,18 @@ export class CreateUserService {
   ) {}
 
   async execute(input: CreateUserInput, context: RequestContext): Promise<User> {
+    const { tenantId } = requireTenantScope(context, "users:write");
     const normalized = {
       email: input.email.trim().toLowerCase(),
       name: input.name.trim(),
     };
 
     const user = await this.transactions.run(async (unitOfWork) => {
-      const existing = await unitOfWork.users.findByEmail(normalized.email);
+      const existing = await unitOfWork.users.findByEmail(tenantId, normalized.email);
       if (existing) {
         throw new AppError("CONFLICT", "A user with this email already exists", 409);
       }
-      return unitOfWork.users.create(normalized);
+      return unitOfWork.users.create({ tenantId, ...normalized });
     });
 
     this.logger.info("user.created", {

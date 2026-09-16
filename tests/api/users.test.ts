@@ -13,18 +13,31 @@ function transactions(repository: UserRepository): TransactionManager<UserUnitOf
   return { run: async (operation) => operation({ users: repository }) };
 }
 
-function buildApp(principalResolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
+function principalResolver(
+  tenantId: string,
+  scopes: readonly string[],
+  subject = "user-123",
+): PrincipalResolver {
+  return { resolve: mock(async () => ({ subject, tenantId, scopes })) };
+}
+
+function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
   const user = {
     id: "550e8400-e29b-41d4-a716-446655440000",
+    tenantId: "tenant-a",
     email: "lamy@example.com",
     name: "Lamy",
     createdAt: new Date("2026-09-13T00:00:00.000Z"),
   };
-  const repository: UserRepository = {
-    findById: mock(async () => user),
-    findByEmail: mock(async () => null),
-    create: mock(async (input) => ({ ...user, ...input })),
-  };
+  const findById = mock(async (tenantId: string) => (tenantId === user.tenantId ? user : null));
+  const findByEmail = mock(async (tenantId: string, email: string) =>
+    tenantId === user.tenantId && email === user.email ? null : null,
+  );
+  const create = mock(async (input: { tenantId: string; email: string; name: string }) => ({
+    ...user,
+    ...input,
+  }));
+  const repository: UserRepository = { findById, findByEmail, create };
   const logger = new JsonConsoleLogger({ service: "test" }, () => undefined);
   return {
     app: createApp(
@@ -33,15 +46,18 @@ function buildApp(principalResolver?: PrincipalResolver, maxRequestBodyBytes?: n
         readinessChecker: new ReadinessChecker([]),
         createUserService: new CreateUserService(transactions(repository), logger),
         getUserService: new GetUserService(repository),
-        ...(principalResolver === undefined ? {} : { principalResolver }),
+        ...(resolver === undefined ? {} : { principalResolver: resolver }),
       },
       maxRequestBodyBytes === undefined ? undefined : { maxRequestBodyBytes },
     ),
     repository,
+    findById,
+    findByEmail,
+    create,
   };
 }
 
-test("invalid request body returns the common validation error schema", async () => {
+test("invalid request body returns the common validation error schema before authorization", async () => {
   const { app } = buildApp();
   const response = await app.request("/users", {
     method: "POST",
@@ -88,14 +104,71 @@ test("oversized request body returns a correlated common 413 before service work
   expect(repository.create).not.toHaveBeenCalled();
 });
 
-test("uppercase UUID path input is accepted and normalized before repository access", async () => {
+test("anonymous protected user requests return 401", async () => {
   const { app, repository } = buildApp();
+  const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000");
+
+  expect(response.status).toBe(401);
+  expect(await response.json()).toMatchObject({ error: { code: "UNAUTHORIZED" } });
+  expect(repository.findById).not.toHaveBeenCalled();
+});
+
+test("authenticated requests missing the required scope return 403", async () => {
+  const { app, repository } = buildApp(principalResolver("tenant-a", ["users:write"]));
+  const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000");
+
+  expect(response.status).toBe(403);
+  expect(await response.json()).toMatchObject({ error: { code: "FORBIDDEN" } });
+  expect(repository.findById).not.toHaveBeenCalled();
+});
+
+test("uppercase UUID path input is accepted and normalized after tenant authorization", async () => {
+  const { app, repository } = buildApp(principalResolver("tenant-a", ["users:read"]));
   const response = await app.request("/users/550E8400-E29B-41D4-A716-446655440000");
 
   expect(response.status).toBe(200);
-  expect(repository.findById).toHaveBeenCalledWith("550e8400-e29b-41d4-a716-446655440000");
+  expect(repository.findById).toHaveBeenCalledWith(
+    "tenant-a",
+    "550e8400-e29b-41d4-a716-446655440000",
+  );
   const body = await response.json();
   expect(body.id).toBe("550e8400-e29b-41d4-a716-446655440000");
+  expect(body.tenantId).toBeUndefined();
+});
+
+test("cross-tenant GET is indistinguishable from a missing user", async () => {
+  const { app, repository } = buildApp(principalResolver("tenant-b", ["users:read"]));
+  const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000");
+
+  expect(response.status).toBe(404);
+  expect(await response.json()).toMatchObject({ error: { code: "NOT_FOUND" } });
+  expect(repository.findById).toHaveBeenCalledWith(
+    "tenant-b",
+    "550e8400-e29b-41d4-a716-446655440000",
+  );
+});
+
+test("authorized create derives tenant from principal and ignores client tenant fields", async () => {
+  const { app, repository } = buildApp(principalResolver("tenant-a", ["users:write"]));
+  const response = await app.request("/users", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      tenantId: "tenant-attacker",
+      email: "new@example.com",
+      name: " New User ",
+    }),
+  });
+
+  expect(response.status).toBe(201);
+  expect(repository.findByEmail).toHaveBeenCalledWith("tenant-a", "new@example.com");
+  expect(repository.create).toHaveBeenCalledWith({
+    tenantId: "tenant-a",
+    email: "new@example.com",
+    name: "New User",
+  });
+  const body = await response.json();
+  expect(body.tenantId).toBeUndefined();
 });
 
 test("valid incoming traceparent keeps the trace ID and emits a new span ID", async () => {
