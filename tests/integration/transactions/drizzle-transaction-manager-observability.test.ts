@@ -71,11 +71,15 @@ afterAll(async () => {
   await database.close();
 });
 
-test("transaction manager wraps the unit of work in one transaction span with child query measurements", async () => {
+test("transaction manager wraps a tenant-scoped unit of work without tenant telemetry cardinality", async () => {
   const email = `transaction-observed-${crypto.randomUUID()}@example.com`;
 
   const created = await transactions.run((unitOfWork) =>
-    unitOfWork.users.create({ email, name: "Observed transaction" }),
+    unitOfWork.users.create({
+      tenantId: "tenant-observability",
+      email,
+      name: "Observed transaction",
+    }),
   );
 
   expect(created.email).toBe(email);
@@ -84,4 +88,6 @@ test("transaction manager wraps the unit of work in one transaction span with ch
   expect(tracer.spans[1]?.span.status).toBe("ok");
   expect(meter.records.map((entry) => entry.name)).toContain("db.transaction.duration");
   expect(meter.records.map((entry) => entry.name)).toContain("db.client.operation.duration");
+  expect(JSON.stringify(tracer.spans)).not.toContain("tenant-observability");
+  expect(JSON.stringify(meter.records)).not.toContain("tenant-observability");
 });
