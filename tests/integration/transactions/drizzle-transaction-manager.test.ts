@@ -23,24 +23,25 @@ afterAll(async () => {
   await database.close();
 });
 
-test("commits repository writes when the unit of work succeeds", async () => {
+test("commits tenant-scoped repository writes when the unit of work succeeds", async () => {
   const email = `commit-${crypto.randomUUID()}@example.com`;
 
   const created = await transactions.run((unitOfWork) =>
-    unitOfWork.users.create({ email, name: "Commit" }),
+    unitOfWork.users.create({ tenantId: "tenant-transaction", email, name: "Commit" }),
   );
 
   const [persisted] = await database.db.select().from(users).where(eq(users.id, created.id));
+  expect(persisted?.tenantId).toBe("tenant-transaction");
   expect(persisted?.email).toBe(email);
 });
 
-test("rolls back earlier repository writes when a later write fails", async () => {
+test("rolls back earlier tenant-scoped repository writes when a later write fails", async () => {
   const email = `rollback-${crypto.randomUUID()}@example.com`;
 
   await expect(
     transactions.run(async (unitOfWork) => {
-      await unitOfWork.users.create({ email, name: "First" });
-      await unitOfWork.users.create({ email, name: "Duplicate" });
+      await unitOfWork.users.create({ tenantId: "tenant-transaction", email, name: "First" });
+      await unitOfWork.users.create({ tenantId: "tenant-transaction", email, name: "Duplicate" });
     }),
   ).rejects.toMatchObject({ code: "CONFLICT", status: 409 });
 
