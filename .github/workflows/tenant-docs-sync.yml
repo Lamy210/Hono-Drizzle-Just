@@ -1,0 +1,148 @@
+name: Tenant Authorization Docs Sync
+
+on:
+  push:
+    branches:
+      - feat/tenant-authorization-boundary
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Patch tenant authorization documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one anchor, found {count}: {old[:80]!r}")
+              file.write_text(text.replace(old, new, 1))
+
+          env = Path('.env.example')
+          env_text = env.read_text()
+          auth_block = '''AUTH_DEV_STATIC_ENABLED=false
+          AUTH_DEV_STATIC_BEARER_TOKEN=
+          AUTH_DEV_STATIC_SUBJECT=
+          AUTH_DEV_STATIC_TENANT_ID=
+          AUTH_DEV_STATIC_SCOPES=
+          '''
+          if 'AUTH_DEV_STATIC_ENABLED=' not in env_text:
+              env.write_text(env_text + auth_block)
+
+          replace_once(
+              'README.md',
+              '- Provider-neutral `Principal` / `PrincipalResolver` authentication context without coupling services to Hono or a specific identity provider.\n',
+              '- Provider-neutral `Principal` / `PrincipalResolver` authentication context without coupling services to Hono or a specific identity provider.\n- Application-layer tenant authorization with scope-gated sample user operations and tenant-scoped persistence.\n',
+          )
+          replace_once(
+              'README.md',
+              '- `just test-e2e` launches the real production entrypoint and exercises readiness, a persisted user flow over loopback TCP, and SIGTERM shutdown against an already-migrated `DATABASE_URL`. Use `bun run ci:e2e` to apply committed migrations first and run the standalone E2E gate.\n',
+              '- `just test-e2e` launches the real production entrypoint twice with separate development/test bearer principals over the same migrated PostgreSQL database. It proves authenticated create/read, cross-tenant 404 isolation, tenant-local email uniqueness, readiness, and SIGTERM shutdown. Use `bun run ci:e2e` to apply committed migrations first and run the standalone E2E gate.\n',
+          )
+          replace_once(
+              'README.md',
+              '- `POST /users`\n- `GET /users/{id}`\n',
+              '- `POST /users` — protected; requires an authenticated tenant principal with `users:write`\n- `GET /users/{id}` — protected; requires an authenticated tenant principal with `users:read`\n',
+          )
+          replace_once(
+              'README.md',
+              '| `OTEL_METRIC_EXPORT_INTERVAL_MS` | `60000` | Periodic metrics export interval |\n',
+              '| `OTEL_METRIC_EXPORT_INTERVAL_MS` | `60000` | Periodic metrics export interval |\n| `AUTH_DEV_STATIC_ENABLED` | `false` | Enable the development/test-only static bearer `PrincipalResolver`; rejected when `NODE_ENV=production` |\n| `AUTH_DEV_STATIC_BEARER_TOKEN` | empty | Static bearer credential; required at 32–512 bytes only when the development adapter is enabled |\n| `AUTH_DEV_STATIC_SUBJECT` | empty | Server-configured principal subject for the development adapter |\n| `AUTH_DEV_STATIC_TENANT_ID` | empty | Server-configured opaque tenant identifier; `__legacy__:` values are reserved |\n| `AUTH_DEV_STATIC_SCOPES` | empty | Space-delimited server-configured scopes such as `users:read users:write` |\n',
+          )
+          replace_once(
+              'README.md',
+              '## Inbound HTTP policy\n',
+              '''## Authentication and tenant authorization
+
+`PrincipalResolver` remains the provider-neutral authentication port. The sample user module now adds an application-layer authorization boundary on top of that identity: `POST /users` requires `users:write`, while `GET /users/{id}` requires `users:read`. Anonymous protected requests return `401`; an authenticated principal with a missing/invalid tenant or missing scope returns `403`; and a user that is absent from the authorized tenant, including a row owned by another tenant, returns `404` without an unscoped existence check.
+
+Tenant ownership is derived only from `RequestContext.principal.tenantId`. Client payloads or ad-hoc tenant headers cannot select a tenant. `UserRepository` requires the tenant ID in its read methods, Drizzle includes the tenant predicate in the SQL lookup, and user email uniqueness is enforced by PostgreSQL as `(tenant_id, email)`. The same normalized email may therefore exist in different tenants while remaining unique inside one tenant.
+
+The built-in `StaticBearerPrincipalResolver` exists only to make local development, CI, and black-box E2E exercise the real authentication/authorization composition path. It is disabled by default, its credential and principal data come from `AUTH_DEV_STATIC_*` configuration, and startup rejects `AUTH_DEV_STATIC_ENABLED=true` when `NODE_ENV=production`. Deployed applications must compose a real identity-provider adapter that validates their JWT/session/OIDC/Ory/Cognito or equivalent credentials and maps trusted identity data into `Principal`; do not promote the static resolver into a production authentication scheme.
+
+Static bearer values are validated without echoing the credential into configuration errors, and raw `Authorization`, cookies, and bearer tokens are not copied into request context, structured logs, telemetry attributes, or client error responses. The reserved `__legacy__:` tenant prefix is used only by the migration backfill for rows that predate tenant ownership and cannot be selected by a normal authorized tenant principal.
+
+## Inbound HTTP policy
+''',
+          )
+          replace_once(
+              'README.md',
+              'The sample user creation flow performs the duplicate lookup and insert in the same transaction. Returning from the operation commits; throwing rolls back the complete unit of work. PostgreSQL constraints remain authoritative under concurrency, and repository adapters translate known database errors after unwrapping Drizzle\'s error cause chain.\n',
+              'The sample user creation flow performs the tenant-local duplicate lookup and tenant-owned insert in the same transaction. Returning from the operation commits; throwing rolls back the complete unit of work. PostgreSQL constraints remain authoritative under concurrency, and repository adapters translate known database errors after unwrapping Drizzle\'s error cause chain.\n',
+          )
+          replace_once(
+              'README.md',
+              'If a pre-existing database was previously managed with `drizzle-kit push`, do not blindly apply the initial migration to it. Establish an explicit baseline/repair procedure for that database first so its existing schema and Drizzle migration log are reconciled safely.\n',
+              'If a pre-existing database was previously managed with `drizzle-kit push`, do not blindly apply the initial migration to it. Establish an explicit baseline/repair procedure for that database first so its existing schema and Drizzle migration log are reconciled safely.\n\nThe tenant-ownership migration preserves the committed initial migration, adds `users.tenant_id` as `varchar(128) NOT NULL`, backfills pre-tenant rows with reserved `__legacy__:<user-id>` identifiers, removes global email uniqueness, and replaces it with `UNIQUE(tenant_id, email)`. Reserved legacy tenant IDs are intentionally inaccessible through the normal authorization boundary.\n',
+          )
+
+          replace_once(
+              'CONTRIBUTING.md',
+              'Do not commit local `.env` files, credentials, tokens, or generated secrets.\n',
+              'Do not commit local `.env` files, credentials, tokens, or generated secrets. The built-in static bearer resolver is a development/test adapter only; never configure it as production authentication, and never commit a real bearer token into `.env.example`, tests, documentation, or fixtures.\n',
+          )
+          replace_once(
+              'CONTRIBUTING.md',
+              '- Black-box E2E tests launch the public `bun run start` production entrypoint, communicate over loopback TCP, use a real PostgreSQL database, and verify process lifecycle behavior.\n',
+              '- Black-box E2E tests launch the public `bun run start` production entrypoint, communicate over loopback TCP, use a real PostgreSQL database, and verify process lifecycle behavior. Tenant authorization E2E uses sequential tenant A/B production processes over the same database rather than a test-only server path.\n',
+          )
+          replace_once(
+              'CONTRIBUTING.md',
+              '- Authentication provider data is normalized into the provider-neutral `Principal` boundary.\n',
+              '- Authentication provider data is normalized into the provider-neutral `Principal` boundary.\n- Authorization stays in the application layer: protected use cases derive tenant ownership only from `RequestContext.principal`, and authorization failures must not disclose required scopes, other tenant IDs, or row existence.\n- Tenant-owned repositories must keep tenant ID in their public method signatures and SQL predicates; do not add an unscoped user lookup as a convenience method.\n',
+          )
+
+          replace_once(
+              'docs/architecture.md',
+              '`RequestContext` also carries an optional normalized `Principal`. This keeps identity available to application services without exposing Hono request objects or identity-provider-specific session/JWT structures.\n',
+              '`RequestContext` also carries an optional normalized `Principal`. This keeps identity available to application services without exposing Hono request objects or identity-provider-specific session/JWT structures. Protected application services authorize against that principal, derive tenant ownership from it, and pass the authorized tenant ID into tenant-scoped repository methods rather than accepting tenant selection from client payloads or transport headers.\n',
+          )
+          replace_once(
+              'docs/architecture.md',
+              'The initial migration establishes the current template schema from an empty database. A database that already has equivalent tables because it was previously managed with `push` must be baselined explicitly; applying the initial migration blindly would conflict with existing objects. Baseline/repair automation is outside the default template because it depends on the state and ownership of the target database.\n',
+              'The initial migration establishes the current template schema from an empty database. A database that already has equivalent tables because it was previously managed with `push` must be baselined explicitly; applying the initial migration blindly would conflict with existing objects. Baseline/repair automation is outside the default template because it depends on the state and ownership of the target database.\n\nTenant ownership is introduced by a later migration rather than by rewriting the baseline. It adds `users.tenant_id`, backfills existing rows to reserved `__legacy__:<user-id>` identifiers before making the column `NOT NULL`, drops global email uniqueness, and adds `UNIQUE(tenant_id, email)`. Normal tenant validation rejects the reserved legacy prefix, so migrated historical rows cannot accidentally become visible to an ordinary tenant principal.\n',
+          )
+          replace_once(
+              'docs/architecture.md',
+              'If no resolver is composed, the request remains anonymous. The default template deliberately does not choose a JWT package, OIDC provider, Ory/Cognito integration, role hierarchy, or authorization framework. Authentication answers "who is this?"; route/use-case authorization (for example requiring a principal, role, or scope) remains an explicit policy layer to add per application.\n',
+              '''If no resolver is composed, the request remains anonymous. The template still does not choose a JWT package, OIDC provider, Ory/Cognito integration, or role hierarchy. Authentication answers "who is this?"; application authorization answers "may this principal perform this use case for this tenant?"
+
+The sample user module demonstrates that second boundary with `requireTenantScope()`: creation requires `users:write`, lookup requires `users:read`, missing authentication maps to 401, and missing/invalid tenant or scope maps to a sanitized 403. Cross-tenant lookup is a tenant-scoped repository miss and therefore returns the same 404 as an unknown ID; the service never performs an unscoped existence probe.
+
+`UserRepository` encodes isolation structurally. `findById(tenantId, id)` and `findByEmail(tenantId, email)` require tenant context in their signatures, and the Drizzle adapter combines the tenant predicate with the resource predicate. Creation persists the tenant ID derived from the authorized principal. PostgreSQL enforces `(tenant_id, email)` uniqueness so concurrency cannot bypass the service-level duplicate check.
+
+`StaticBearerPrincipalResolver` is a development/test adapter wired by typed `AUTH_DEV_STATIC_*` configuration. It is disabled by default and startup rejects it in `NODE_ENV=production`. It exists so local/CI/E2E execution can exercise the normal composition boundary without selecting a production identity provider. Real deployments replace that adapter with a credential-validating provider integration; raw bearer/cookie values remain confined to the resolver boundary and are never added to request context or telemetry.
+''',
+          )
+          replace_once(
+              'docs/architecture.md',
+              'Authentication-context API tests verify anonymous requests, credential delivery to the resolver, normalized principal propagation, secret-free structured logging, application composition wiring, and correlation-preserving resolver failures.\n',
+              'Authentication-context API tests verify anonymous requests, credential delivery to the resolver, normalized principal propagation, secret-free structured logging, application composition wiring, and correlation-preserving resolver failures. Authorization tests additionally cover 401/403 scope semantics, tenant-derived creation, cross-tenant 404 behavior, tenant-scoped repository SQL, tenant-local uniqueness, static bearer safety, and sequential tenant A/B black-box processes over one PostgreSQL database.\n',
+          )
+          PY
+          git diff --check
+          git diff -- .env.example README.md CONTRIBUTING.md docs/architecture.md
+      - name: Commit documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .env.example README.md CONTRIBUTING.md docs/architecture.md
+          test -n "$(git diff --cached --name-only)"
+          git commit -m "docs: document tenant authorization model"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
