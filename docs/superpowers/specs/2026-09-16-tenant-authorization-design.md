@@ -19,7 +19,7 @@ That is authentication context, not authorization. The current sample user route
 5. Make email uniqueness tenant-local rather than global.
 6. Preserve provider neutrality: application code must not know JWT, OIDC, session, or vendor-specific claims.
 7. Keep tenant IDs opaque strings so external organization identifiers do not require UUID remapping.
-8. Preserve the production-process E2E test by supplying a real, explicitly enabled principal resolver through production composition.
+8. Preserve the real-process E2E test by supplying an explicitly enabled development/test resolver through the normal production composition root.
 9. Make authorization behavior visible in API tests, integration tests, E2E tests, and OpenAPI responses.
 
 ## Non-goals
@@ -31,7 +31,8 @@ That is authentication context, not authorization. The current sample user route
 - Supporting row-level security in PostgreSQL in this change.
 - Exposing tenant IDs in request bodies or trusting client-provided tenant identifiers.
 - Introducing a concrete external IdP SDK.
-- Defining a provider-specific OpenAPI security scheme before a concrete authentication provider is selected.
+- Shipping the static development resolver as an acceptable internet-facing production authentication mechanism.
+- Defining a provider-specific OpenAPI security scheme before a concrete production authentication provider is selected.
 
 ## Chosen authorization model
 
@@ -88,11 +89,13 @@ The prefix `__legacy__:` is reserved for migration-only values and is rejected f
 
 The sample API uses the following distinction:
 
-- **401 Unauthorized**: no authenticated principal is available.
+- **401 Unauthorized**: no authenticated principal is available, or supplied authentication credentials are invalid.
 - **403 Forbidden**: a principal exists but lacks a usable tenant context or required scope.
 - **404 Not Found**: the requested user does not exist *within the caller's tenant*.
 
 A user ID belonging to another tenant returns the same 404 as an unknown ID. The service must never perform an unscoped lookup merely to distinguish those cases because doing so would disclose cross-tenant object existence.
+
+Add `FORBIDDEN` to `AppErrorCode` and add HTTP status `403` to the supported status union.
 
 ## User domain and service changes
 
@@ -156,39 +159,51 @@ Normal request principals cannot use the reserved `__legacy__:` prefix, so migra
 
 No `tenants` table or foreign key is introduced in this phase.
 
-## Production principal resolver
+## Development/test static bearer resolver
 
-Protecting `/users` makes the current production container incomplete because it does not provide a `PrincipalResolver`. The template therefore adds an explicit trusted-header resolver intended for deployments behind an authentication proxy and for production-path E2E verification.
+Protecting `/users` makes the current production composition root incomplete for the existing real-process E2E test because no concrete `PrincipalResolver` is wired today. The template therefore adds a small **opt-in development/test static bearer resolver** that reuses the existing `PrincipalResolutionInput.authorization` boundary.
+
+This resolver exists to keep the template runnable and test the full authorization path. It is not a production IdP implementation.
 
 ### Configuration
 
 Add configuration equivalent to:
 
 ```text
-AUTH_TRUSTED_HEADERS_ENABLED=false
+AUTH_DEV_STATIC_ENABLED=false
+AUTH_DEV_STATIC_BEARER_TOKEN=
+AUTH_DEV_STATIC_SUBJECT=
+AUTH_DEV_STATIC_TENANT_ID=
+AUTH_DEV_STATIC_SCOPES=
 ```
 
-Default is **false**.
+Rules:
 
-When disabled, production composition does not trust identity headers. Protected `/users` routes therefore return 401 unless another consumer-supplied resolver is wired into a customized composition root.
+- `AUTH_DEV_STATIC_ENABLED` defaults to `false`.
+- enabling it when `NODE_ENV=production` is a configuration error.
+- when enabled, bearer token, subject, tenant ID, and scopes are all required.
+- bearer token length: 32..512 bytes.
+- subject length: 1..200 characters with no control characters.
+- tenant ID must satisfy the tenant ID contract above.
+- scopes are space-delimited, deduplicated, at most 32 entries, each 1..100 characters, matching `[A-Za-z0-9][A-Za-z0-9:._-]*`.
+- serialized scope configuration is capped at 2048 characters.
 
-When enabled, the resolver reads only these headers:
+The token remains a secret configuration value and must never be emitted in startup logs, validation errors, structured logs, telemetry, or responses.
 
-- `x-auth-subject`
-- `x-auth-tenant-id`
-- `x-auth-scopes`
+### Resolver behavior
 
-`x-auth-scopes` is parsed as a bounded space-separated set of scopes. Empty subject/tenant values are rejected. Header lengths and scope counts are bounded to prevent unbounded attacker-controlled context.
+When the static resolver is enabled:
 
-The adapter does not accept a tenant ID from the request body or query string.
+- no `Authorization` header -> `undefined` principal; protected services subsequently return 401.
+- malformed non-Bearer authorization -> 401.
+- wrong bearer token -> 401.
+- correct bearer token -> return the server-configured subject, tenant ID, and scopes.
 
-### Security boundary
+Token comparison uses a constant-time comparison after length normalization/checking rather than ordinary string equality.
 
-Enabling trusted headers is safe only when the application is deployed behind a trusted authentication proxy that strips/replaces incoming identity headers and direct access to the application is prevented. This warning must be prominent in configuration documentation.
+The authenticated tenant and scopes come only from server configuration. A caller cannot select a tenant or scope by changing request payload/query values.
 
-The default remains off to avoid silently trusting spoofable client headers.
-
-Raw trusted-header values are consumed at the resolver boundary and are not copied wholesale into `RequestContext`, structured logs, telemetry, or error responses. Only the existing normalized `subject` and `tenantId` logging behavior remains.
+When the static resolver is disabled, production composition supplies no resolver, preserving the existing provider-neutral extension point. A real application replaces or extends the composition root with an OIDC/JWT/session resolver.
 
 ## OpenAPI behavior
 
@@ -196,28 +211,29 @@ Raw trusted-header values are consumed at the resolver boundary and are not copi
 
 `GET /users/{id}` documents 401 and 403 in addition to 404.
 
-The generated OpenAPI snapshot is regenerated through the existing contract workflow. The change intentionally does not add a bearer-only security scheme because the authentication adapter remains provider-neutral and can be replaced by cookie/OIDC/proxy implementations. A concrete application should add the security scheme corresponding to its chosen authentication mechanism.
+The generated OpenAPI snapshot is regenerated through the existing contract workflow. The change intentionally does not add a bearer-only security scheme because the production authentication mechanism remains an application choice; the static bearer adapter is explicitly a development/test utility and must not define the public production authentication contract.
 
 ## E2E behavior
 
-The black-box E2E test continues to launch the real production entrypoint.
+The black-box E2E test continues to launch the real `bun run start` production entrypoint.
 
-Its child-process environment explicitly enables trusted-header auth. Test requests supply:
+Its child-process environment uses `NODE_ENV=test`, explicitly enables static bearer auth, and configures:
 
-- a deterministic subject;
-- a tenant ID such as `tenant-e2e-a`;
-- `users:read users:write` scopes.
+- a deterministic strong test bearer token;
+- subject `e2e-user-a`;
+- tenant `tenant-e2e-a`;
+- scopes `users:read users:write`.
 
-The primary production-path scenario remains create + fetch, now through the authorization boundary.
+Requests send the token through the standard `Authorization: Bearer ...` header. The primary production-path scenario remains create + fetch, now through principal resolution and application authorization.
 
-Add isolation checks with a second tenant identity:
+For cross-tenant isolation, launch a second server process against the same migrated test database with a distinct static principal (`tenant-e2e-b`) and bearer token, or otherwise use an equivalent isolated production-composition arrangement that keeps each static resolver server-configured. The test proves:
 
 1. tenant A creates a user;
 2. tenant A can fetch the user;
-3. tenant B with the same read scope receives 404 for tenant A's user ID;
-4. tenant B can create the same email successfully because uniqueness is tenant-local.
+3. tenant B with `users:read` receives 404 for tenant A's user ID;
+4. tenant B can create the same normalized email successfully because uniqueness is tenant-local.
 
-E2E should also assert a protected user route without a principal returns 401. Scope matrix detail belongs primarily in API/unit tests rather than bloating the production E2E suite.
+The suite also asserts a protected user route without an Authorization header returns 401. Detailed scope-denial permutations stay in API/unit tests rather than bloating the production E2E suite.
 
 ## Testing strategy
 
@@ -231,7 +247,17 @@ Authorization helper tests cover:
 - missing scope -> 403;
 - required scope -> authorized tenant context.
 
-Trusted-header resolver tests cover parsing, bounds, absent headers, invalid tenant context, scope parsing, and no raw-secret propagation.
+Static bearer resolver/config tests cover:
+
+- disabled mode;
+- production-mode rejection;
+- missing/malformed configuration;
+- absent Authorization header;
+- malformed bearer header;
+- wrong token;
+- correct token mapping;
+- tenant/scope bounds;
+- no token leakage.
 
 Service tests verify the repository is always called with the authorized tenant ID.
 
@@ -245,7 +271,7 @@ Protect the real `/users` routes and verify:
 - cross-tenant GET returns 404;
 - tenant ID supplied in unrelated client payload/header positions cannot override the principal tenant.
 
-Existing principal-context tests remain provider-neutral.
+Existing principal-context tests remain provider-neutral and may continue to use injected mock resolvers.
 
 ### Integration tests
 
@@ -267,7 +293,9 @@ Authorization failures must not include the required scope list, another tenant 
 
 Database observability continues to use low-cardinality operation/collection attributes; tenant IDs are not added as metric/span attributes.
 
-Structured logs may retain normalized subject and tenant ID as already designed, but raw `Authorization`, cookie, and trusted identity header values are never logged.
+Structured logs may retain normalized subject and tenant ID as already designed, but raw `Authorization`, cookie, or bearer token values are never logged.
+
+The static resolver's enablement and non-secret mode may be documented, but the configured token itself must never be interpolated into errors or diagnostics.
 
 ## Alternatives considered
 
@@ -287,14 +315,19 @@ Rejected because many IdPs provide opaque organization identifiers. Requiring UU
 
 Deferred. A master tenant model is appropriate once membership, lifecycle, billing, or tenant metadata is needed, but it is not required to prove isolation of the sample resource.
 
-### Always-trusted identity headers
+### Trusted reverse-proxy identity headers
 
-Rejected. Header trust is opt-in and off by default because direct client access would otherwise permit identity spoofing.
+Deferred. They are a valid production deployment pattern, but the current `PrincipalResolver` port intentionally receives Authorization/Cookie credentials only. Adding proxy identity headers would widen that authentication interface and require a separate trusted-network/header-stripping threat model. The static bearer test adapter keeps this change focused on authorization and tenant isolation.
+
+### Test-only alternate server entrypoint
+
+Rejected because it would weaken the black-box E2E guarantee. The E2E suite continues to run the real server entrypoint and normal production composition code.
 
 ## Acceptance criteria
 
 - `/users` is protected by application-layer scope checks.
 - anonymous access returns 401.
+- invalid static bearer credentials return 401 without secret leakage.
 - authenticated requests without tenant or required scope return 403.
 - cross-tenant user lookup returns 404 without an unscoped existence check.
 - all user repository reads require tenant ID in the method signature and SQL predicate.
@@ -302,9 +335,9 @@ Rejected. Header trust is opt-in and off by default because direct client access
 - `users.tenant_id` is NOT NULL after migration.
 - email uniqueness is `(tenant_id, email)`.
 - existing pre-tenant rows migrate to inaccessible reserved legacy tenant IDs.
-- trusted-header authentication is disabled by default and explicitly configured when used.
-- production-path E2E runs authenticated create/read and proves cross-tenant isolation.
+- static bearer auth is disabled by default and rejected under `NODE_ENV=production`.
+- real-process E2E runs authenticated create/read and proves cross-tenant isolation.
 - same email can be created by two different tenants.
 - OpenAPI snapshot documents 401/403 and contract gates remain green.
-- no raw auth credential or trusted identity header is logged or returned.
+- no raw auth credential is logged or returned.
 - final feature branch, PR-triggered head, and squash-merged main all pass the repository's required CI jobs.
