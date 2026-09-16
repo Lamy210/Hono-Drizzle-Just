@@ -36,6 +36,7 @@ test("tenant IDs are opaque, case-sensitive, normalized strings", () => {
   expect(isValidTenantId(" tenant-a")).toBe(false);
   expect(isValidTenantId("tenant-a ")).toBe(false);
   expect(isValidTenantId("tenant\n-a")).toBe(false);
+  expect(isValidTenantId("tenant\u0085-a")).toBe(false);
   expect(isValidTenantId("x".repeat(129))).toBe(false);
   expect(isValidTenantId("__legacy__:550e8400-e29b-41d4-a716-446655440000")).toBe(false);
 });
@@ -51,7 +52,13 @@ test("anonymous callers receive sanitized 401", () => {
 });
 
 test("missing, malformed, and reserved tenant contexts receive sanitized 403", () => {
-  for (const tenantId of [undefined, " tenant-a", "tenant\u0000a", "__legacy__:123"]) {
+  for (const tenantId of [
+    undefined,
+    " tenant-a",
+    "tenant\u0000a",
+    "tenant\u0085a",
+    "__legacy__:123",
+  ]) {
     try {
       requireTenantScope(authenticated(tenantId, ["users:read"]), "users:read");
       throw new Error("expected authorization to fail");
