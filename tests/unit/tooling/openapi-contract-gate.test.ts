@@ -22,6 +22,7 @@ async function readText(path: string): Promise<string> {
 function buildContractApp() {
   const user = {
     id: "550e8400-e29b-41d4-a716-446655440000",
+    tenantId: "tenant-contract",
     email: "contract@example.com",
     name: "Contract User",
     createdAt: new Date("2026-09-16T00:00:00.000Z"),
