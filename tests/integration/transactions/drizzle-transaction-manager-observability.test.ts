@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
-import { users } from "../../../src/db/schema";
+import { userCreationIdempotency, users } from "../../../src/db/schema";
 import type { Meter } from "../../../src/core/observability/meter";
 import type {
   Span,
@@ -10,6 +10,7 @@ import type {
 import { DatabaseObserver } from "../../../src/infrastructure/database/database-observer";
 import { DrizzleTransactionManager } from "../../../src/infrastructure/database/drizzle-transaction-manager";
 import type { UserUnitOfWork } from "../../../src/modules/users/application/user-unit-of-work";
+import { DrizzleUserCreationIdempotencyRepository } from "../../../src/modules/users/infrastructure/drizzle-user-creation-idempotency.repository";
 import { DrizzleUserRepository } from "../../../src/modules/users/infrastructure/drizzle-user.repository";
 import { createTestDatabase } from "../../helpers/database";
 
@@ -53,7 +54,10 @@ const meter = new RecordingMeter();
 const observer = new DatabaseObserver({ tracer, meter });
 const transactions = new DrizzleTransactionManager<UserUnitOfWork>(
   database.db,
-  (session) => ({ users: new DrizzleUserRepository(session, observer) }),
+  (session) => ({
+    users: new DrizzleUserRepository(session, observer),
+    userCreationIdempotency: new DrizzleUserCreationIdempotencyRepository(session, observer),
+  }),
   observer,
 );
 
@@ -62,6 +66,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  await database.db.delete(userCreationIdempotency);
   await database.db.delete(users);
   tracer.spans.length = 0;
   meter.records.length = 0;
