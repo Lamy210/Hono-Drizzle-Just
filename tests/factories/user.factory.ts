@@ -12,6 +12,7 @@ export type UserFactoryOverrides = Partial<User>;
 function userDefaults({ sequence }: FactoryContext): User {
   return {
     id: crypto.randomUUID(),
+    tenantId: "tenant-test",
     email: `user-${sequence}-${crypto.randomUUID()}@example.com`,
     name: `User ${sequence}`,
     createdAt: new Date("2026-09-13T00:00:00.000Z"),
