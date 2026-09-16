@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidTenantId } from "../core/auth/tenant-authorization";
 import type { LogLevel } from "../core/logging/logger";
 
 function integerEnv(defaultValue: number, min: number, max: number) {
@@ -53,6 +54,13 @@ function normalizeOtlpHttpEndpoint(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
+const subjectControlCharacterPattern = /[\u0000-\u001f\u007f]/;
+const scopePattern = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,99}$/;
+
+function parseStaticScopes(value: string): readonly string[] {
+  return [...new Set(value.split(" ").filter((scope) => scope.length > 0))];
+}
+
 const RawConfigSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -75,6 +83,11 @@ const RawConfigSchema = z
       message: "must be an HTTP(S) URL without credentials, query, or fragment",
     }),
     OTEL_METRIC_EXPORT_INTERVAL_MS: integerEnv(60_000, 1_000, 300_000),
+    AUTH_DEV_STATIC_ENABLED: booleanEnv(false),
+    AUTH_DEV_STATIC_BEARER_TOKEN: z.string().optional(),
+    AUTH_DEV_STATIC_SUBJECT: z.string().optional(),
+    AUTH_DEV_STATIC_TENANT_ID: z.string().optional(),
+    AUTH_DEV_STATIC_SCOPES: z.string().max(2_048, "must be at most 2048 characters").default(""),
   })
   .superRefine((raw, context) => {
     if (raw.HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES <= raw.HTTP_MAX_REQUEST_BODY_BYTES) {
@@ -82,6 +95,59 @@ const RawConfigSchema = z
         code: "custom",
         path: ["HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES"],
         message: "must be greater than HTTP_MAX_REQUEST_BODY_BYTES",
+      });
+    }
+
+    if (!raw.AUTH_DEV_STATIC_ENABLED) {
+      return;
+    }
+
+    if (raw.NODE_ENV === "production") {
+      context.addIssue({
+        code: "custom",
+        path: ["AUTH_DEV_STATIC_ENABLED"],
+        message: "development static authentication cannot be enabled in production",
+      });
+    }
+
+    const token = raw.AUTH_DEV_STATIC_BEARER_TOKEN;
+    if (!token || new TextEncoder().encode(token).byteLength < 32 || new TextEncoder().encode(token).byteLength > 512) {
+      context.addIssue({
+        code: "custom",
+        path: ["AUTH_DEV_STATIC_BEARER_TOKEN"],
+        message: "must be configured with 32 to 512 bytes when static authentication is enabled",
+      });
+    }
+
+    const subject = raw.AUTH_DEV_STATIC_SUBJECT;
+    if (
+      !subject ||
+      subject.length > 200 ||
+      subject !== subject.trim() ||
+      subjectControlCharacterPattern.test(subject)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["AUTH_DEV_STATIC_SUBJECT"],
+        message: "must be a normalized 1 to 200 character subject without control characters",
+      });
+    }
+
+    const tenantId = raw.AUTH_DEV_STATIC_TENANT_ID;
+    if (!tenantId || !isValidTenantId(tenantId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["AUTH_DEV_STATIC_TENANT_ID"],
+        message: "must be a valid normalized tenant identifier",
+      });
+    }
+
+    const scopes = parseStaticScopes(raw.AUTH_DEV_STATIC_SCOPES);
+    if (scopes.length === 0 || scopes.length > 32 || scopes.some((scope) => !scopePattern.test(scope))) {
+      context.addIssue({
+        code: "custom",
+        path: ["AUTH_DEV_STATIC_SCOPES"],
+        message: "must contain 1 to 32 valid space-delimited scopes",
       });
     }
   });
@@ -103,10 +169,16 @@ export interface AppConfig {
   readonly otelEnabled: boolean;
   readonly otelExporterOtlpEndpoint: string;
   readonly otelMetricExportIntervalMs: number;
+  readonly authDevStaticEnabled: boolean;
+  readonly authDevStaticBearerToken?: string;
+  readonly authDevStaticSubject?: string;
+  readonly authDevStaticTenantId?: string;
+  readonly authDevStaticScopes: readonly string[];
 }
 
-export const AppConfigSchema = RawConfigSchema.transform(
-  (raw): AppConfig => ({
+export const AppConfigSchema = RawConfigSchema.transform((raw): AppConfig => {
+  const staticScopes = raw.AUTH_DEV_STATIC_ENABLED ? parseStaticScopes(raw.AUTH_DEV_STATIC_SCOPES) : [];
+  return {
     environment: raw.NODE_ENV,
     serviceName: raw.SERVICE_NAME,
     port: raw.PORT,
@@ -123,5 +195,14 @@ export const AppConfigSchema = RawConfigSchema.transform(
     otelEnabled: raw.OTEL_ENABLED,
     otelExporterOtlpEndpoint: normalizeOtlpHttpEndpoint(raw.OTEL_EXPORTER_OTLP_ENDPOINT),
     otelMetricExportIntervalMs: raw.OTEL_METRIC_EXPORT_INTERVAL_MS,
-  }),
-);
+    authDevStaticEnabled: raw.AUTH_DEV_STATIC_ENABLED,
+    ...(raw.AUTH_DEV_STATIC_ENABLED
+      ? {
+          authDevStaticBearerToken: raw.AUTH_DEV_STATIC_BEARER_TOKEN,
+          authDevStaticSubject: raw.AUTH_DEV_STATIC_SUBJECT,
+          authDevStaticTenantId: raw.AUTH_DEV_STATIC_TENANT_ID,
+        }
+      : {}),
+    authDevStaticScopes: staticScopes,
+  };
+});
