@@ -3,11 +3,19 @@ import { AppError } from "../errors/app-error";
 
 export const LEGACY_TENANT_PREFIX = "__legacy__:";
 
-const tenantControlCharacterPattern = /[\u0000-\u001f\u007f]/;
-
 export interface TenantAuthorization {
   readonly subject: string;
   readonly tenantId: string;
+}
+
+export function hasControlCharacters(value: string): boolean {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code <= 0x1f || code === 0x7f) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function isValidTenantId(value: string): boolean {
@@ -15,7 +23,7 @@ export function isValidTenantId(value: string): boolean {
     value.length >= 1 &&
     value.length <= 128 &&
     value === value.trim() &&
-    !tenantControlCharacterPattern.test(value) &&
+    !hasControlCharacters(value) &&
     !value.startsWith(LEGACY_TENANT_PREFIX)
   );
 }
