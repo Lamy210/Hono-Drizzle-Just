@@ -1,3 +1,5 @@
+import { requireTenantScope } from "../../../core/auth/tenant-authorization";
+import type { RequestContext } from "../../../core/context/request-context";
 import { AppError } from "../../../core/errors/app-error";
 import type { User } from "../domain/user";
 import type { UserRepository } from "../domain/user.repository";
@@ -5,8 +7,9 @@ import type { UserRepository } from "../domain/user.repository";
 export class GetUserService {
   constructor(private readonly repository: UserRepository) {}
 
-  async execute(id: string): Promise<User> {
-    const user = await this.repository.findById(id.toLowerCase());
+  async execute(id: string, context: RequestContext): Promise<User> {
+    const { tenantId } = requireTenantScope(context, "users:read");
+    const user = await this.repository.findById(tenantId, id.toLowerCase());
     if (!user) {
       throw new AppError("NOT_FOUND", "User not found", 404);
     }
