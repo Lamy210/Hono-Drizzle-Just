@@ -51,6 +51,8 @@ The lifecycle is intentionally split by responsibility:
 
 The initial migration establishes the current template schema from an empty database. A database that already has equivalent tables because it was previously managed with `push` must be baselined explicitly; applying the initial migration blindly would conflict with existing objects. Baseline/repair automation is outside the default template because it depends on the state and ownership of the target database.
 
+Tenant ownership is introduced by a later migration rather than by rewriting the baseline. It adds `users.tenant_id`, backfills existing rows to reserved `__legacy__:<user-id>` identifiers before making the column `NOT NULL`, drops global email uniqueness, and adds `UNIQUE(tenant_id, email)`. Normal tenant validation rejects the reserved legacy prefix, so migrated historical rows cannot accidentally become visible to an ordinary tenant principal.
+
 ## Transactions and unit of work
 
 The application-owned transaction abstraction is generic:
@@ -72,7 +74,7 @@ PostgreSQL constraints remain authoritative. Drizzle wraps driver errors in `Dri
 
 `requestId` identifies one inbound API request. `traceId` follows the complete distributed trace. `spanId` identifies the local operation. Incoming W3C `traceparent` values retain the trace ID while the server creates a fresh local span ID.
 
-`RequestContext` also carries an optional normalized `Principal`. This keeps identity available to application services without exposing Hono request objects or identity-provider-specific session/JWT structures.
+`RequestContext` also carries an optional normalized `Principal`. This keeps identity available to application services without exposing Hono request objects or identity-provider-specific session/JWT structures. Protected application services authorize against that principal, derive tenant ownership from it, and pass the authorized tenant ID into tenant-scoped repository methods rather than accepting tenant selection from client payloads or transport headers.
 
 ## Inbound HTTP safety boundary
 
@@ -136,7 +138,13 @@ The request-context middleware establishes `requestId`, trace context, and a bas
 
 Raw `Authorization` and `Cookie` values are passed only to the resolver. They are not stored in `RequestContext`, copied into logger context, or echoed in error responses. After successful resolution, only `subject` and optional `tenantId` are added to structured log context.
 
-If no resolver is composed, the request remains anonymous. The default template deliberately does not choose a JWT package, OIDC provider, Ory/Cognito integration, role hierarchy, or authorization framework. Authentication answers "who is this?"; route/use-case authorization (for example requiring a principal, role, or scope) remains an explicit policy layer to add per application.
+If no resolver is composed, the request remains anonymous. The template still does not choose a JWT package, OIDC provider, Ory/Cognito integration, or role hierarchy. Authentication answers "who is this?"; application authorization answers "may this principal perform this use case for this tenant?"
+
+The sample user module demonstrates that second boundary with `requireTenantScope()`: creation requires `users:write`, lookup requires `users:read`, missing authentication maps to 401, and missing/invalid tenant or scope maps to a sanitized 403. Cross-tenant lookup is a tenant-scoped repository miss and therefore returns the same 404 as an unknown ID; the service never performs an unscoped existence probe.
+
+`UserRepository` encodes isolation structurally. `findById(tenantId, id)` and `findByEmail(tenantId, email)` require tenant context in their signatures, and the Drizzle adapter combines the tenant predicate with the resource predicate. Creation persists the tenant ID derived from the authorized principal. PostgreSQL enforces `(tenant_id, email)` uniqueness so concurrency cannot bypass the service-level duplicate check.
+
+`StaticBearerPrincipalResolver` is a development/test adapter wired by typed `AUTH_DEV_STATIC_*` configuration. It is disabled by default and startup rejects it in `NODE_ENV=production`. It exists so local/CI/E2E execution can exercise the normal composition boundary without selecting a production identity provider. Real deployments replace that adapter with a credential-validating provider integration; raw bearer/cookie values remain confined to the resolver boundary and are never added to request context or telemetry.
 
 ## Validation
 
@@ -184,7 +192,7 @@ Factory sequences are instance-local. Defaults generate valid UUIDs rather than 
 
 Health tests explicitly verify that liveness remains successful during dependency failure and readiness returns a controlled 503. Lifecycle tests verify reverse shutdown order, idempotence, and forced connection termination after the deadline.
 
-Authentication-context API tests verify anonymous requests, credential delivery to the resolver, normalized principal propagation, secret-free structured logging, application composition wiring, and correlation-preserving resolver failures.
+Authentication-context API tests verify anonymous requests, credential delivery to the resolver, normalized principal propagation, secret-free structured logging, application composition wiring, and correlation-preserving resolver failures. Authorization tests additionally cover 401/403 scope semantics, tenant-derived creation, cross-tenant 404 behavior, tenant-scoped repository SQL, tenant-local uniqueness, static bearer safety, and sequential tenant A/B black-box processes over one PostgreSQL database.
 
 Observability tests verify Noop behavior, OpenTelemetry adapter mapping, Bun `AsyncLocalStorage` parent/child propagation, in-memory span export, metrics export, inbound route-cardinality control, outbound retry correlation, database operation/transaction measurement, graceful shutdown, and same-process telemetry reinitialization. Database observability integration tests run against real PostgreSQL and assert that identifiers/domain values are not copied into telemetry attributes.
 

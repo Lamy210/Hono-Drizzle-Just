@@ -12,6 +12,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - UUID input accepts upper/lowercase RFC UUIDs; application-facing canonical values are lowercase.
 - W3C `traceparent` propagation with separate request IDs, trace IDs, and span IDs.
 - Provider-neutral `Principal` / `PrincipalResolver` authentication context without coupling services to Hono or a specific identity provider.
+- Application-layer tenant authorization with scope-gated sample user operations and tenant-scoped persistence.
 - Vendor-neutral `Tracer` / `Meter` ports with optional OpenTelemetry trace and metrics export.
 - Structured JSON logging behind an application-owned `Logger` interface with secret redaction.
 - External HTTP access goes through an application-owned `HttpClient` abstraction and `FetchHttpClient` adapter.
@@ -129,7 +130,7 @@ Verification commands have five stable layers:
 - `just check-fast` runs lint, typecheck, and unit/API tests without requiring PostgreSQL. Use it in the normal edit loop.
 - `just check` adds committed Drizzle migration-history verification and is the same quality command used by GitHub Actions.
 - `just coverage` runs the unit/API suite with Bun's native coverage gate, requiring at least 80% line coverage and 75% function coverage and producing `coverage/lcov.info`.
-- `just test-e2e` launches the real production entrypoint and exercises readiness, a persisted user flow over loopback TCP, and SIGTERM shutdown against an already-migrated `DATABASE_URL`. Use `bun run ci:e2e` to apply committed migrations first and run the standalone E2E gate.
+- `just test-e2e` launches the real production entrypoint twice with separate development/test bearer principals over the same migrated PostgreSQL database. It proves authenticated create/read, cross-tenant 404 isolation, tenant-local email uniqueness, readiness, and SIGTERM shutdown. Use `bun run ci:e2e` to apply committed migrations first and run the standalone E2E gate.
 - `just ci` runs the quality checks, coverage gate, applies committed migrations once, runs the PostgreSQL integration suite, and then runs black-box E2E against the migrated database. With the same database environment, it is the local full-CI equivalent.
 
 The service listens on `http://localhost:3000` by default.
@@ -137,8 +138,8 @@ The service listens on `http://localhost:3000` by default.
 - `GET /health` — compatibility liveness endpoint
 - `GET /health/live` — process/HTTP liveness; does not query PostgreSQL
 - `GET /health/ready` — readiness; returns 503 when a critical dependency is unavailable
-- `POST /users`
-- `GET /users/{id}`
+- `POST /users` - protected; requires an authenticated tenant principal with `users:write`
+- `GET /users/{id}` - protected; requires an authenticated tenant principal with `users:read`
 - `GET /openapi.json`
 
 ## Configuration
@@ -163,9 +164,23 @@ Configuration is loaded once during startup. Application modules should not read
 | `OTEL_ENABLED` | `false` | Enable OpenTelemetry trace/metrics SDK and exporters |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | Base OTLP/HTTP collector endpoint; `/v1/traces` and `/v1/metrics` are appended |
 | `OTEL_METRIC_EXPORT_INTERVAL_MS` | `60000` | Periodic metrics export interval |
+| `AUTH_DEV_STATIC_ENABLED` | `false` | Enable the development/test-only static bearer `PrincipalResolver`; rejected when `NODE_ENV=production` |
+| `AUTH_DEV_STATIC_BEARER_TOKEN` | empty | Static bearer credential; required at 32-512 bytes only when the development adapter is enabled |
+| `AUTH_DEV_STATIC_SUBJECT` | empty | Server-configured principal subject for the development adapter |
+| `AUTH_DEV_STATIC_TENANT_ID` | empty | Server-configured opaque tenant identifier; `__legacy__:` values are reserved |
+| `AUTH_DEV_STATIC_SCOPES` | empty | Space-delimited server-configured scopes such as `users:read users:write` |
 
 Invalid configuration fails startup before database/service composition. Configuration errors list variable names and validation reasons without echoing secret values. The OTLP endpoint accepts only HTTP(S) URLs without embedded credentials, query parameters, or fragments.
 
+## Authentication and tenant authorization
+
+`PrincipalResolver` remains the provider-neutral authentication port. The sample user module adds an application-layer authorization boundary on top of that identity: `POST /users` requires `users:write`, while `GET /users/{id}` requires `users:read`. Anonymous protected requests return `401`; an authenticated principal with a missing/invalid tenant or missing scope returns `403`; and a user that is absent from the authorized tenant, including a row owned by another tenant, returns `404` without an unscoped existence check.
+
+Tenant ownership is derived only from `RequestContext.principal.tenantId`. Client payloads or ad-hoc tenant headers cannot select a tenant. `UserRepository` requires the tenant ID in its read methods, Drizzle includes the tenant predicate in SQL lookups, and user email uniqueness is enforced by PostgreSQL as `(tenant_id, email)`. The same normalized email may therefore exist in different tenants while remaining unique inside one tenant.
+
+The built-in `StaticBearerPrincipalResolver` exists only to make local development, CI, and black-box E2E exercise the real authentication/authorization composition path. It is disabled by default, its credential and principal data come from `AUTH_DEV_STATIC_*` configuration, and startup rejects `AUTH_DEV_STATIC_ENABLED=true` when `NODE_ENV=production`. Deployed applications must compose a real identity-provider adapter that validates JWT/session/OIDC/Ory/Cognito or equivalent credentials and maps trusted identity data into `Principal`; do not promote the static resolver into a production authentication scheme.
+
+Static bearer values are validated without echoing the credential into configuration errors, and raw `Authorization`, cookies, and bearer tokens are not copied into request context, structured logs, telemetry attributes, or client error responses. The reserved `__legacy__:` tenant prefix is used only by the migration backfill for rows that predate tenant ownership and cannot be selected by a normal authorized tenant principal.
 ## Inbound HTTP policy
 
 Inbound request bodies use two independent safety boundaries. Hono enforces the application-visible limit (`HTTP_MAX_REQUEST_BODY_BYTES`, 1 MiB by default) after request correlation and request logging are established. Requests that cross this limit receive HTTP `413` with the common `REQUEST_BODY_TOO_LARGE` JSON envelope, including `requestId` and `traceId` when available.
@@ -186,7 +201,7 @@ On `SIGINT` or `SIGTERM`, the server stops accepting new connections and waits f
 
 Application services that need atomic persistence depend on `TransactionManager<TUnitOfWork>`, not on Drizzle. A feature-owned unit-of-work interface lists only the repository ports that the use case can access. The production Drizzle adapter creates those repositories from the active transaction session.
 
-The sample user creation flow performs the duplicate lookup and insert in the same transaction. Returning from the operation commits; throwing rolls back the complete unit of work. PostgreSQL constraints remain authoritative under concurrency, and repository adapters translate known database errors after unwrapping Drizzle's error cause chain.
+The sample user creation flow performs the tenant-local duplicate lookup and tenant-owned insert in the same transaction. Returning from the operation commits; throwing rolls back the complete unit of work. PostgreSQL constraints remain authoritative under concurrency, and repository adapters translate known database errors after unwrapping Drizzle's error cause chain.
 
 Automatic transaction retries and implicit `AsyncLocalStorage` transactions are intentionally not enabled by default.
 
@@ -199,6 +214,8 @@ Use `just db-migrate` to apply committed migrations. CI starts DB-backed jobs wi
 `just db-push` remains available only as a local-development convenience for disposable databases. It is not used by CI or deployment workflows. The API process also does not run migrations during startup; schema deployment is a separate operational step.
 
 If a pre-existing database was previously managed with `drizzle-kit push`, do not blindly apply the initial migration to it. Establish an explicit baseline/repair procedure for that database first so its existing schema and Drizzle migration log are reconciled safely.
+
+The tenant-ownership migration preserves the committed initial migration, adds `users.tenant_id` as `varchar(128) NOT NULL`, backfills pre-tenant rows with reserved `__legacy__:<user-id>` identifiers, removes global email uniqueness, and replaces it with `UNIQUE(tenant_id, email)`. Reserved legacy tenant IDs are intentionally inaccessible through the normal authorization boundary.
 
 ## Test factories
 
