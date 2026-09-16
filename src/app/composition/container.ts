@@ -52,9 +52,9 @@ export function createProductionContainer(config: AppConfig): {
   ]);
   const principalResolver = config.authDevStaticEnabled
     ? new StaticBearerPrincipalResolver({
-        token: config.authDevStaticBearerToken!,
-        subject: config.authDevStaticSubject!,
-        tenantId: config.authDevStaticTenantId!,
+        token: config.authDevStaticBearerToken,
+        subject: config.authDevStaticSubject,
+        tenantId: config.authDevStaticTenantId,
         scopes: config.authDevStaticScopes,
       })
     : undefined;
