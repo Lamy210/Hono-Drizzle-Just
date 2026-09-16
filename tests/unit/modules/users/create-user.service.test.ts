@@ -14,6 +14,11 @@ const context: RequestContext = {
     traceFlags: "01",
   },
   startedAt: 0,
+  principal: {
+    subject: "user-123",
+    tenantId: "tenant-a",
+    scopes: ["users:read", "users:write"],
+  },
 };
 
 function transactionManager(repository: UserRepository): TransactionManager<UserUnitOfWork> {
@@ -22,11 +27,26 @@ function transactionManager(repository: UserRepository): TransactionManager<User
   };
 }
 
-test("service uses a mocked repository inside the transaction and logs the created user", async () => {
+function deniedRepository() {
+  const findById = mock(async () => null);
+  const findByEmail = mock(async () => null);
+  const create = mock(async (input: { email: string; name: string; tenantId?: string }) => ({
+    id: "550e8400-e29b-41d4-a716-446655440000",
+    tenantId: input.tenantId ?? "tenant-a",
+    email: input.email,
+    name: input.name,
+    createdAt: new Date("2026-09-13T00:00:00.000Z"),
+  }));
+  const repository: UserRepository = { findById, findByEmail, create };
+  return { repository, findById, findByEmail, create };
+}
+
+test("service uses the authorized tenant inside the transaction and logs the created user", async () => {
   const createdAt = new Date("2026-09-13T00:00:00.000Z");
   const findByEmail = mock(async () => null);
-  const create = mock(async (input: { email: string; name: string }) => ({
+  const create = mock(async (input: { email: string; name: string; tenantId?: string }) => ({
     id: "550e8400-e29b-41d4-a716-446655440000",
+    tenantId: input.tenantId ?? "tenant-a",
     email: input.email,
     name: input.name,
     createdAt,
@@ -44,15 +64,20 @@ test("service uses a mocked repository inside the transaction and logs the creat
   const user = await service.execute({ email: " LAMY@example.com ", name: " Lamy " }, context);
 
   expect(transactions.run).toHaveBeenCalledTimes(1);
-  expect(findByEmail).toHaveBeenCalledWith("lamy@example.com");
-  expect(create).toHaveBeenCalledWith({ email: "lamy@example.com", name: "Lamy" });
+  expect(findByEmail).toHaveBeenCalledWith("tenant-a", "lamy@example.com");
+  expect(create).toHaveBeenCalledWith({
+    tenantId: "tenant-a",
+    email: "lamy@example.com",
+    name: "Lamy",
+  });
   expect(user.email).toBe("lamy@example.com");
   expect(infoSpy).toHaveBeenCalledTimes(1);
 });
 
-test("service rolls out of the unit of work without creating when the email already exists", async () => {
+test("service rolls out of the unit of work without creating when the tenant-local email exists", async () => {
   const existing = {
     id: "550e8400-e29b-41d4-a716-446655440000",
+    tenantId: "tenant-a",
     email: "lamy@example.com",
     name: "Lamy",
     createdAt: new Date("2026-09-13T00:00:00.000Z"),
@@ -71,4 +96,71 @@ test("service rolls out of the unit of work without creating when the email alre
   ).rejects.toMatchObject({ code: "CONFLICT", status: 409 });
   expect(transactions.run).toHaveBeenCalledTimes(1);
   expect(create).not.toHaveBeenCalled();
+});
+
+test("anonymous requests are rejected before transaction work", async () => {
+  const { repository, findByEmail, create } = deniedRepository();
+  const transactions = transactionManager(repository);
+  const service = new CreateUserService(transactions, new JsonConsoleLogger({}, () => undefined));
+  const anonymous: RequestContext = { ...context, principal: undefined };
+
+  await expect(
+    service.execute({ email: "lamy@example.com", name: "Lamy" }, anonymous),
+  ).rejects.toMatchObject({ code: "UNAUTHORIZED", status: 401 });
+  expect(transactions.run).not.toHaveBeenCalled();
+  expect(findByEmail).not.toHaveBeenCalled();
+  expect(create).not.toHaveBeenCalled();
+});
+
+test("authenticated requests without a tenant are forbidden before transaction work", async () => {
+  const { repository } = deniedRepository();
+  const transactions = transactionManager(repository);
+  const service = new CreateUserService(transactions, new JsonConsoleLogger({}, () => undefined));
+  const missingTenant: RequestContext = {
+    ...context,
+    principal: { subject: "user-123", scopes: ["users:write"] },
+  };
+
+  await expect(
+    service.execute({ email: "lamy@example.com", name: "Lamy" }, missingTenant),
+  ).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
+  expect(transactions.run).not.toHaveBeenCalled();
+});
+
+test("reserved tenant identities are forbidden before transaction work", async () => {
+  const { repository } = deniedRepository();
+  const transactions = transactionManager(repository);
+  const service = new CreateUserService(transactions, new JsonConsoleLogger({}, () => undefined));
+  const reservedTenant: RequestContext = {
+    ...context,
+    principal: {
+      subject: "user-123",
+      tenantId: "__legacy__:550e8400-e29b-41d4-a716-446655440000",
+      scopes: ["users:write"],
+    },
+  };
+
+  await expect(
+    service.execute({ email: "lamy@example.com", name: "Lamy" }, reservedTenant),
+  ).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
+  expect(transactions.run).not.toHaveBeenCalled();
+});
+
+test("authenticated requests without users:write are forbidden before transaction work", async () => {
+  const { repository } = deniedRepository();
+  const transactions = transactionManager(repository);
+  const service = new CreateUserService(transactions, new JsonConsoleLogger({}, () => undefined));
+  const missingScope: RequestContext = {
+    ...context,
+    principal: {
+      subject: "user-123",
+      tenantId: "tenant-a",
+      scopes: ["users:read"],
+    },
+  };
+
+  await expect(
+    service.execute({ email: "lamy@example.com", name: "Lamy" }, missingScope),
+  ).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
+  expect(transactions.run).not.toHaveBeenCalled();
 });
