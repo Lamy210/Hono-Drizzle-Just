@@ -217,23 +217,32 @@ The generated OpenAPI snapshot is regenerated through the existing contract work
 
 The black-box E2E test continues to launch the real `bun run start` production entrypoint.
 
-Its child-process environment uses `NODE_ENV=test`, explicitly enables static bearer auth, and configures:
+The E2E scenario uses one migrated PostgreSQL database and two **sequential** real server processes; they are not run concurrently.
 
-- a deterministic strong test bearer token;
+Server A runs with `NODE_ENV=test`, static bearer auth enabled, and server-configured identity:
+
+- deterministic strong bearer token A;
 - subject `e2e-user-a`;
 - tenant `tenant-e2e-a`;
 - scopes `users:read users:write`.
 
-Requests send the token through the standard `Authorization: Bearer ...` header. The primary production-path scenario remains create + fetch, now through principal resolution and application authorization.
+The test first verifies a protected user request without `Authorization` returns 401. It then authenticates as tenant A, creates a user, fetches it successfully, records its ID/email, sends SIGTERM, and requires the same clean graceful-shutdown assertions as the existing E2E test.
 
-For cross-tenant isolation, launch a second server process against the same migrated test database with a distinct static principal (`tenant-e2e-b`) and bearer token, or otherwise use an equivalent isolated production-composition arrangement that keeps each static resolver server-configured. The test proves:
+Server B then starts against the **same database** with a different dynamic port and server-configured identity:
 
-1. tenant A creates a user;
-2. tenant A can fetch the user;
-3. tenant B with `users:read` receives 404 for tenant A's user ID;
-4. tenant B can create the same normalized email successfully because uniqueness is tenant-local.
+- deterministic strong bearer token B;
+- subject `e2e-user-b`;
+- tenant `tenant-e2e-b`;
+- scopes `users:read users:write`.
 
-The suite also asserts a protected user route without an Authorization header returns 401. Detailed scope-denial permutations stay in API/unit tests rather than bloating the production E2E suite.
+The test authenticates as tenant B and proves:
+
+1. `GET /users/{tenant-A-user-id}` returns 404;
+2. `POST /users` with tenant A's normalized email returns 201;
+3. tenant B can fetch its own newly created user;
+4. server B also terminates cleanly through SIGTERM.
+
+Detailed scope-denial permutations stay in API/unit tests rather than bloating the production E2E suite.
 
 ## Testing strategy
 
@@ -336,7 +345,7 @@ Rejected because it would weaken the black-box E2E guarantee. The E2E suite cont
 - email uniqueness is `(tenant_id, email)`.
 - existing pre-tenant rows migrate to inaccessible reserved legacy tenant IDs.
 - static bearer auth is disabled by default and rejected under `NODE_ENV=production`.
-- real-process E2E runs authenticated create/read and proves cross-tenant isolation.
+- real-process E2E runs authenticated create/read and proves cross-tenant isolation using sequential tenant A/B server processes over the same database.
 - same email can be created by two different tenants.
 - OpenAPI snapshot documents 401/403 and contract gates remain green.
 - no raw auth credential is logged or returned.
