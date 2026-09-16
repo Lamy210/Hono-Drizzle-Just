@@ -64,13 +64,14 @@ afterAll(async () => {
   await database.close();
 });
 
-test("database access composition shares one observer across transactions and repositories", async () => {
+test("database access composition shares one observer across tenant-scoped transactions and repositories", async () => {
   const email = `composition-observed-${crypto.randomUUID()}@example.com`;
+  const tenantId = "tenant-composition";
 
   const created = await access.userTransactions.run((unitOfWork) =>
-    unitOfWork.users.create({ email, name: "Composition" }),
+    unitOfWork.users.create({ tenantId, email, name: "Composition" }),
   );
-  const found = await access.userRepository.findById(created.id);
+  const found = await access.userRepository.findById(tenantId, created.id);
 
   expect(found?.email).toBe(email);
   expect(tracer.spans.map((entry) => entry.name)).toEqual([
