@@ -2,6 +2,7 @@ import type { AppConfig } from "../../config/load-config";
 import { ReadinessChecker } from "../../core/health/readiness-checker";
 import { ApplicationLifecycle } from "../../core/lifecycle/application-lifecycle";
 import { StaticBearerPrincipalResolver } from "../../infrastructure/auth/static-bearer-principal-resolver";
+import { Sha256StringDigester } from "../../infrastructure/crypto/sha256-string-digester";
 import { createDatabase } from "../../infrastructure/database/database";
 import { DatabaseObserver } from "../../infrastructure/database/database-observer";
 import { DatabaseHealthCheck } from "../../infrastructure/health/database-health-check";
@@ -58,12 +59,13 @@ export function createProductionContainer(config: AppConfig): {
         scopes: config.authDevStaticScopes,
       })
     : undefined;
+  const digester = new Sha256StringDigester();
 
   return {
     dependencies: {
       logger,
       readinessChecker,
-      createUserService: new CreateUserService(userTransactions, logger),
+      createUserService: new CreateUserService(userTransactions, logger, digester),
       getUserService: new GetUserService(userRepository),
       ...(principalResolver === undefined ? {} : { principalResolver }),
       tracer: telemetry.tracer,
