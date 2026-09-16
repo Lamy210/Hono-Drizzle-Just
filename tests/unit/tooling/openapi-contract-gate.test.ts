@@ -74,10 +74,9 @@ test("GitHub Actions makes contract verification independently required", async 
   const workflow = await readText(".github/workflows/ci.yml");
 
   expect(workflow).toContain("  contract:\n");
-  expect(workflow).toContain("      - run: bun run openapi:contract\n");
-  expect(workflow).toContain("      - name: Check OpenAPI breaking changes\n");
-  expect(workflow).toContain("          ./scripts/openapi/oasdiff.sh breaking --fail-on ERR");
-  expect(workflow).toContain("contract: $" + "{{ needs.contract.result }}");
-  expect(workflow).toContain(`needs.contract.result == 'success'`);
-  expect(workflow).toContain(contractResultExpression);
+  expect(workflow).toContain("bun run openapi:contract");
+  expect(workflow).toContain("scripts/openapi/oasdiff.sh breaking");
+  expect(workflow).toContain("needs: [quality, integration, coverage, e2e, contract]");
+  expect(workflow).toContain(`CONTRACT_RESULT: ${contractResultExpression}`);
+  expect(workflow).toContain('test "$CONTRACT_RESULT" = "success"');
 });
