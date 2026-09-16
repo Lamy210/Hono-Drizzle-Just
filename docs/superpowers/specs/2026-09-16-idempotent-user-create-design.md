@@ -63,6 +63,8 @@ An invalid supplied key returns the existing validation-error shape with HTTP 40
 
 The route contract declares the header through the existing `@hono/zod-openapi` request-header schema and reads the validated header using `c.req.valid("header")`.
 
+Clients should generate high-entropy unique values such as UUIDs. Persisting SHA-256 digests is data minimization, not a substitute for client-side key entropy or a mechanism for protecting a low-entropy key as a secret.
+
 ### Success semantics
 
 Without an idempotency key:
@@ -156,13 +158,15 @@ No expiry index is added in this phase because there is no sweep query yet. Lazy
 
 ## Retention and expiry
 
-A completed claim is active for 24 hours.
+A completed claim has a 24-hour replay guarantee.
 
 The 24-hour policy is an application constant for this phase rather than another environment variable. Repository claim operations receive the TTL duration and use PostgreSQL `now()` as the authoritative clock for both expiry comparison and new `expires_at` calculation.
 
-There is no background cleanup job in this change.
+There is no background cleanup job in this change. Expiry is therefore logical, not a promise that the row is physically deleted at 24 hours.
 
 Expired rows are reclaimed lazily only when the same tenant/key is used again. Other expired rows may remain stored until a future maintenance feature adds sweeping.
+
+After expiry, the key is treated as available for a fresh create attempt. The old response is no longer replay-guaranteed. Normal user-create rules still apply, so retrying the original email after expiry may return the existing tenant-local 409 conflict instead of the prior 201 response.
 
 ## Application ports
 
@@ -436,8 +440,9 @@ Update README/architecture/contributor-facing material to explain:
 - its scope is tenant-local `POST /users`;
 - same-key/same-normalized-payload replays;
 - same-key/different-payload returns 422;
-- retention is 24 hours with lazy reclaim;
+- retention is a 24-hour replay guarantee with lazy reclaim;
 - raw keys are hashed before persistence;
+- clients should use high-entropy unique keys;
 - no Redis or background cleanup service is required in this phase.
 
 ## Acceptance criteria
@@ -446,10 +451,10 @@ The change is complete only when all of the following are true:
 
 - `POST /users` works exactly as before when no key is supplied;
 - a same-tenant concurrent duplicate with one key/payload creates one user total;
-- repeated same-key/same-normalized-payload calls return the same user ID;
-- same-key/different-payload returns sanitized 422;
+- repeated same-key/same-normalized-payload calls return the same user ID during the 24-hour replay window;
+- same-key/different-payload returns sanitized 422 while the key is active;
 - same raw key remains independent across tenants;
-- expired keys can be reused after 24 hours;
+- expired keys can be reused after 24 hours, with normal user-create conflicts applying to the fresh attempt;
 - failed transactions do not leave committed incomplete claims;
 - raw keys are absent from persistence, logs, telemetry, context, and errors;
 - no unscoped user lookup is introduced;
