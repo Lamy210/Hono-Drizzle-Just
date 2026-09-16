@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isValidTenantId } from "../core/auth/tenant-authorization";
+import { hasControlCharacters, isValidTenantId } from "../core/auth/tenant-authorization";
 import type { LogLevel } from "../core/logging/logger";
 
 function integerEnv(defaultValue: number, min: number, max: number) {
@@ -54,7 +54,6 @@ function normalizeOtlpHttpEndpoint(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-const subjectControlCharacterPattern = /[\u0000-\u001f\u007f]/;
 const scopePattern = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,99}$/;
 
 function parseStaticScopes(value: string): readonly string[] {
@@ -84,9 +83,9 @@ const RawConfigSchema = z
     }),
     OTEL_METRIC_EXPORT_INTERVAL_MS: integerEnv(60_000, 1_000, 300_000),
     AUTH_DEV_STATIC_ENABLED: booleanEnv(false),
-    AUTH_DEV_STATIC_BEARER_TOKEN: z.string().optional(),
-    AUTH_DEV_STATIC_SUBJECT: z.string().optional(),
-    AUTH_DEV_STATIC_TENANT_ID: z.string().optional(),
+    AUTH_DEV_STATIC_BEARER_TOKEN: z.string().default(""),
+    AUTH_DEV_STATIC_SUBJECT: z.string().default(""),
+    AUTH_DEV_STATIC_TENANT_ID: z.string().default(""),
     AUTH_DEV_STATIC_SCOPES: z.string().max(2_048, "must be at most 2048 characters").default(""),
   })
   .superRefine((raw, context) => {
@@ -110,8 +109,8 @@ const RawConfigSchema = z
       });
     }
 
-    const token = raw.AUTH_DEV_STATIC_BEARER_TOKEN;
-    if (!token || new TextEncoder().encode(token).byteLength < 32 || new TextEncoder().encode(token).byteLength > 512) {
+    const tokenBytes = new TextEncoder().encode(raw.AUTH_DEV_STATIC_BEARER_TOKEN).byteLength;
+    if (tokenBytes < 32 || tokenBytes > 512) {
       context.addIssue({
         code: "custom",
         path: ["AUTH_DEV_STATIC_BEARER_TOKEN"],
@@ -121,10 +120,10 @@ const RawConfigSchema = z
 
     const subject = raw.AUTH_DEV_STATIC_SUBJECT;
     if (
-      !subject ||
+      subject.length < 1 ||
       subject.length > 200 ||
       subject !== subject.trim() ||
-      subjectControlCharacterPattern.test(subject)
+      hasControlCharacters(subject)
     ) {
       context.addIssue({
         code: "custom",
@@ -133,8 +132,7 @@ const RawConfigSchema = z
       });
     }
 
-    const tenantId = raw.AUTH_DEV_STATIC_TENANT_ID;
-    if (!tenantId || !isValidTenantId(tenantId)) {
+    if (!isValidTenantId(raw.AUTH_DEV_STATIC_TENANT_ID)) {
       context.addIssue({
         code: "custom",
         path: ["AUTH_DEV_STATIC_TENANT_ID"],
@@ -170,15 +168,14 @@ export interface AppConfig {
   readonly otelExporterOtlpEndpoint: string;
   readonly otelMetricExportIntervalMs: number;
   readonly authDevStaticEnabled: boolean;
-  readonly authDevStaticBearerToken?: string;
-  readonly authDevStaticSubject?: string;
-  readonly authDevStaticTenantId?: string;
+  readonly authDevStaticBearerToken: string;
+  readonly authDevStaticSubject: string;
+  readonly authDevStaticTenantId: string;
   readonly authDevStaticScopes: readonly string[];
 }
 
-export const AppConfigSchema = RawConfigSchema.transform((raw): AppConfig => {
-  const staticScopes = raw.AUTH_DEV_STATIC_ENABLED ? parseStaticScopes(raw.AUTH_DEV_STATIC_SCOPES) : [];
-  return {
+export const AppConfigSchema = RawConfigSchema.transform(
+  (raw): AppConfig => ({
     environment: raw.NODE_ENV,
     serviceName: raw.SERVICE_NAME,
     port: raw.PORT,
@@ -196,13 +193,9 @@ export const AppConfigSchema = RawConfigSchema.transform((raw): AppConfig => {
     otelExporterOtlpEndpoint: normalizeOtlpHttpEndpoint(raw.OTEL_EXPORTER_OTLP_ENDPOINT),
     otelMetricExportIntervalMs: raw.OTEL_METRIC_EXPORT_INTERVAL_MS,
     authDevStaticEnabled: raw.AUTH_DEV_STATIC_ENABLED,
-    ...(raw.AUTH_DEV_STATIC_ENABLED
-      ? {
-          authDevStaticBearerToken: raw.AUTH_DEV_STATIC_BEARER_TOKEN,
-          authDevStaticSubject: raw.AUTH_DEV_STATIC_SUBJECT,
-          authDevStaticTenantId: raw.AUTH_DEV_STATIC_TENANT_ID,
-        }
-      : {}),
-    authDevStaticScopes: staticScopes,
-  };
-});
+    authDevStaticBearerToken: raw.AUTH_DEV_STATIC_BEARER_TOKEN,
+    authDevStaticSubject: raw.AUTH_DEV_STATIC_SUBJECT,
+    authDevStaticTenantId: raw.AUTH_DEV_STATIC_TENANT_ID,
+    authDevStaticScopes: raw.AUTH_DEV_STATIC_ENABLED ? parseStaticScopes(raw.AUTH_DEV_STATIC_SCOPES) : [],
+  }),
+);
