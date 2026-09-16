@@ -102,7 +102,11 @@ test("anonymous requests are rejected before transaction work", async () => {
   const { repository, findByEmail, create } = deniedRepository();
   const transactions = transactionManager(repository);
   const service = new CreateUserService(transactions, new JsonConsoleLogger({}, () => undefined));
-  const anonymous: RequestContext = { ...context, principal: undefined };
+  const anonymous: RequestContext = {
+    requestId: context.requestId,
+    trace: context.trace,
+    startedAt: context.startedAt,
+  };
 
   await expect(
     service.execute({ email: "lamy@example.com", name: "Lamy" }, anonymous),
