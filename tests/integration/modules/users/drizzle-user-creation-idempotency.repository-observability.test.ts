@@ -83,7 +83,9 @@ test("ledger operations expose only low-cardinality database metadata", async ()
     expect(name).toMatch(/^(SELECT|INSERT|UPDATE) user_creation_idempotency$/);
     expect(options.attributes?.["db.system.name"]).toBe("postgresql");
     expect(options.attributes?.["db.collection.name"]).toBe("user_creation_idempotency");
-    expect(["SELECT", "INSERT", "UPDATE"]).toContain(options.attributes?.["db.operation.name"]);
+    const operation = options.attributes?.["db.operation.name"];
+    expect(typeof operation).toBe("string");
+    expect(["SELECT", "INSERT", "UPDATE"]).toContain(operation as string);
     const serialized = JSON.stringify(options.attributes);
     for (const prohibited of [tenantId, rawKey, keyHash, requestFingerprint, user.id]) {
       expect(serialized).not.toContain(prohibited);
