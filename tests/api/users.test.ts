@@ -3,6 +3,7 @@ import { createApp } from "../../src/app/app";
 import type { PrincipalResolver } from "../../src/core/auth/principal-resolver";
 import { ReadinessChecker } from "../../src/core/health/readiness-checker";
 import type { TransactionManager } from "../../src/core/transaction/transaction-manager";
+import { Sha256StringDigester } from "../../src/infrastructure/crypto/sha256-string-digester";
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
@@ -45,7 +46,11 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
       {
         logger,
         readinessChecker: new ReadinessChecker([]),
-        createUserService: new CreateUserService(transactions(repository), logger),
+        createUserService: new CreateUserService(
+          transactions(repository),
+          logger,
+          new Sha256StringDigester(),
+        ),
         getUserService: new GetUserService(repository),
         ...(resolver === undefined ? {} : { principalResolver: resolver }),
       },
