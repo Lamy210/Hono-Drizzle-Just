@@ -8,9 +8,10 @@ import { CreateUserService } from "../../src/modules/users/application/create-us
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
 import type { UserUnitOfWork } from "../../src/modules/users/application/user-unit-of-work";
 import type { UserRepository } from "../../src/modules/users/domain/user.repository";
+import { userUnitOfWork } from "../helpers/user-unit-of-work";
 
 function transactions(repository: UserRepository): TransactionManager<UserUnitOfWork> {
-  return { run: async (operation) => operation({ users: repository }) };
+  return { run: async (operation) => operation(userUnitOfWork(repository)) };
 }
 
 function principalResolver(
