@@ -7,6 +7,7 @@ import { CreateUserService } from "../../../src/modules/users/application/create
 import { GetUserService } from "../../../src/modules/users/application/get-user.service";
 import type { UserUnitOfWork } from "../../../src/modules/users/application/user-unit-of-work";
 import type { UserRepository } from "../../../src/modules/users/domain/user.repository";
+import { userUnitOfWork } from "../../helpers/user-unit-of-work";
 
 interface PackageJson {
   readonly scripts?: Record<string, string>;
@@ -33,7 +34,7 @@ function buildContractApp() {
     create: mock(async (input) => ({ ...user, ...input })),
   };
   const transactions: TransactionManager<UserUnitOfWork> = {
-    run: async (operation) => operation({ users: repository }),
+    run: async (operation) => operation(userUnitOfWork(repository)),
   };
   const logger = new JsonConsoleLogger({ service: "openapi-contract-test" }, () => undefined);
 
@@ -73,9 +74,10 @@ test("GitHub Actions makes contract verification independently required", async 
   const workflow = await readText(".github/workflows/ci.yml");
 
   expect(workflow).toContain("  contract:\n");
-  expect(workflow).toContain("bun run openapi:contract");
-  expect(workflow).toContain("scripts/openapi/oasdiff.sh breaking");
-  expect(workflow).toContain("needs: [quality, integration, coverage, e2e, contract]");
-  expect(workflow).toContain(`CONTRACT_RESULT: ${contractResultExpression}`);
-  expect(workflow).toContain('test "$CONTRACT_RESULT" = "success"');
+  expect(workflow).toContain("      - run: bun run openapi:contract\n");
+  expect(workflow).toContain("      - name: Check OpenAPI breaking changes\n");
+  expect(workflow).toContain("          ./scripts/openapi/oasdiff.sh breaking --fail-on ERR");
+  expect(workflow).toContain("contract: $" + "{{ needs.contract.result }}");
+  expect(workflow).toContain(`needs.contract.result == 'success'`);
+  expect(workflow).toContain(contractResultExpression);
 });
