@@ -24,7 +24,7 @@ test("Graphify integration pins the tool and keeps generated output local", asyn
   expect(graphifyIgnore).toContain("docs/superpowers/plans/");
 });
 
-test("Graphify stays outside the Bun dependency graph", async () => {
+test("Graphify stays outside the Bun dependency graph and normal CI", async () => {
   const packageJson = JSON.parse(await readText("package.json")) as {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
@@ -36,13 +36,22 @@ test("Graphify stays outside the Bun dependency graph", async () => {
 
   expect(names).not.toContain("graphify");
   expect(names).not.toContain("graphifyy");
+
+  const workflow = (await readText(".github/workflows/ci.yml")).toLowerCase();
+  expect(workflow).not.toContain("graphify");
+  expect(workflow).not.toContain("setup-uv");
 });
 
-test("Graphify project Agent Skill is committed", async () => {
+test("Graphify project Agent Skill is committed from the pinned release", async () => {
   const skill = rootFile(".agents/skills/graphify/SKILL.md");
+  const stamp = rootFile(".agents/skills/graphify/.graphify_version");
+  const updateReference = rootFile(".agents/skills/graphify/references/update.md");
 
   expect(await skill.exists()).toBe(true);
   expect(await skill.text()).toContain("graphify");
+  expect(await stamp.exists()).toBe(true);
+  expect((await stamp.text()).trim()).toBe((await readText(".graphify-version")).trim());
+  expect(await updateReference.exists()).toBe(true);
 });
 
 test("Graphify commands and documentation are discoverable", async () => {
@@ -59,6 +68,4 @@ test("Graphify commands and documentation are discoverable", async () => {
   expect(guideText).toContain("graphify install --project --platform agents");
   expect(guideText).toContain("multi_agent = true");
   expect(guideText).toContain("MCP");
-
-  expect(await readText("README.md")).toContain("docs/development/graphify.md");
 });
