@@ -38,6 +38,8 @@ just db-migrate
 just dev
 ```
 
+Optional developer tooling: [Graphify developer workflow](docs/development/graphify.md).
+
 ## Using this template
 
 After creating a repository with GitHub **Use this template**, initialize the generated repository before starting feature work:
