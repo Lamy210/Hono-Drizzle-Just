@@ -58,7 +58,8 @@ test("Graphify commands and documentation are discoverable", async () => {
   const justfile = await readText("justfile");
   expect(justfile).toContain("graphify-build:\n  graphify .\n");
   expect(justfile).toContain("graphify-update:\n  graphify . --update\n");
-  expect(justfile).toContain('graphify-query query:\n  graphify query "{{query}}"\n');
+  expect(justfile).toContain('graphify-query query:\n  graphify query "$1"\n');
+  expect(justfile).not.toContain('graphify query "{{query}}"');
   expect(justfile).toContain("graphify-watch:\n  graphify . --watch\n");
 
   const guide = rootFile("docs/development/graphify.md");
