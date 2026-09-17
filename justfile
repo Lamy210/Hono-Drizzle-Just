@@ -30,6 +30,18 @@ openapi-generate:
 openapi-verify:
   bun run openapi:contract
 
+graphify-build:
+  graphify .
+
+graphify-update:
+  graphify . --update
+
+graphify-query query:
+  graphify query "{{query}}"
+
+graphify-watch:
+  graphify . --watch
+
 ci:
   DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/app} bun run ci
 
