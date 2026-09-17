@@ -44,3 +44,21 @@ test("Graphify project Agent Skill is committed", async () => {
   expect(await skill.exists()).toBe(true);
   expect(await skill.text()).toContain("graphify");
 });
+
+test("Graphify commands and documentation are discoverable", async () => {
+  const justfile = await readText("justfile");
+  expect(justfile).toContain("graphify-build:\n  graphify .\n");
+  expect(justfile).toContain("graphify-update:\n  graphify . --update\n");
+  expect(justfile).toContain('graphify-query query:\n  graphify query "{{query}}"\n');
+  expect(justfile).toContain("graphify-watch:\n  graphify . --watch\n");
+
+  const guide = rootFile("docs/development/graphify.md");
+  expect(await guide.exists()).toBe(true);
+  const guideText = await guide.text();
+  expect(guideText).toContain("graphifyy");
+  expect(guideText).toContain("graphify install --project --platform agents");
+  expect(guideText).toContain("multi_agent = true");
+  expect(guideText).toContain("MCP");
+
+  expect(await readText("README.md")).toContain("docs/development/graphify.md");
+});
