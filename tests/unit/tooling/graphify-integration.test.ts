@@ -69,4 +69,7 @@ test("Graphify commands and documentation are discoverable", async () => {
   expect(guideText).toContain("graphify install --project --platform agents");
   expect(guideText).toContain("multi_agent = true");
   expect(guideText).toContain("MCP");
+
+  const readme = await readText("README.md");
+  expect(readme).toContain("[Graphify developer workflow](docs/development/graphify.md)");
 });
