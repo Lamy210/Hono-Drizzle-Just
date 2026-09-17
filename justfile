@@ -37,7 +37,7 @@ graphify-update:
   graphify . --update
 
 graphify-query query:
-  graphify query "{{query}}"
+  graphify query "$1"
 
 graphify-watch:
   graphify . --watch
