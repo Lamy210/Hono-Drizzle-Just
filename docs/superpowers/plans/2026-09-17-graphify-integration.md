@@ -176,7 +176,7 @@ permissions:
   contents: write
 steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-  - uses: astral-sh/setup-uv@<pinned-full-commit-sha>
+  - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
   - run: uv tool install "graphifyy==$(cat .graphify-version)"
   - run: graphify install --project --platform agents
   - run: |
@@ -187,7 +187,7 @@ steps:
       git push
 ```
 
-Before writing the workflow, resolve and pin the current `astral-sh/setup-uv` action to an immutable commit SHA; do not use a floating tag.
+The setup action is pinned to immutable `astral-sh/setup-uv` release `v10.0.1` commit `20cfd1bf945f4377ade1205e4dbc17946fc9a30d`; do not replace it with a floating tag.
 
 - [ ] **Step 4: Let the official pinned CLI generate the project skill**
 
