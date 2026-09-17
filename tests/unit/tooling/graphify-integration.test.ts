@@ -37,3 +37,10 @@ test("Graphify stays outside the Bun dependency graph", async () => {
   expect(names).not.toContain("graphify");
   expect(names).not.toContain("graphifyy");
 });
+
+test("Graphify project Agent Skill is committed", async () => {
+  const skill = rootFile(".agents/skills/graphify/SKILL.md");
+
+  expect(await skill.exists()).toBe(true);
+  expect(await skill.text()).toContain("graphify");
+});
