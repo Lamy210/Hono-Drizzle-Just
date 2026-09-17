@@ -2,8 +2,8 @@ import { afterAll, beforeAll, beforeEach, expect, spyOn, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import type { RequestContext } from "../../../src/core/context/request-context";
 import { userCreationIdempotency, users } from "../../../src/db/schema";
-import { DrizzleTransactionManager } from "../../../src/infrastructure/database/drizzle-transaction-manager";
 import { Sha256StringDigester } from "../../../src/infrastructure/crypto/sha256-string-digester";
+import { DrizzleTransactionManager } from "../../../src/infrastructure/database/drizzle-transaction-manager";
 import { JsonConsoleLogger } from "../../../src/infrastructure/logging/json-console-logger";
 import { CreateUserService } from "../../../src/modules/users/application/create-user.service";
 import type { UserUnitOfWork } from "../../../src/modules/users/application/user-unit-of-work";
@@ -126,4 +126,4 @@ test("a business conflict rolls back its idempotency claim so the key can be reu
     { idempotencyKey: key },
   );
   expect(recovered.tenantId).toBe("tenant-idempotency-service");
-}
+});
