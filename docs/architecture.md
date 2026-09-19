@@ -210,6 +210,8 @@ The template intentionally disables `Strict-Transport-Security`, `Cross-Origin-R
 
 CORS remains unset by default. A generated service must define its own allowed origins, credentials policy, methods, and headers rather than inheriting a permissive wildcard policy from the template.
 
+Routing failures are normalized at the HTTP boundary. An unmatched path returns the common correlated `NOT_FOUND` / 404 envelope, while a path that exists but does not support the requested method returns `METHOD_NOT_ALLOWED` / 405 with the standards-compatible `Allow` header. These responses are produced after request context is established, so request/trace IDs, structured request logging, metrics, and security headers remain consistent with application errors.
+
 ## External HTTP
 
 Application code must not call global `fetch` directly. The application-owned `HttpClient` port expresses the request, total deadline, optional per-attempt timeout, retry intent, request context, and response schema without exposing Bun's fetch implementation.

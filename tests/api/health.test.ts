@@ -58,6 +58,50 @@ test("API responses use a safe default security-header baseline", async () => {
   expect(response.headers.get("origin-agent-cluster")).toBeNull();
 });
 
+test("unmatched routes use the common correlated 404 error response", async () => {
+  const app = buildApp({ name: "database", check: async () => undefined });
+  const requestId = "550e8400-e29b-41d4-a716-446655440000";
+  const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+
+  const response = await app.request("/missing", {
+    headers: {
+      "x-request-id": requestId,
+      traceparent: `00-${traceId}-00f067aa0ba902b7-01`,
+    },
+  });
+
+  expect(response.status).toBe(404);
+  expect(await response.json()).toEqual({
+    error: { code: "NOT_FOUND", message: "Resource not found" },
+    requestId,
+    traceId,
+  });
+});
+
+test("unsupported methods use the common correlated 405 response with Allow", async () => {
+  const app = buildApp({ name: "database", check: async () => undefined });
+  const requestId = "550e8400-e29b-41d4-a716-446655440000";
+  const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+
+  const response = await app.request("/health/live", {
+    method: "POST",
+    headers: {
+      "x-request-id": requestId,
+      traceparent: `00-${traceId}-00f067aa0ba902b7-01`,
+    },
+  });
+
+  expect(response.status).toBe(405);
+  const allow = response.headers.get("allow");
+  expect(allow).toContain("GET");
+  expect(allow).toContain("HEAD");
+  expect(await response.json()).toEqual({
+    error: { code: "METHOD_NOT_ALLOWED", message: "Method not allowed" },
+    requestId,
+    traceId,
+  });
+});
+
 test("liveness stays healthy even when a critical dependency is down", async () => {
   const app = buildApp({
     name: "database",

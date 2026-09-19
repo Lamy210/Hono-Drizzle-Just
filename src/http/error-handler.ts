@@ -1,11 +1,10 @@
 import type { ErrorHandler } from "hono";
-import { ErrorResponseSchema } from "../contracts/common/errors";
 import { AppError } from "../core/errors/app-error";
 import type { AppEnv } from "./env";
+import { createAppErrorResponse } from "./error-response";
 
 export function createErrorHandler(): ErrorHandler<AppEnv> {
   return (error, c) => {
-    const context = c.get("requestContext");
     const logger = c.get("logger");
     const appError =
       error instanceof AppError
@@ -20,16 +19,6 @@ export function createErrorHandler(): ErrorHandler<AppEnv> {
       path: c.req.path,
     });
 
-    const body = ErrorResponseSchema.parse({
-      error: {
-        code: appError.code,
-        message: appError.message,
-        ...(appError.details === undefined ? {} : { details: appError.details }),
-      },
-      requestId: context.requestId,
-      traceId: context.trace.traceId,
-    });
-
-    return c.json(body, appError.status);
+    return createAppErrorResponse(c, appError);
   };
 }
