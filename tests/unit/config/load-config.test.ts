@@ -27,6 +27,9 @@ describe("loadConfig", () => {
       httpMaxRequestBodyBytes: 1_048_576,
       httpTransportMaxRequestBodyBytes: 2_097_152,
       httpTrustedProxyCidrs: [],
+      httpRateLimitEnabled: false,
+      httpRateLimitRequests: 120,
+      httpRateLimitWindowSeconds: 60,
       databasePoolMax: 20,
       databaseConnectionTimeoutMs: 5_000,
       healthCheckTimeoutMs: 1_500,
@@ -130,6 +133,33 @@ describe("loadConfig", () => {
         ConfigurationError,
       );
     }
+  });
+
+  test("parses explicit rate limit settings", () => {
+    const config = loadConfig({
+      ...required,
+      HTTP_RATE_LIMIT_ENABLED: "true",
+      HTTP_RATE_LIMIT_REQUESTS: "250",
+      HTTP_RATE_LIMIT_WINDOW_SECONDS: "30",
+    });
+
+    expect(config).toMatchObject({
+      httpRateLimitEnabled: true,
+      httpRateLimitRequests: 250,
+      httpRateLimitWindowSeconds: 30,
+    });
+  });
+
+  test("rejects invalid rate limit settings", () => {
+    expect(() => loadConfig({ ...required, HTTP_RATE_LIMIT_ENABLED: "yes" })).toThrow(
+      ConfigurationError,
+    );
+    expect(() => loadConfig({ ...required, HTTP_RATE_LIMIT_REQUESTS: "0" })).toThrow(
+      ConfigurationError,
+    );
+    expect(() => loadConfig({ ...required, HTTP_RATE_LIMIT_WINDOW_SECONDS: "86401" })).toThrow(
+      ConfigurationError,
+    );
   });
 
   test("parses explicit OpenTelemetry settings", () => {
