@@ -92,6 +92,9 @@ const RawConfigSchema = z
     HTTP_TRUSTED_PROXY_CIDRS: z.string().max(4_096).default("").refine(isValidTrustedProxyCidrs, {
       message: "must contain at most 32 comma-delimited IPv4/IPv6 CIDR ranges",
     }),
+    HTTP_RATE_LIMIT_ENABLED: booleanEnv(false),
+    HTTP_RATE_LIMIT_REQUESTS: integerEnv(120, 1, 1_000_000),
+    HTTP_RATE_LIMIT_WINDOW_SECONDS: integerEnv(60, 1, 86_400),
     DATABASE_POOL_MAX: integerEnv(10, 1, 100),
     DATABASE_CONNECTION_TIMEOUT_MS: integerEnv(5_000, 100, 120_000),
     HEALTH_CHECK_TIMEOUT_MS: integerEnv(1_500, 50, 30_000),
@@ -180,6 +183,9 @@ export interface AppConfig {
   readonly httpMaxRequestBodyBytes: number;
   readonly httpTransportMaxRequestBodyBytes: number;
   readonly httpTrustedProxyCidrs: readonly string[];
+  readonly httpRateLimitEnabled: boolean;
+  readonly httpRateLimitRequests: number;
+  readonly httpRateLimitWindowSeconds: number;
   readonly databasePoolMax: number;
   readonly databaseConnectionTimeoutMs: number;
   readonly healthCheckTimeoutMs: number;
@@ -206,6 +212,9 @@ export const AppConfigSchema = RawConfigSchema.transform(
     httpMaxRequestBodyBytes: raw.HTTP_MAX_REQUEST_BODY_BYTES,
     httpTransportMaxRequestBodyBytes: raw.HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES,
     httpTrustedProxyCidrs: parseTrustedProxyCidrs(raw.HTTP_TRUSTED_PROXY_CIDRS),
+    httpRateLimitEnabled: raw.HTTP_RATE_LIMIT_ENABLED,
+    httpRateLimitRequests: raw.HTTP_RATE_LIMIT_REQUESTS,
+    httpRateLimitWindowSeconds: raw.HTTP_RATE_LIMIT_WINDOW_SECONDS,
     databasePoolMax: raw.DATABASE_POOL_MAX,
     databaseConnectionTimeoutMs: raw.DATABASE_CONNECTION_TIMEOUT_MS,
     healthCheckTimeoutMs: raw.HEALTH_CHECK_TIMEOUT_MS,
