@@ -100,6 +100,7 @@ In particular:
 - Authentication provider data is normalized into the provider-neutral `Principal` boundary.
 - Authorization stays in the application layer: protected use cases derive tenant ownership only from `RequestContext.principal`, and authorization failures must not disclose required scopes, other tenant IDs, or row existence.
 - Tenant-owned repositories must keep tenant ID in their public method signatures and SQL predicates; do not add an unscoped user lookup as a convenience method.
+- Idempotency handling must remain tenant-scoped and transactional. Hash raw keys before persistence, never add raw keys/hashes/fingerprints to logs or telemetry, and replay users only through tenant-scoped repository methods.
 - Telemetry attributes must remain low-cardinality and must not contain SQL bind values, credentials, email addresses, UUIDs, or other sensitive/request-specific values.
 
 ## Database changes
@@ -113,6 +114,8 @@ just db-verify
 ```
 
 Review generated SQL and metadata before committing them. Do not replace a migration with `drizzle-kit push` in CI or deployment, and do not run migrations implicitly during API startup.
+
+For feature migrations such as the user-creation idempotency ledger, preserve existing migration files and add a new forward migration. Review tenant scoping, uniqueness/foreign-key constraints, rollback behavior, and real PostgreSQL concurrency tests together with the generated migration.
 
 ## Dependency and toolchain changes
 
