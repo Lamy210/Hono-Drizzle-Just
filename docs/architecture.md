@@ -202,6 +202,14 @@ Authentication-context API tests verify anonymous requests, credential delivery 
 
 Observability tests verify Noop behavior, OpenTelemetry adapter mapping, Bun `AsyncLocalStorage` parent/child propagation, in-memory span export, metrics export, inbound route-cardinality control, outbound retry correlation, database operation/transaction measurement, graceful shutdown, and same-process telemetry reinitialization. Database observability integration tests run against real PostgreSQL and assert that identifiers/domain values are not copied into telemetry attributes.
 
+## Inbound HTTP security headers
+
+Every route is wrapped by Hono's built-in `secureHeaders()` middleware through a repository-owned API policy. The default keeps broadly safe response headers such as `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, legacy browser hardening headers, and `X-Powered-By` removal.
+
+The template intentionally disables `Strict-Transport-Security`, `Cross-Origin-Resource-Policy`, `Cross-Origin-Opener-Policy`, and `Origin-Agent-Cluster` in the application baseline. HSTS depends on the real HTTPS termination and domain ownership model, while cross-origin isolation/resource policy can break legitimate browser API consumers. Configure those policies explicitly at the application or edge once the deployment topology is known.
+
+CORS remains unset by default. A generated service must define its own allowed origins, credentials policy, methods, and headers rather than inheriting a permissive wildcard policy from the template.
+
 ## External HTTP
 
 Application code must not call global `fetch` directly. The application-owned `HttpClient` port expresses the request, total deadline, optional per-attempt timeout, retry intent, request context, and response schema without exposing Bun's fetch implementation.
