@@ -6,7 +6,7 @@
 HTTP / Hono / Zod contracts
           |
           v
-Application services ---> core ports (Logger, HttpClient, TransactionManager, PrincipalResolver, Tracer, Meter, health, lifecycle, tracing/context)
+Application services ---> core ports (Logger, HttpClient, TransactionManager, PrincipalResolver, RateLimiter, Tracer, Meter, health, lifecycle, tracing/context)
           |
           v
 Domain repository ports
@@ -104,6 +104,16 @@ The default Bun hard cap is 2 MiB (`HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES=209715
 The global defaults are intended for ordinary JSON APIs. Multipart uploads, per-route limit overrides, decompressed-body accounting, slow-request protection, rate limiting, and reverse-proxy/WAF limits remain separate policies rather than being folded into this boundary.
 
 `HTTP_TRUSTED_PROXY_CIDRS` is empty by default, so forwarding headers cannot affect client identity. When CIDRs are configured, only `X-Forwarded-For` is interpreted, and only when the direct `remoteAddress` belongs to a trusted range. The resolver walks the forwarded chain from right to left, skips trusted proxy hops, and selects the first untrusted hop as `clientAddress`. This defeats a client-prepended spoofed address when a trusted proxy appends the real source. If the header is malformed, too long, contains too many hops, or the direct peer is not trusted, resolution falls back to the canonical direct peer. `Forwarded`, `CF-Connecting-IP`, and `X-Real-IP` remain ignored to avoid ambiguous multi-header precedence. Security controls such as future rate limiting should key on `clientAddress`, while audit/debug logic can retain `remoteAddress` as the transport peer.
+
+## Rate limiting boundary
+
+`core/rate-limit/RateLimiter` owns only the consumption contract: a stable scope, a normalized identity, and an allow/deny decision with retry delay. It does not import Hono and does not select Redis, PostgreSQL, an edge provider, or an in-memory algorithm.
+
+The HTTP middleware runs after request context and the request logger but before routing/body validation. It keys the default global scope with `RequestContext.clientAddress`, so trusted-proxy parsing stays outside the limiter. A denial returns the common correlated `RATE_LIMITED` / 429 envelope directly and sets `Retry-After`; it is therefore recorded as an ordinary client response rather than an internal exception. Invalid limiter metadata or adapter failures still flow through the common 500 error path.
+
+Liveness/readiness paths bypass rate limiting to avoid turning abuse-control state into orchestration health failures. When no client network identity exists, the middleware skips consumption; this preserves in-process/OpenAPI generation and makes non-network transports compose explicitly.
+
+No production rate-limiter adapter is enabled by default. A per-process map would have independent counters on every replica and could create unbounded key retention unless carefully bounded, so the template does not present one as a production-safe default. Deployments should inject a shared or edge-backed adapter appropriate to their consistency, latency, and failure-mode requirements.
 
 ## Observability boundary
 

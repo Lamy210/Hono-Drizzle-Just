@@ -5,6 +5,7 @@ import type { ReadinessChecker } from "../core/health/readiness-checker";
 import type { Logger } from "../core/logging/logger";
 import type { Meter } from "../core/observability/meter";
 import type { Tracer } from "../core/observability/tracer";
+import type { RateLimiter } from "../core/rate-limit/rate-limiter";
 import type { ClientAddressResolver } from "../http/client-address";
 import { createErrorHandler } from "../http/error-handler";
 import type { AppEnv } from "../http/env";
@@ -12,6 +13,7 @@ import { registerHealthRoutes } from "../http/health/health.routes";
 import { registerRoutingErrorHandlers } from "../http/routing-errors";
 import { createRequestBodyLimitMiddleware } from "../http/middleware/request-body-limit.middleware";
 import { createRequestContextMiddleware } from "../http/middleware/request-context.middleware";
+import { createRateLimitMiddleware } from "../http/middleware/rate-limit.middleware";
 import type { RemoteAddressResolver } from "../http/remote-address";
 import { createApiSecurityHeadersMiddleware } from "../http/middleware/security-headers.middleware";
 import { requestLoggerMiddleware } from "../http/middleware/request-logger.middleware";
@@ -29,6 +31,7 @@ export interface AppDependencies {
   readonly principalResolver?: PrincipalResolver;
   readonly tracer?: Tracer;
   readonly meter?: Meter;
+  readonly rateLimiter?: RateLimiter;
 }
 
 export interface AppOptions {
@@ -69,6 +72,9 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
     ),
   );
   app.use("*", requestLoggerMiddleware);
+  if (dependencies.rateLimiter) {
+    app.use("*", createRateLimitMiddleware(dependencies.rateLimiter));
+  }
   registerRoutingErrorHandlers(app);
   app.use(
     "*",

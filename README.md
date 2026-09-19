@@ -21,6 +21,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - Environment variables are parsed once at startup into a typed configuration object.
 - API responses include a conservative security-header baseline without forcing CORS, HSTS, or cross-origin isolation policy.
 - Unmatched routes and unsupported HTTP methods use the same correlated JSON error envelope; 405 responses include an `Allow` header.
+- Optional application-owned `RateLimiter` integration returns correlated HTTP 429 responses with `Retry-After` while leaving backend/store selection to deployment composition.
 - Deployment-safe liveness/readiness probes and graceful shutdown are built in.
 - Database changes are delivered as committed Drizzle migrations rather than runtime schema pushes.
 
@@ -197,6 +198,11 @@ Clients should generate high-entropy unique keys such as UUIDs. The service hash
 The PostgreSQL `user_creation_idempotency` ledger and user insert are owned by the same transaction. A successful claim has a 24-hour replay window measured with database time. Expired entries are reclaimed lazily when that tenant/key is used again; the template does not require Redis or a background cleanup worker. Expiry only permits the key to be treated as new again—it does not bypass ordinary tenant-local email uniqueness, so retrying an already-created email after expiry may return `409`.
 
 ## Inbound HTTP policy
+
+Rate limiting is exposed through the application-owned `RateLimiter` port and is disabled unless an adapter is explicitly supplied to `createApp`. The default HTTP policy uses the normalized `RequestContext.clientAddress` as the identity, returns `RATE_LIMITED` / HTTP 429 with `Retry-After`, and excludes `/health`, `/health/live`, and `/health/ready` so platform probes cannot be throttled. Requests without a network identity, such as in-process contract generation, skip the limiter.
+
+The template intentionally does not install a process-local production limiter or select Redis/PostgreSQL automatically. A real deployment should provide an adapter whose consistency model matches its topology; multi-instance deployments generally require a shared/edge limiter rather than per-process counters. The OpenAPI user routes advertise 429 because enabling the port changes their observable response surface.
+
 
 Inbound request bodies use two independent safety boundaries. Hono enforces the application-visible limit (`HTTP_MAX_REQUEST_BODY_BYTES`, 1 MiB by default) after request correlation and request logging are established. Requests that cross this limit receive HTTP `413` with the common `REQUEST_BODY_TOO_LARGE` JSON envelope, including `requestId` and `traceId` when available.
 
