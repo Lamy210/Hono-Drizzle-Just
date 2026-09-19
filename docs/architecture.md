@@ -55,6 +55,8 @@ Tenant ownership is introduced by a later migration rather than by rewriting the
 
 User-create idempotency is introduced by a subsequent forward migration, again without rewriting earlier history. `user_creation_idempotency` is keyed by `(tenant_id, key_hash)`, stores the SHA-256 request fingerprint and the completed `user_id`, and uses database timestamps for expiry. The user reference is completed inside the same transaction as the user insert, while expired claims are reclaimed lazily on reuse rather than by a required background worker.
 
+Rate-limit persistence is introduced by a later forward migration. `rate_limit_buckets` is keyed by `(scope, identity_hash)`, stores only the hashed identity plus the active fixed-window timestamps/count, and reuses the same row when a window expires.
+
 
 ## Transactions and unit of work
 
@@ -113,7 +115,11 @@ The HTTP middleware runs after request context and the request logger but before
 
 Liveness/readiness paths bypass rate limiting to avoid turning abuse-control state into orchestration health failures. When no client network identity exists, the middleware skips consumption; this preserves in-process/OpenAPI generation and makes non-network transports compose explicitly.
 
-No production rate-limiter adapter is enabled by default. A per-process map would have independent counters on every replica and could create unbounded key retention unless carefully bounded, so the template does not present one as a production-safe default. Deployments should inject a shared or edge-backed adapter appropriate to their consistency, latency, and failure-mode requirements.
+Production composition provides a PostgreSQL fixed-window adapter but keeps it disabled by default. Enabling `HTTP_RATE_LIMIT_ENABLED` composes that adapter against the same PostgreSQL database used by the application, so replicas sharing the database also share rate-limit state. The adapter keeps one row per `(scope, identity_hash)`; an atomic PostgreSQL upsert increments the active bucket or resets the same row after expiry. This avoids per-window row growth and avoids the split-counter behavior of a process-local Map.
+
+The adapter hashes `scope + NUL + identity` with SHA-256 before persistence. Raw client addresses are not stored in `rate_limit_buckets`, added to database-observability attributes, or copied into error responses. Expired rows are periodically deleted on the hot path, bounded to at most one cleanup attempt per process every 60 to 300 seconds depending on window length. The rate-limit decision itself uses the database row as the shared authority.
+
+Rate limiting is fail-closed in the default PostgreSQL adapter: storage failures propagate through the common HTTP 500 path instead of treating the request as allowed. This is a deliberate security/availability choice. Applications that need fail-open behavior, lower-latency Redis counters, token buckets, sliding windows, or provider-edge enforcement can replace the application-owned `RateLimiter` port without changing request identity resolution or the HTTP 429 contract.
 
 ## Observability boundary
 

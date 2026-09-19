@@ -21,7 +21,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - Environment variables are parsed once at startup into a typed configuration object.
 - API responses include a conservative security-header baseline without forcing CORS, HSTS, or cross-origin isolation policy.
 - Unmatched routes and unsupported HTTP methods use the same correlated JSON error envelope; 405 responses include an `Allow` header.
-- Optional application-owned `RateLimiter` integration returns correlated HTTP 429 responses with `Retry-After` while leaving backend/store selection to deployment composition.
+- Optional application-owned `RateLimiter` integration returns correlated HTTP 429 responses with `Retry-After`; production composition includes an opt-in shared PostgreSQL fixed-window adapter.
 - Deployment-safe liveness/readiness probes and graceful shutdown are built in.
 - Database changes are delivered as committed Drizzle migrations rather than runtime schema pushes.
 
@@ -166,6 +166,9 @@ Configuration is loaded once during startup. Application modules should not read
 | `HTTP_MAX_REQUEST_BODY_BYTES` | `1048576` | Application-level inbound request body limit; Hono returns the common 413 error contract when exceeded |
 | `HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES` | `2097152` | Bun transport hard cap; must be greater than `HTTP_MAX_REQUEST_BODY_BYTES` |
 | `HTTP_TRUSTED_PROXY_CIDRS` | empty | Comma-delimited trusted reverse-proxy IPv4/IPv6 CIDRs allowed to influence `clientAddress` through `X-Forwarded-For` |
+| `HTTP_RATE_LIMIT_ENABLED` | `false` | Enable the shared PostgreSQL HTTP rate limiter in production composition |
+| `HTTP_RATE_LIMIT_REQUESTS` | `120` | Requests allowed per client identity in one fixed window |
+| `HTTP_RATE_LIMIT_WINDOW_SECONDS` | `60` | Fixed-window duration in seconds |
 | `HEALTH_CHECK_TIMEOUT_MS` | `1500` | Critical dependency readiness deadline |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | Grace period for in-flight HTTP requests |
 | `OTEL_ENABLED` | `false` | Enable OpenTelemetry trace/metrics SDK and exporters |
@@ -199,9 +202,11 @@ The PostgreSQL `user_creation_idempotency` ledger and user insert are owned by t
 
 ## Inbound HTTP policy
 
-Rate limiting is exposed through the application-owned `RateLimiter` port and is disabled unless an adapter is explicitly supplied to `createApp`. The default HTTP policy uses the normalized `RequestContext.clientAddress` as the identity, returns `RATE_LIMITED` / HTTP 429 with `Retry-After`, and excludes `/health`, `/health/live`, and `/health/ready` so platform probes cannot be throttled. Requests without a network identity, such as in-process contract generation, skip the limiter.
+Rate limiting is exposed through the application-owned `RateLimiter` port and remains disabled by default. The HTTP policy uses the normalized `RequestContext.clientAddress` as the identity, returns `RATE_LIMITED` / HTTP 429 with `Retry-After`, and excludes `/health`, `/health/live`, and `/health/ready` so platform probes cannot be throttled. Requests without a network identity, such as in-process contract generation, skip the limiter.
 
-The template intentionally does not install a process-local production limiter or select Redis/PostgreSQL automatically. A real deployment should provide an adapter whose consistency model matches its topology; multi-instance deployments generally require a shared/edge limiter rather than per-process counters. The OpenAPI user routes advertise 429 because enabling the port changes their observable response surface.
+When `HTTP_RATE_LIMIT_ENABLED=true`, production composition installs the shared PostgreSQL fixed-window adapter using `HTTP_RATE_LIMIT_REQUESTS` and `HTTP_RATE_LIMIT_WINDOW_SECONDS`. The adapter stores one row per `(scope, identity_hash)`, atomically increments or resets that row with PostgreSQL upsert semantics, and therefore shares counters across replicas that use the same database. The raw client address is never persisted: the stored identity is SHA-256 of the scope plus the normalized identity. Expired identities are cleaned periodically on the request path, while an expired row for an active identity is reused rather than creating one row per window.
+
+The PostgreSQL adapter is fail-closed: database/adapter failures follow the common internal-error path instead of silently disabling abuse protection. Deployments that require a different latency or availability trade-off can replace the `RateLimiter` port with Redis or an edge-backed implementation without changing the HTTP contract. A process-local Map is intentionally not the production default because counters would split across replicas. The OpenAPI user routes advertise 429 because enabling the port changes their observable response surface.
 
 
 Inbound request bodies use two independent safety boundaries. Hono enforces the application-visible limit (`HTTP_MAX_REQUEST_BODY_BYTES`, 1 MiB by default) after request correlation and request logging are established. Requests that cross this limit receive HTTP `413` with the common `REQUEST_BODY_TOO_LARGE` JSON envelope, including `requestId` and `traceId` when available.

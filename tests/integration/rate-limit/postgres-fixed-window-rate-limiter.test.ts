@@ -94,7 +94,7 @@ test("resets an expired bucket atomically instead of growing one row per window"
   expect(rows[0]?.windowStartedAt.getTime()).toBeGreaterThan(0);
 });
 
-test("best-effort hot-path cleanup removes expired identities before consuming", async () => {
+test("periodic hot-path cleanup removes expired identities before consuming", async () => {
   const expiredHash = digester.sha256Hex("http.global\0expired-client");
   await database.db.insert(rateLimitBuckets).values({
     scope: "http.global",

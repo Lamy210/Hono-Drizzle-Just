@@ -3,6 +3,7 @@ import { createProductionContainer } from "../../../../src/app/composition/conta
 import { loadConfig } from "../../../../src/config/load-config";
 import { NoopMeter } from "../../../../src/core/observability/noop-meter";
 import { NoopTracer } from "../../../../src/core/observability/noop-tracer";
+import { PostgresFixedWindowRateLimiter } from "../../../../src/infrastructure/rate-limit/postgres-fixed-window-rate-limiter";
 
 test("production composition uses Noop observability when telemetry is disabled", async () => {
   const config = loadConfig({
@@ -16,4 +17,29 @@ test("production composition uses Noop observability when telemetry is disabled"
   expect(container.dependencies.meter).toBeInstanceOf(NoopMeter);
 
   await container.close();
+});
+
+
+test("production composition installs the PostgreSQL limiter only when enabled", async () => {
+  const disabled = createProductionContainer(
+    loadConfig({
+      DATABASE_URL: "postgres://postgres:postgres@127.0.0.1:5432/app",
+      NODE_ENV: "test",
+      HTTP_RATE_LIMIT_ENABLED: "false",
+    }),
+  );
+  expect(disabled.dependencies.rateLimiter).toBeUndefined();
+  await disabled.close();
+
+  const enabled = createProductionContainer(
+    loadConfig({
+      DATABASE_URL: "postgres://postgres:postgres@127.0.0.1:5432/app",
+      NODE_ENV: "test",
+      HTTP_RATE_LIMIT_ENABLED: "true",
+      HTTP_RATE_LIMIT_REQUESTS: "25",
+      HTTP_RATE_LIMIT_WINDOW_SECONDS: "10",
+    }),
+  );
+  expect(enabled.dependencies.rateLimiter).toBeInstanceOf(PostgresFixedWindowRateLimiter);
+  await enabled.close();
 });
