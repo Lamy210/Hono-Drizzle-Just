@@ -26,6 +26,7 @@ describe("loadConfig", () => {
       httpDefaultAttemptTimeoutMs: 3_000,
       httpMaxRequestBodyBytes: 1_048_576,
       httpTransportMaxRequestBodyBytes: 2_097_152,
+      httpTrustedProxyCidrs: [],
       databasePoolMax: 20,
       databaseConnectionTimeoutMs: 5_000,
       healthCheckTimeoutMs: 1_500,
@@ -106,6 +107,29 @@ describe("loadConfig", () => {
         HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES: "4096",
       }),
     ).toThrow(ConfigurationError);
+  });
+
+  test("parses and deduplicates trusted proxy CIDRs", () => {
+    const config = loadConfig({
+      ...required,
+      HTTP_TRUSTED_PROXY_CIDRS: "10.0.0.0/8, 2001:db8::/32,10.0.0.0/8",
+    });
+
+    expect(config.httpTrustedProxyCidrs).toEqual(["10.0.0.0/8", "2001:db8::/32"]);
+  });
+
+  test("rejects malformed trusted proxy CIDRs", () => {
+    for (const value of [
+      "10.0.0.0",
+      "10.0.0.0/33",
+      "2001:db8::/129",
+      "10.0.0.0/8,,192.168.0.0/16",
+      "not-an-ip/24",
+    ]) {
+      expect(() => loadConfig({ ...required, HTTP_TRUSTED_PROXY_CIDRS: value })).toThrow(
+        ConfigurationError,
+      );
+    }
   });
 
   test("parses explicit OpenTelemetry settings", () => {

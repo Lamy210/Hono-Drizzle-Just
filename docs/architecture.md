@@ -82,7 +82,7 @@ The idempotent create path hashes the raw key before entering persistence, claim
 
 `RequestContext` also carries an optional normalized `Principal`. This keeps identity available to application services without exposing Hono request objects or identity-provider-specific session/JWT structures. Protected application services authorize against that principal, derive tenant ownership from it, and pass the authorized tenant ID into tenant-scoped repository methods rather than accepting tenant selection from client payloads or transport headers.
 
-In the Bun production entrypoint, `RequestContext.remoteAddress` is populated from Hono's Bun `getConnInfo()` adapter, which delegates to `server.requestIP(request)` and therefore represents the direct transport peer rather than a caller-controlled HTTP header. In-process application/OpenAPI tests do not require a Bun server and may leave the field absent. The address is not added to structured logs or telemetry by default because it can be sensitive and high-cardinality.
+In the Bun production entrypoint, `RequestContext.remoteAddress` is populated from Hono's Bun `getConnInfo()` adapter, which delegates to `server.requestIP(request)` and therefore represents the direct transport peer rather than a caller-controlled HTTP header. `RequestContext.clientAddress` is the effective client identity after the configured trusted-proxy policy runs; without a trusted proxy it is the canonical direct peer. In-process application/OpenAPI tests do not require a Bun server and may leave both fields absent. Neither address is added to structured logs or telemetry by default because network addresses can be sensitive and high-cardinality.
 
 ## Inbound HTTP safety boundary
 
@@ -103,7 +103,7 @@ The default Bun hard cap is 2 MiB (`HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES=209715
 
 The global defaults are intended for ordinary JSON APIs. Multipart uploads, per-route limit overrides, decompressed-body accounting, slow-request protection, rate limiting, and reverse-proxy/WAF limits remain separate policies rather than being folded into this boundary.
 
-Forwarded client-address headers such as `Forwarded`, `X-Forwarded-For`, `CF-Connecting-IP`, and `X-Real-IP` are intentionally **not** interpreted by the template. A reverse proxy can be the direct `remoteAddress`; recovering the original client address requires an explicit trusted-proxy policy that validates the immediate peer before accepting any forwarded chain. Until such a policy is configured, security decisions such as future rate limiting must treat `remoteAddress` as a peer identity, not as a proxy-aware end-user IP.
+`HTTP_TRUSTED_PROXY_CIDRS` is empty by default, so forwarding headers cannot affect client identity. When CIDRs are configured, only `X-Forwarded-For` is interpreted, and only when the direct `remoteAddress` belongs to a trusted range. The resolver walks the forwarded chain from right to left, skips trusted proxy hops, and selects the first untrusted hop as `clientAddress`. This defeats a client-prepended spoofed address when a trusted proxy appends the real source. If the header is malformed, too long, contains too many hops, or the direct peer is not trusted, resolution falls back to the canonical direct peer. `Forwarded`, `CF-Connecting-IP`, and `X-Real-IP` remain ignored to avoid ambiguous multi-header precedence. Security controls such as future rate limiting should key on `clientAddress`, while audit/debug logic can retain `remoteAddress` as the transport peer.
 
 ## Observability boundary
 

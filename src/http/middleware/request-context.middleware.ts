@@ -14,6 +14,7 @@ import {
   formatTraceParent,
   parseTraceParent,
 } from "../../infrastructure/tracing/w3c-trace-context";
+import type { ClientAddressResolver } from "../client-address";
 import type { AppEnv } from "../env";
 import type { RemoteAddressResolver } from "../remote-address";
 
@@ -34,6 +35,7 @@ export function createRequestContextMiddleware(
     meter: new NoopMeter(),
   },
   remoteAddressResolver?: RemoteAddressResolver,
+  clientAddressResolver?: ClientAddressResolver,
 ) {
   return createMiddleware<AppEnv>(async (c, next) => {
     const startedAt = performance.now();
@@ -80,8 +82,18 @@ export function createRequestContextMiddleware(
 
         try {
           const remoteAddress = remoteAddressResolver?.(c);
-          if (remoteAddress !== undefined) {
-            requestContext = { ...requestContext, remoteAddress };
+          const clientAddress = clientAddressResolver
+            ? clientAddressResolver({
+                remoteAddress,
+                xForwardedFor: c.req.header("x-forwarded-for"),
+              })
+            : remoteAddress;
+          if (remoteAddress !== undefined || clientAddress !== undefined) {
+            requestContext = {
+              ...requestContext,
+              ...(remoteAddress === undefined ? {} : { remoteAddress }),
+              ...(clientAddress === undefined ? {} : { clientAddress }),
+            };
             c.set("requestContext", requestContext);
           }
 

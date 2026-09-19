@@ -6,5 +6,6 @@ export interface RequestContext {
   readonly trace: TraceContext;
   readonly startedAt: number;
   readonly remoteAddress?: string;
+  readonly clientAddress?: string;
   readonly principal?: Principal;
 }

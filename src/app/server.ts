@@ -1,5 +1,6 @@
 import { loadConfig } from "../config/load-config";
 import { resolveBunRemoteAddress } from "../http/bun/remote-address";
+import { createTrustedProxyClientAddressResolver } from "../http/trusted-proxy-client-address";
 import { createApp } from "./app";
 import { createProductionContainer } from "./composition/container";
 import { GracefulShutdownCoordinator } from "./lifecycle/graceful-shutdown";
@@ -7,9 +8,11 @@ import { createBunServerOptions } from "./server-options";
 
 const config = loadConfig(Bun.env);
 const container = createProductionContainer(config);
+const clientAddressResolver = createTrustedProxyClientAddressResolver(config.httpTrustedProxyCidrs);
 const app = createApp(container.dependencies, {
   maxRequestBodyBytes: config.httpMaxRequestBodyBytes,
   remoteAddressResolver: resolveBunRemoteAddress,
+  clientAddressResolver,
 });
 const server = Bun.serve(
   createBunServerOptions({
