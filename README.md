@@ -11,7 +11,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - Request and response contracts are defined with Zod and exposed through OpenAPI.
 - UUID input accepts upper/lowercase RFC UUIDs; application-facing canonical values are lowercase.
 - W3C `traceparent` propagation with separate request IDs, trace IDs, and span IDs.
-- Production request context captures the direct Bun socket peer address without trusting forwarding headers by default.
+- Production request context separates the direct Bun socket peer from a proxy-aware client address; forwarding headers are honored only through an explicit trusted-proxy CIDR policy.
 - Provider-neutral `Principal` / `PrincipalResolver` authentication context without coupling services to Hono or a specific identity provider.
 - Application-layer tenant authorization with scope-gated sample user operations and tenant-scoped persistence.
 - Vendor-neutral `Tracer` / `Meter` ports with optional OpenTelemetry trace and metrics export.
@@ -164,6 +164,7 @@ Configuration is loaded once during startup. Application modules should not read
 | `HTTP_DEFAULT_ATTEMPT_TIMEOUT_MS` | `3000` | Maximum duration of one outbound fetch attempt |
 | `HTTP_MAX_REQUEST_BODY_BYTES` | `1048576` | Application-level inbound request body limit; Hono returns the common 413 error contract when exceeded |
 | `HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES` | `2097152` | Bun transport hard cap; must be greater than `HTTP_MAX_REQUEST_BODY_BYTES` |
+| `HTTP_TRUSTED_PROXY_CIDRS` | empty | Comma-delimited trusted reverse-proxy IPv4/IPv6 CIDRs allowed to influence `clientAddress` through `X-Forwarded-For` |
 | `HEALTH_CHECK_TIMEOUT_MS` | `1500` | Critical dependency readiness deadline |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | Grace period for in-flight HTTP requests |
 | `OTEL_ENABLED` | `false` | Enable OpenTelemetry trace/metrics SDK and exporters |
