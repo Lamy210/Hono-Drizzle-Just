@@ -53,6 +53,9 @@ The initial migration establishes the current template schema from an empty data
 
 Tenant ownership is introduced by a later migration rather than by rewriting the baseline. It adds `users.tenant_id`, backfills existing rows to reserved `__legacy__:<user-id>` identifiers before making the column `NOT NULL`, drops global email uniqueness, and adds `UNIQUE(tenant_id, email)`. Normal tenant validation rejects the reserved legacy prefix, so migrated historical rows cannot accidentally become visible to an ordinary tenant principal.
 
+User-create idempotency is introduced by a subsequent forward migration, again without rewriting earlier history. `user_creation_idempotency` is keyed by `(tenant_id, key_hash)`, stores the SHA-256 request fingerprint and the completed `user_id`, and uses database timestamps for expiry. The user reference is completed inside the same transaction as the user insert, while expired claims are reclaimed lazily on reuse rather than by a required background worker.
+
+
 ## Transactions and unit of work
 
 The application-owned transaction abstraction is generic:
@@ -62,13 +65,16 @@ TransactionManager<TUnitOfWork>
   run(operation: (unitOfWork: TUnitOfWork) => Promise<TResult>)
 ```
 
-Each feature defines the narrow unit of work needed by its use cases. For the sample user module, `UserUnitOfWork` exposes a `UserRepository`; it contains no Drizzle types.
+Each feature defines the narrow unit of work needed by its use cases. For the sample user module, `UserUnitOfWork` exposes the tenant-scoped `UserRepository` and the feature-scoped `UserCreationIdempotencyRepository`; it contains no Drizzle types.
 
 `DrizzleTransactionManager` is an infrastructure adapter. It starts `db.transaction()`, passes the active transaction session to a composition-supplied factory, and invokes the application operation with the resulting unit of work. `DatabaseSession` is a structural subset shared by the root Drizzle database and a transaction session, so repository implementations do not need separate transactional variants.
 
 Returning from the operation commits. Throwing propagates the error and causes Drizzle/PostgreSQL to roll back the transaction. Nested savepoints, serialization/deadlock retries, and implicit AsyncLocalStorage transaction state are intentionally outside the default template.
 
 PostgreSQL constraints remain authoritative. Drizzle wraps driver errors in `DrizzleQueryError`, so repository adapters inspect the error `cause` chain when mapping stable PostgreSQL error codes such as `23505` into application errors.
+
+The idempotent create path hashes the raw key before entering persistence, claims `(tenant_id, key_hash)` in PostgreSQL, and relies on the primary-key conflict wait to serialize concurrent first use of the same tenant/key. A matching completed claim replays the user through the tenant-scoped `findById`; a different fingerprint fails with `422`. Claim, duplicate-email check, user insert, and claim completion all share one transaction, so rollback removes a failed fresh claim together with the failed create.
+
 
 ## Cross-cutting context
 
