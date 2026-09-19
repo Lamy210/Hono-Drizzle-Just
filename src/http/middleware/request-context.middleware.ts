@@ -139,7 +139,9 @@ export function createRequestContextMiddleware(
           const attributes = { method: c.req.method, route, status_code: statusCode } as const;
           span.setAttribute("http.route", route);
           span.setAttribute("http.response.status_code", statusCode);
-          span.setStatus("error");
+          if (statusCode >= 500) {
+            span.setStatus("error");
+          }
           observability.meter.increment("http.server.requests", 1, attributes);
           observability.meter.record(
             "http.server.duration",

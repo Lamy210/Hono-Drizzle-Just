@@ -15,6 +15,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - Provider-neutral `Principal` / `PrincipalResolver` authentication context without coupling services to Hono or a specific identity provider.
 - Application-layer tenant authorization with scope-gated sample user operations and tenant-scoped persistence.
 - Vendor-neutral `Tracer` / `Meter` ports with optional OpenTelemetry trace and metrics export.
+- HTTP server observability distinguishes handled 4xx client rejections from 5xx server failures in span status and structured log severity.
 - Structured JSON logging behind an application-owned `Logger` interface with secret redaction.
 - External HTTP access goes through an application-owned `HttpClient` abstraction and `FetchHttpClient` adapter.
 - Outbound HTTP retries are conservative, idempotency-aware, deadline-bounded, and trace-preserving.

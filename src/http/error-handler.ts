@@ -11,13 +11,18 @@ export function createErrorHandler(): ErrorHandler<AppEnv> {
         ? error
         : new AppError("INTERNAL_ERROR", "Internal server error", 500, undefined, { cause: error });
 
-    logger.error("http.request.error", {
-      error,
+    const context = {
       errorCode: appError.code,
       statusCode: appError.status,
       method: c.req.method,
       path: c.req.path,
-    });
+    } as const;
+
+    if (appError.status >= 500) {
+      logger.error("http.request.error", { ...context, error });
+    } else {
+      logger.warn("http.request.rejected", context);
+    }
 
     return createAppErrorResponse(c, appError);
   };

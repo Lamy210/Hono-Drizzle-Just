@@ -111,6 +111,7 @@ test("principal resolver failures keep request correlation available to the erro
   });
   expect(body.requestId).toMatch(/^[0-9a-f-]{36}$/);
   expect(body.traceId).toMatch(/^[0-9a-f]{32}$/);
-  expect(lines.some((line) => line.includes("http.request.error"))).toBe(true);
+  expect(lines.some((line) => line.includes("http.request.rejected"))).toBe(true);
+  expect(lines.some((line) => line.includes("\"level\":\"warn\""))).toBe(true);
   expect(lines.join("\n")).not.toContain("invalid-secret");
 });
