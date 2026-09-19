@@ -57,6 +57,10 @@ const createUserRoute = createRoute({
       description: "Idempotency key was already used with a different request",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
+    429: {
+      description: "Rate limit exceeded",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
   },
 });
 
@@ -84,6 +88,10 @@ const getUserRoute = createRoute({
     },
     404: {
       description: "User not found in the current tenant",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    429: {
+      description: "Rate limit exceeded",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
   },

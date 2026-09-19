@@ -296,6 +296,16 @@
               }
             },
             "description": "Idempotency key was already used with a different request"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
           }
         },
         "tags": [
@@ -367,6 +377,16 @@
               }
             },
             "description": "User not found in the current tenant"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
           }
         },
         "tags": [
