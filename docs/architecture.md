@@ -121,6 +121,8 @@ The adapter hashes `scope + NUL + identity` with SHA-256 before persistence. Raw
 
 Rate limiting is fail-closed in the default PostgreSQL adapter: storage failures propagate through the common HTTP 500 path instead of treating the request as allowed. This is a deliberate security/availability choice. Applications that need fail-open behavior, lower-latency Redis counters, token buckets, sliding windows, or provider-edge enforcement can replace the application-owned `RateLimiter` port without changing request identity resolution or the HTTP 429 contract.
 
+Rate-limit observability is a separate `RateLimitObserver` rather than a concern embedded in the HTTP middleware or database observer. It emits one decision counter and one decision-duration histogram per consume attempt, including failures. The only attributes are the finite adapter backend, algorithm, and result dimensions. Scope, client address, persisted identity hash, tenant data, retry delay, and exception details are intentionally excluded to prevent PII leakage and unbounded metric cardinality.
+
 ## Observability boundary
 
 `core/observability` owns small `Tracer`, `Span`, and `Meter` contracts. Application code can create spans and measurements without importing `@opentelemetry/*`. Noop implementations preserve exactly the same application behavior when telemetry is disabled.
@@ -132,6 +134,8 @@ Inbound HTTP instrumentation creates one server span for the logical request. A 
 Outbound `FetchHttpClient` instrumentation creates one client span for the complete logical request, including retries. All attempts reuse that child trace context and the same request ID. Client metric attributes are limited to method, configured upstream host, outcome, and optional status code; raw request paths are not metric labels.
 
 Database instrumentation is explicit rather than hidden in Drizzle or `pg` global auto-instrumentation. `DatabaseObserver` lives in infrastructure and depends only on the application-owned `Tracer` / `Meter` ports. Repository adapters wrap the actual awaited query execution, so the measured duration covers the database operation rather than unrelated request/service work.
+
+Rate-limit instrumentation follows the same explicit observer pattern. `RateLimitObserver` wraps the complete limiter decision, so `rate_limit.decision.duration` includes cleanup plus the authoritative PostgreSQL upsert. `rate_limit.decisions` distinguishes allowed, denied, and error outcomes without using request-derived values as labels.
 
 Database query attributes are deliberately bounded to semantic operation metadata: `db.system.name=postgresql`, `db.operation.name`, and a known `db.collection.name` where available. SQL statements, bind values, UUIDs, email addresses, names, and other request/domain values are excluded to avoid secret/PII leakage and unbounded cardinality. Query duration is recorded as `db.client.operation.duration` in seconds.
 
