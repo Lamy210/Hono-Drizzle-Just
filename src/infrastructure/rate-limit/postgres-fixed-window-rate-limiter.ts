@@ -14,6 +14,16 @@ const MAX_IDENTITY_LENGTH = 512;
 const MIN_CLEANUP_INTERVAL_MS = 60_000;
 const MAX_CLEANUP_INTERVAL_MS = 300_000;
 
+function hasControlCharacters(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export interface PostgresFixedWindowRateLimiterOptions {
   readonly limit: number;
   readonly windowSeconds: number;
@@ -106,7 +116,7 @@ export class PostgresFixedWindowRateLimiter implements RateLimiter {
     if (
       request.identity.length < 1 ||
       request.identity.length > MAX_IDENTITY_LENGTH ||
-      /[\u0000-\u001f\u007f]/.test(request.identity)
+      hasControlCharacters(request.identity)
     ) {
       throw new TypeError("Rate limit identity is invalid");
     }
