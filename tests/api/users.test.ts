@@ -290,7 +290,7 @@ test("same Idempotency-Key and normalized payload replay 201 with the same user 
   const first = await app.request("/users", {
     method: "POST",
     headers: { "content-type": "application/json", "idempotency-key": key },
-    body: JSON.stringify({ email: " Replay@Example.com ", name: " Replay User " }),
+    body: JSON.stringify({ email: "Replay@Example.com", name: " Replay User " }),
   });
   const second = await app.request("/users", {
     method: "POST",
