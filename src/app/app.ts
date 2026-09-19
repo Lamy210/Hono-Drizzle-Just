@@ -10,6 +10,7 @@ import type { AppEnv } from "../http/env";
 import { registerHealthRoutes } from "../http/health/health.routes";
 import { createRequestBodyLimitMiddleware } from "../http/middleware/request-body-limit.middleware";
 import { createRequestContextMiddleware } from "../http/middleware/request-context.middleware";
+import { createApiSecurityHeadersMiddleware } from "../http/middleware/security-headers.middleware";
 import { requestLoggerMiddleware } from "../http/middleware/request-logger.middleware";
 import type { CreateUserService } from "../modules/users/application/create-user.service";
 import type { GetUserService } from "../modules/users/application/get-user.service";
@@ -49,6 +50,7 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
     },
   });
 
+  app.use("*", createApiSecurityHeadersMiddleware());
   app.use(
     "*",
     createRequestContextMiddleware(

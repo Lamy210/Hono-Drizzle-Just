@@ -38,6 +38,26 @@ function buildApp(healthCheck: HealthCheck) {
   });
 }
 
+test("API responses use a safe default security-header baseline", async () => {
+  const app = buildApp({ name: "database", check: async () => undefined });
+
+  const response = await app.request("/health/live");
+
+  expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(response.headers.get("x-dns-prefetch-control")).toBe("off");
+  expect(response.headers.get("x-download-options")).toBe("noopen");
+  expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+  expect(response.headers.get("x-permitted-cross-domain-policies")).toBe("none");
+  expect(response.headers.get("x-xss-protection")).toBe("0");
+  expect(response.headers.get("x-powered-by")).toBeNull();
+
+  expect(response.headers.get("strict-transport-security")).toBeNull();
+  expect(response.headers.get("cross-origin-resource-policy")).toBeNull();
+  expect(response.headers.get("cross-origin-opener-policy")).toBeNull();
+  expect(response.headers.get("origin-agent-cluster")).toBeNull();
+});
+
 test("liveness stays healthy even when a critical dependency is down", async () => {
   const app = buildApp({
     name: "database",
