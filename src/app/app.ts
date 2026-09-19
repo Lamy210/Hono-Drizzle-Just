@@ -8,6 +8,7 @@ import type { Tracer } from "../core/observability/tracer";
 import { createErrorHandler } from "../http/error-handler";
 import type { AppEnv } from "../http/env";
 import { registerHealthRoutes } from "../http/health/health.routes";
+import { registerRoutingErrorHandlers } from "../http/routing-errors";
 import { createRequestBodyLimitMiddleware } from "../http/middleware/request-body-limit.middleware";
 import { createRequestContextMiddleware } from "../http/middleware/request-context.middleware";
 import { createApiSecurityHeadersMiddleware } from "../http/middleware/security-headers.middleware";
@@ -62,6 +63,7 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
     ),
   );
   app.use("*", requestLoggerMiddleware);
+  registerRoutingErrorHandlers(app);
   app.use(
     "*",
     createRequestBodyLimitMiddleware(options.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES),

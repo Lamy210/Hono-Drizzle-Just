@@ -19,6 +19,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - Outbound HTTP retries are conservative, idempotency-aware, deadline-bounded, and trace-preserving.
 - Environment variables are parsed once at startup into a typed configuration object.
 - API responses include a conservative security-header baseline without forcing CORS, HSTS, or cross-origin isolation policy.
+- Unmatched routes and unsupported HTTP methods use the same correlated JSON error envelope; 405 responses include an `Allow` header.
 - Deployment-safe liveness/readiness probes and graceful shutdown are built in.
 - Database changes are delivered as committed Drizzle migrations rather than runtime schema pushes.
 
