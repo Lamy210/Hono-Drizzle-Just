@@ -1,5 +1,6 @@
 import { createRoute, type OpenAPIHono } from "@hono/zod-openapi";
 import { ErrorResponseSchema } from "../../../contracts/common/errors";
+import { IdempotencyKeyHeadersSchema } from "../../../contracts/common/idempotency";
 import { CanonicalUuidSchema } from "../../../contracts/common/primitives";
 import {
   CreateUserRequestSchema,
@@ -21,6 +22,7 @@ const createUserRoute = createRoute({
   path: "/users",
   tags: ["Users"],
   request: {
+    headers: IdempotencyKeyHeadersSchema,
     body: {
       required: true,
       content: { "application/json": { schema: CreateUserRequestSchema } },
@@ -28,7 +30,7 @@ const createUserRoute = createRoute({
   },
   responses: {
     201: {
-      description: "User created",
+      description: "User created or idempotently replayed",
       content: { "application/json": { schema: UserResponseSchema } },
     },
     400: {
@@ -49,6 +51,10 @@ const createUserRoute = createRoute({
     },
     413: {
       description: "Request body too large",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    422: {
+      description: "Idempotency key was already used with a different request",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
   },
@@ -86,7 +92,12 @@ const getUserRoute = createRoute({
 export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserRouteDependencies): void {
   app.openapi(createUserRoute, async (c) => {
     const input = c.req.valid("json");
-    const user = await dependencies.createUserService.execute(input, c.get("requestContext"));
+    const { "idempotency-key": idempotencyKey } = c.req.valid("header");
+    const user = await dependencies.createUserService.execute(
+      input,
+      c.get("requestContext"),
+      idempotencyKey === undefined ? {} : { idempotencyKey },
+    );
     const response = UserResponseSchema.parse(toUserResponse(user));
     return c.json(response, 201);
   });
