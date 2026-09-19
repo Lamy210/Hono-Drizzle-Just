@@ -11,6 +11,7 @@ import { registerHealthRoutes } from "../http/health/health.routes";
 import { registerRoutingErrorHandlers } from "../http/routing-errors";
 import { createRequestBodyLimitMiddleware } from "../http/middleware/request-body-limit.middleware";
 import { createRequestContextMiddleware } from "../http/middleware/request-context.middleware";
+import type { RemoteAddressResolver } from "../http/remote-address";
 import { createApiSecurityHeadersMiddleware } from "../http/middleware/security-headers.middleware";
 import { requestLoggerMiddleware } from "../http/middleware/request-logger.middleware";
 import type { CreateUserService } from "../modules/users/application/create-user.service";
@@ -31,6 +32,7 @@ export interface AppDependencies {
 
 export interface AppOptions {
   readonly maxRequestBodyBytes?: number;
+  readonly remoteAddressResolver?: RemoteAddressResolver;
 }
 
 export function createApp(dependencies: AppDependencies, options: AppOptions = {}) {
@@ -60,6 +62,7 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
       dependencies.tracer && dependencies.meter
         ? { tracer: dependencies.tracer, meter: dependencies.meter }
         : undefined,
+      options.remoteAddressResolver,
     ),
   );
   app.use("*", requestLoggerMiddleware);
