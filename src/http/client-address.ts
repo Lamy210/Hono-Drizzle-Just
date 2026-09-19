@@ -1,6 +1,6 @@
 export interface ClientAddressInput {
-  readonly remoteAddress?: string;
-  readonly xForwardedFor?: string;
+  readonly remoteAddress: string | undefined;
+  readonly xForwardedFor: string | undefined;
 }
 
 export type ClientAddressResolver = (input: ClientAddressInput) => string | undefined;
