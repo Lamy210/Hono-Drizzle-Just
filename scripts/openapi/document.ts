@@ -1,15 +1,18 @@
 import { createApp } from "../../src/app/app";
 import { ReadinessChecker } from "../../src/core/health/readiness-checker";
 import type { TransactionManager } from "../../src/core/transaction/transaction-manager";
+import { Sha256StringDigester } from "../../src/infrastructure/crypto/sha256-string-digester";
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
+import type { UserCreationIdempotencyRepository } from "../../src/modules/users/application/user-creation-idempotency.repository";
 import type { UserUnitOfWork } from "../../src/modules/users/application/user-unit-of-work";
 import type { UserRepository } from "../../src/modules/users/domain/user.repository";
 
 function buildContractApp() {
   const user = {
     id: "550e8400-e29b-41d4-a716-446655440000",
+    tenantId: "tenant-contract",
     email: "contract@example.com",
     name: "Contract User",
     createdAt: new Date("2026-09-16T00:00:00.000Z"),
@@ -19,15 +22,27 @@ function buildContractApp() {
     findByEmail: async () => null,
     create: async (input) => ({ ...user, ...input }),
   };
+  const idempotency: UserCreationIdempotencyRepository = {
+    claim: async () => ({ state: "claimed" }),
+    complete: async () => undefined,
+  };
   const transactions: TransactionManager<UserUnitOfWork> = {
-    run: async (operation) => operation({ users: repository }),
+    run: async (operation) =>
+      operation({
+        users: repository,
+        userCreationIdempotency: idempotency,
+      }),
   };
   const logger = new JsonConsoleLogger({ service: "openapi-contract" }, () => undefined);
 
   return createApp({
     logger,
     readinessChecker: new ReadinessChecker([]),
-    createUserService: new CreateUserService(transactions, logger),
+    createUserService: new CreateUserService(
+      transactions,
+      logger,
+      new Sha256StringDigester(),
+    ),
     getUserService: new GetUserService(repository),
   });
 }

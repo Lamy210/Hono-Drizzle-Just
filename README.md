@@ -140,7 +140,7 @@ The service listens on `http://localhost:3000` by default.
 - `GET /health` — compatibility liveness endpoint
 - `GET /health/live` — process/HTTP liveness; does not query PostgreSQL
 - `GET /health/ready` — readiness; returns 503 when a critical dependency is unavailable
-- `POST /users` - protected; requires an authenticated tenant principal with `users:write`
+- `POST /users` - protected; requires an authenticated tenant principal with `users:write`; optional `Idempotency-Key` enables tenant-scoped replay
 - `GET /users/{id}` - protected; requires an authenticated tenant principal with `users:read`
 - `GET /openapi.json`
 
@@ -183,6 +183,15 @@ Tenant ownership is derived only from `RequestContext.principal.tenantId`. Clien
 The built-in `StaticBearerPrincipalResolver` exists only to make local development, CI, and black-box E2E exercise the real authentication/authorization composition path. It is disabled by default, its credential and principal data come from `AUTH_DEV_STATIC_*` configuration, and startup rejects `AUTH_DEV_STATIC_ENABLED=true` when `NODE_ENV=production`. Deployed applications must compose a real identity-provider adapter that validates JWT/session/OIDC/Ory/Cognito or equivalent credentials and maps trusted identity data into `Principal`; do not promote the static resolver into a production authentication scheme.
 
 Static bearer values are validated without echoing the credential into configuration errors, and raw `Authorization`, cookies, and bearer tokens are not copied into request context, structured logs, telemetry attributes, or client error responses. The reserved `__legacy__:` tenant prefix is used only by the migration backfill for rows that predate tenant ownership and cannot be selected by a normal authorized tenant principal.
+
+## Idempotent user creation
+
+`POST /users` accepts an optional `Idempotency-Key` header. When omitted, user creation keeps the ordinary tenant-local behavior. When present, the key is scoped to the authorized tenant: the same tenant/key with the same normalized `email` and `name` replays the original user with HTTP `201` and the same user ID, while reusing an active tenant/key for a different normalized payload returns HTTP `422` with `IDEMPOTENCY_KEY_REUSED`. The same raw key may be used independently by another tenant.
+
+Clients should generate high-entropy unique keys such as UUIDs. The service hashes the raw key and canonical normalized request fingerprint with SHA-256 before persistence; raw keys, hashes, fingerprints, tenant IDs, prior payloads, and replay user IDs are not added to logs, telemetry attributes, or error payloads.
+
+The PostgreSQL `user_creation_idempotency` ledger and user insert are owned by the same transaction. A successful claim has a 24-hour replay window measured with database time. Expired entries are reclaimed lazily when that tenant/key is used again; the template does not require Redis or a background cleanup worker. Expiry only permits the key to be treated as new again—it does not bypass ordinary tenant-local email uniqueness, so retrying an already-created email after expiry may return `409`.
+
 ## Inbound HTTP policy
 
 Inbound request bodies use two independent safety boundaries. Hono enforces the application-visible limit (`HTTP_MAX_REQUEST_BODY_BYTES`, 1 MiB by default) after request correlation and request logging are established. Requests that cross this limit receive HTTP `413` with the common `REQUEST_BODY_TOO_LARGE` JSON envelope, including `requestId` and `traceId` when available.
@@ -203,7 +212,7 @@ On `SIGINT` or `SIGTERM`, the server stops accepting new connections and waits f
 
 Application services that need atomic persistence depend on `TransactionManager<TUnitOfWork>`, not on Drizzle. A feature-owned unit-of-work interface lists only the repository ports that the use case can access. The production Drizzle adapter creates those repositories from the active transaction session.
 
-The sample user creation flow performs the tenant-local duplicate lookup and tenant-owned insert in the same transaction. Returning from the operation commits; throwing rolls back the complete unit of work. PostgreSQL constraints remain authoritative under concurrency, and repository adapters translate known database errors after unwrapping Drizzle's error cause chain.
+The sample user creation flow performs the tenant-local duplicate lookup and tenant-owned insert in the same transaction. When an `Idempotency-Key` is supplied, ledger claim/replay, user creation, and ledger completion use that same transaction, so a failed create cannot leave a committed incomplete claim. Returning from the operation commits; throwing rolls back the complete unit of work. PostgreSQL constraints remain authoritative under concurrency, and repository adapters translate known database errors after unwrapping Drizzle's error cause chain.
 
 Automatic transaction retries and implicit `AsyncLocalStorage` transactions are intentionally not enabled by default.
 

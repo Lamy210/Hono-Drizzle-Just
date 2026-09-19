@@ -3,14 +3,16 @@ import { createApp } from "../../src/app/app";
 import type { HealthCheck } from "../../src/core/health/health-check";
 import { ReadinessChecker } from "../../src/core/health/readiness-checker";
 import type { TransactionManager } from "../../src/core/transaction/transaction-manager";
+import { Sha256StringDigester } from "../../src/infrastructure/crypto/sha256-string-digester";
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
 import type { UserUnitOfWork } from "../../src/modules/users/application/user-unit-of-work";
 import type { UserRepository } from "../../src/modules/users/domain/user.repository";
+import { userUnitOfWork } from "../helpers/user-unit-of-work";
 
 function transactions(repository: UserRepository): TransactionManager<UserUnitOfWork> {
-  return { run: async (operation) => operation({ users: repository }) };
+  return { run: async (operation) => operation(userUnitOfWork(repository)) };
 }
 
 function buildApp(healthCheck: HealthCheck) {
@@ -27,7 +29,11 @@ function buildApp(healthCheck: HealthCheck) {
   return createApp({
     logger,
     readinessChecker: new ReadinessChecker([healthCheck]),
-    createUserService: new CreateUserService(transactions(repository), logger),
+    createUserService: new CreateUserService(
+      transactions(repository),
+      logger,
+      new Sha256StringDigester(),
+    ),
     getUserService: new GetUserService(repository),
   });
 }

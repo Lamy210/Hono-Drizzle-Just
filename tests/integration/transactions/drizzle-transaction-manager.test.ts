@@ -1,14 +1,16 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { users } from "../../../src/db/schema";
+import { userCreationIdempotency, users } from "../../../src/db/schema";
 import { DrizzleTransactionManager } from "../../../src/infrastructure/database/drizzle-transaction-manager";
-import { DrizzleUserRepository } from "../../../src/modules/users/infrastructure/drizzle-user.repository";
 import type { UserUnitOfWork } from "../../../src/modules/users/application/user-unit-of-work";
+import { DrizzleUserCreationIdempotencyRepository } from "../../../src/modules/users/infrastructure/drizzle-user-creation-idempotency.repository";
+import { DrizzleUserRepository } from "../../../src/modules/users/infrastructure/drizzle-user.repository";
 import { createTestDatabase } from "../../helpers/database";
 
 const database = createTestDatabase();
 const transactions = new DrizzleTransactionManager<UserUnitOfWork>(database.db, (session) => ({
   users: new DrizzleUserRepository(session),
+  userCreationIdempotency: new DrizzleUserCreationIdempotencyRepository(session),
 }));
 
 beforeAll(async () => {
@@ -16,6 +18,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  await database.db.delete(userCreationIdempotency);
   await database.db.delete(users);
 });
 
