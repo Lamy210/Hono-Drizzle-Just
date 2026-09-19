@@ -25,14 +25,18 @@ function hasControlCharacters(value: string): boolean {
   return false;
 }
 
-export interface PostgresFixedWindowRateLimiterOptions {
+export interface FixedWindowRateLimitPolicy {
   readonly limit: number;
   readonly windowSeconds: number;
 }
 
+export interface PostgresFixedWindowRateLimiterOptions extends FixedWindowRateLimitPolicy {
+  readonly policies?: Readonly<Record<string, FixedWindowRateLimitPolicy>>;
+}
+
 export class PostgresFixedWindowRateLimiter implements RateLimiter {
-  private readonly limit: number;
-  private readonly windowSeconds: number;
+  private readonly defaultPolicy: FixedWindowRateLimitPolicy;
+  private readonly policies: Readonly<Record<string, FixedWindowRateLimitPolicy>>;
   private readonly cleanupIntervalMs: number;
   private nextCleanupAt = 0;
 
@@ -43,22 +47,26 @@ export class PostgresFixedWindowRateLimiter implements RateLimiter {
     private readonly observer?: DatabaseObserver,
     private readonly rateLimitObserver?: RateLimitObserver,
   ) {
-    if (!Number.isInteger(options.limit) || options.limit < 1) {
-      throw new TypeError("Rate limit must be a positive integer");
-    }
-    if (
-      !Number.isInteger(options.windowSeconds) ||
-      options.windowSeconds < 1 ||
-      options.windowSeconds > 86_400
-    ) {
-      throw new TypeError("Rate limit window must be an integer between 1 and 86400 seconds");
+    this.validatePolicy("default", options);
+    for (const [scope, policy] of Object.entries(options.policies ?? {})) {
+      if (!SCOPE_PATTERN.test(scope)) {
+        throw new TypeError("Rate limit policy scope is invalid");
+      }
+      this.validatePolicy(scope, policy);
     }
 
-    this.limit = options.limit;
-    this.windowSeconds = options.windowSeconds;
+    this.defaultPolicy = {
+      limit: options.limit,
+      windowSeconds: options.windowSeconds,
+    };
+    this.policies = options.policies ?? {};
+    const shortestWindowSeconds = Math.min(
+      this.defaultPolicy.windowSeconds,
+      ...Object.values(this.policies).map((policy) => policy.windowSeconds),
+    );
     this.cleanupIntervalMs = Math.min(
       MAX_CLEANUP_INTERVAL_MS,
-      Math.max(MIN_CLEANUP_INTERVAL_MS, options.windowSeconds * 1_000),
+      Math.max(MIN_CLEANUP_INTERVAL_MS, shortestWindowSeconds * 1_000),
     );
   }
 
@@ -76,8 +84,9 @@ export class PostgresFixedWindowRateLimiter implements RateLimiter {
     this.validateRequest(request);
     await this.cleanupExpiredIfDue();
 
+    const policy = this.policies[request.scope] ?? this.defaultPolicy;
     const identityHash = this.digester.sha256Hex(`${request.scope}\0${request.identity}`);
-    const expiresAt = sql`now() + make_interval(secs => ${this.windowSeconds})`;
+    const expiresAt = sql`now() + make_interval(secs => ${policy.windowSeconds})`;
     const expired = sql`${rateLimitBuckets.expiresAt} <= now()`;
 
     const rows = await this.observe("INSERT", async () =>
@@ -108,7 +117,7 @@ export class PostgresFixedWindowRateLimiter implements RateLimiter {
     if (!bucket) {
       throw new Error("Rate limiter upsert returned no row");
     }
-    if (bucket.requestCount <= this.limit) {
+    if (bucket.requestCount <= policy.limit) {
       return { allowed: true };
     }
 
@@ -119,6 +128,21 @@ export class PostgresFixedWindowRateLimiter implements RateLimiter {
         Math.ceil((bucket.expiresAt.getTime() - Date.now()) / 1_000),
       ),
     };
+  }
+
+  private validatePolicy(scope: string, policy: FixedWindowRateLimitPolicy): void {
+    if (!Number.isInteger(policy.limit) || policy.limit < 1 || policy.limit > 1_000_000) {
+      throw new TypeError(`Rate limit for ${scope} must be an integer between 1 and 1000000`);
+    }
+    if (
+      !Number.isInteger(policy.windowSeconds) ||
+      policy.windowSeconds < 1 ||
+      policy.windowSeconds > 86_400
+    ) {
+      throw new TypeError(
+        `Rate limit window for ${scope} must be an integer between 1 and 86400 seconds`,
+      );
+    }
   }
 
   private validateRequest(request: RateLimitRequest): void {

@@ -3,9 +3,7 @@ import type { RateLimiter } from "../../core/rate-limit/rate-limiter";
 import { AppError } from "../../core/errors/app-error";
 import type { AppEnv } from "../env";
 import { createAppErrorResponse } from "../error-response";
-
-const GLOBAL_HTTP_RATE_LIMIT_SCOPE = "http.global";
-const BYPASS_PATHS = new Set(["/health", "/health/live", "/health/ready"]);
+import { resolveHttpRateLimitScope } from "../rate-limit-policy";
 
 function retryAfterSeconds(value: number): number {
   if (!Number.isFinite(value) || value <= 0) {
@@ -16,7 +14,11 @@ function retryAfterSeconds(value: number): number {
 
 export function createRateLimitMiddleware(rateLimiter: RateLimiter) {
   return createMiddleware<AppEnv>(async (c, next) => {
-    if (BYPASS_PATHS.has(c.req.path)) {
+    const scope = resolveHttpRateLimitScope({
+      method: c.req.method,
+      path: c.req.path,
+    });
+    if (scope === undefined) {
       await next();
       return;
     }
@@ -28,7 +30,7 @@ export function createRateLimitMiddleware(rateLimiter: RateLimiter) {
     }
 
     const decision = await rateLimiter.consume({
-      scope: GLOBAL_HTTP_RATE_LIMIT_SCOPE,
+      scope,
       identity,
     });
     if (decision.allowed) {
