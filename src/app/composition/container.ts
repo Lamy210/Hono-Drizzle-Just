@@ -8,6 +8,7 @@ import { DatabaseObserver } from "../../infrastructure/database/database-observe
 import { DatabaseHealthCheck } from "../../infrastructure/health/database-health-check";
 import { JsonConsoleLogger } from "../../infrastructure/logging/json-console-logger";
 import { PostgresFixedWindowRateLimiter } from "../../infrastructure/rate-limit/postgres-fixed-window-rate-limiter";
+import { RateLimitObserver } from "../../infrastructure/rate-limit/rate-limit-observer";
 import { createTelemetry } from "../../infrastructure/observability/telemetry";
 import { CreateUserService } from "../../modules/users/application/create-user.service";
 import { GetUserService } from "../../modules/users/application/get-user.service";
@@ -61,6 +62,7 @@ export function createProductionContainer(config: AppConfig): {
       })
     : undefined;
   const digester = new Sha256StringDigester();
+  const rateLimitObserver = new RateLimitObserver({ meter: telemetry.meter });
   const rateLimiter = config.httpRateLimitEnabled
     ? new PostgresFixedWindowRateLimiter(
         database.db,
@@ -70,6 +72,7 @@ export function createProductionContainer(config: AppConfig): {
           windowSeconds: config.httpRateLimitWindowSeconds,
         },
         databaseObserver,
+        rateLimitObserver,
       )
     : undefined;
 
