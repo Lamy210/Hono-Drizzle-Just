@@ -8,6 +8,7 @@ import type {
 import { rateLimitBuckets } from "../../db/schema";
 import type { DatabaseSession } from "../database/database";
 import type { DatabaseObserver } from "../database/database-observer";
+import type { RateLimitObserver } from "./rate-limit-observer";
 
 const SCOPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,99}$/;
 const MAX_IDENTITY_LENGTH = 512;
@@ -40,6 +41,7 @@ export class PostgresFixedWindowRateLimiter implements RateLimiter {
     private readonly digester: StringDigester,
     options: PostgresFixedWindowRateLimiterOptions,
     private readonly observer?: DatabaseObserver,
+    private readonly rateLimitObserver?: RateLimitObserver,
   ) {
     if (!Number.isInteger(options.limit) || options.limit < 1) {
       throw new TypeError("Rate limit must be a positive integer");
@@ -61,6 +63,16 @@ export class PostgresFixedWindowRateLimiter implements RateLimiter {
   }
 
   async consume(request: RateLimitRequest): Promise<RateLimitDecision> {
+    const execute = () => this.consumeFixedWindow(request);
+    return this.rateLimitObserver
+      ? this.rateLimitObserver.decision(
+          { backend: "postgresql", algorithm: "fixed_window" },
+          execute,
+        )
+      : execute();
+  }
+
+  private async consumeFixedWindow(request: RateLimitRequest): Promise<RateLimitDecision> {
     this.validateRequest(request);
     await this.cleanupExpiredIfDue();
 
