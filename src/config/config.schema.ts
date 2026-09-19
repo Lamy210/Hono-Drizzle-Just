@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { hasControlCharacters, isValidTenantId } from "../core/auth/tenant-authorization";
 import type { LogLevel } from "../core/logging/logger";
+import { parseIpCidr } from "../core/network/ip-cidr";
 
 function integerEnv(defaultValue: number, min: number, max: number) {
   return z.preprocess(
@@ -60,6 +61,21 @@ function parseStaticScopes(value: string): readonly string[] {
   return [...new Set(value.split(" ").filter((scope) => scope.length > 0))];
 }
 
+function parseTrustedProxyCidrs(value: string): readonly string[] {
+  if (value === "") {
+    return [];
+  }
+  return [...new Set(value.split(",").map((cidr) => cidr.trim()))];
+}
+
+function isValidTrustedProxyCidrs(value: string): boolean {
+  const cidrs = parseTrustedProxyCidrs(value);
+  return (
+    cidrs.length <= 32 &&
+    cidrs.every((cidr) => cidr.length > 0 && parseIpCidr(cidr) !== undefined)
+  );
+}
+
 const RawConfigSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -73,6 +89,9 @@ const RawConfigSchema = z
     HTTP_DEFAULT_ATTEMPT_TIMEOUT_MS: integerEnv(3_000, 1, 120_000),
     HTTP_MAX_REQUEST_BODY_BYTES: integerEnv(1_048_576, 1_024, 64 * 1024 * 1024),
     HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES: integerEnv(2_097_152, 2_048, 128 * 1024 * 1024),
+    HTTP_TRUSTED_PROXY_CIDRS: z.string().max(4_096).default("").refine(isValidTrustedProxyCidrs, {
+      message: "must contain at most 32 comma-delimited IPv4/IPv6 CIDR ranges",
+    }),
     DATABASE_POOL_MAX: integerEnv(10, 1, 100),
     DATABASE_CONNECTION_TIMEOUT_MS: integerEnv(5_000, 100, 120_000),
     HEALTH_CHECK_TIMEOUT_MS: integerEnv(1_500, 50, 30_000),
@@ -160,6 +179,7 @@ export interface AppConfig {
   readonly httpDefaultAttemptTimeoutMs: number;
   readonly httpMaxRequestBodyBytes: number;
   readonly httpTransportMaxRequestBodyBytes: number;
+  readonly httpTrustedProxyCidrs: readonly string[];
   readonly databasePoolMax: number;
   readonly databaseConnectionTimeoutMs: number;
   readonly healthCheckTimeoutMs: number;
@@ -185,6 +205,7 @@ export const AppConfigSchema = RawConfigSchema.transform(
     httpDefaultAttemptTimeoutMs: raw.HTTP_DEFAULT_ATTEMPT_TIMEOUT_MS,
     httpMaxRequestBodyBytes: raw.HTTP_MAX_REQUEST_BODY_BYTES,
     httpTransportMaxRequestBodyBytes: raw.HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES,
+    httpTrustedProxyCidrs: parseTrustedProxyCidrs(raw.HTTP_TRUSTED_PROXY_CIDRS),
     databasePoolMax: raw.DATABASE_POOL_MAX,
     databaseConnectionTimeoutMs: raw.DATABASE_CONNECTION_TIMEOUT_MS,
     healthCheckTimeoutMs: raw.HEALTH_CHECK_TIMEOUT_MS,
