@@ -5,6 +5,7 @@ import type { ReadinessChecker } from "../core/health/readiness-checker";
 import type { Logger } from "../core/logging/logger";
 import type { Meter } from "../core/observability/meter";
 import type { Tracer } from "../core/observability/tracer";
+import type { ClientAddressResolver } from "../http/client-address";
 import { createErrorHandler } from "../http/error-handler";
 import type { AppEnv } from "../http/env";
 import { registerHealthRoutes } from "../http/health/health.routes";
@@ -33,6 +34,7 @@ export interface AppDependencies {
 export interface AppOptions {
   readonly maxRequestBodyBytes?: number;
   readonly remoteAddressResolver?: RemoteAddressResolver;
+  readonly clientAddressResolver?: ClientAddressResolver;
 }
 
 export function createApp(dependencies: AppDependencies, options: AppOptions = {}) {
@@ -63,6 +65,7 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
         ? { tracer: dependencies.tracer, meter: dependencies.meter }
         : undefined,
       options.remoteAddressResolver,
+      options.clientAddressResolver,
     ),
   );
   app.use("*", requestLoggerMiddleware);
