@@ -203,6 +203,19 @@
     },
     "/users": {
       "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "example": "550e8400-e29b-41d4-a716-446655440000",
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -222,7 +235,7 @@
                 }
               }
             },
-            "description": "User created"
+            "description": "User created or idempotently replayed"
           },
           "400": {
             "content": {
@@ -273,6 +286,16 @@
               }
             },
             "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Idempotency key was already used with a different request"
           }
         },
         "tags": [
