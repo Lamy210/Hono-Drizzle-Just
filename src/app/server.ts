@@ -1,4 +1,5 @@
 import { loadConfig } from "../config/load-config";
+import { resolveBunRemoteAddress } from "../http/bun/remote-address";
 import { createApp } from "./app";
 import { createProductionContainer } from "./composition/container";
 import { GracefulShutdownCoordinator } from "./lifecycle/graceful-shutdown";
@@ -8,6 +9,7 @@ const config = loadConfig(Bun.env);
 const container = createProductionContainer(config);
 const app = createApp(container.dependencies, {
   maxRequestBodyBytes: config.httpMaxRequestBodyBytes,
+  remoteAddressResolver: resolveBunRemoteAddress,
 });
 const server = Bun.serve(
   createBunServerOptions({

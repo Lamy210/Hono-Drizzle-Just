@@ -82,6 +82,8 @@ The idempotent create path hashes the raw key before entering persistence, claim
 
 `RequestContext` also carries an optional normalized `Principal`. This keeps identity available to application services without exposing Hono request objects or identity-provider-specific session/JWT structures. Protected application services authorize against that principal, derive tenant ownership from it, and pass the authorized tenant ID into tenant-scoped repository methods rather than accepting tenant selection from client payloads or transport headers.
 
+In the Bun production entrypoint, `RequestContext.remoteAddress` is populated from Hono's Bun `getConnInfo()` adapter, which delegates to `server.requestIP(request)` and therefore represents the direct transport peer rather than a caller-controlled HTTP header. In-process application/OpenAPI tests do not require a Bun server and may leave the field absent. The address is not added to structured logs or telemetry by default because it can be sensitive and high-cardinality.
+
 ## Inbound HTTP safety boundary
 
 Inbound body size is enforced at two layers with intentionally different responsibilities. Hono owns the application-visible boundary through its built-in `bodyLimit()` middleware. Bun owns the final transport/process boundary through `Bun.serve({ maxRequestBodySize })`.
@@ -100,6 +102,8 @@ The default Hono limit is 1 MiB (`HTTP_MAX_REQUEST_BODY_BYTES=1048576`). Because
 The default Bun hard cap is 2 MiB (`HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES=2097152`). Startup configuration requires this value to be strictly greater than the Hono limit. This ordering gives the application boundary room to return its structured error for normal oversized requests while still protecting the process from substantially larger bodies. A request rejected by Bun can fail before Hono creates correlation state, so transport-level 413 responses are not promised to use the common JSON envelope.
 
 The global defaults are intended for ordinary JSON APIs. Multipart uploads, per-route limit overrides, decompressed-body accounting, slow-request protection, rate limiting, and reverse-proxy/WAF limits remain separate policies rather than being folded into this boundary.
+
+Forwarded client-address headers such as `Forwarded`, `X-Forwarded-For`, `CF-Connecting-IP`, and `X-Real-IP` are intentionally **not** interpreted by the template. A reverse proxy can be the direct `remoteAddress`; recovering the original client address requires an explicit trusted-proxy policy that validates the immediate peer before accepting any forwarded chain. Until such a policy is configured, security decisions such as future rate limiting must treat `remoteAddress` as a peer identity, not as a proxy-aware end-user IP.
 
 ## Observability boundary
 

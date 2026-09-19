@@ -15,6 +15,7 @@ import {
   parseTraceParent,
 } from "../../infrastructure/tracing/w3c-trace-context";
 import type { AppEnv } from "../env";
+import type { RemoteAddressResolver } from "../remote-address";
 
 export interface RequestObservability {
   readonly tracer: Tracer;
@@ -32,6 +33,7 @@ export function createRequestContextMiddleware(
     tracer: new NoopTracer(),
     meter: new NoopMeter(),
   },
+  remoteAddressResolver?: RemoteAddressResolver,
 ) {
   return createMiddleware<AppEnv>(async (c, next) => {
     const startedAt = performance.now();
@@ -70,12 +72,19 @@ export function createRequestContextMiddleware(
           spanId: trace.spanId,
         });
 
-        c.set("requestContext", baseRequestContext);
+        let requestContext = baseRequestContext;
+        c.set("requestContext", requestContext);
         c.set("logger", baseLogger);
         c.header("x-request-id", requestId);
         c.header("traceparent", formatTraceParent(trace));
 
         try {
+          const remoteAddress = remoteAddressResolver?.(c);
+          if (remoteAddress !== undefined) {
+            requestContext = { ...requestContext, remoteAddress };
+            c.set("requestContext", requestContext);
+          }
+
           if (principalResolver) {
             const authorization = c.req.header("authorization");
             const cookie = c.req.header("cookie");
@@ -85,7 +94,8 @@ export function createRequestContextMiddleware(
             });
 
             if (principal !== undefined) {
-              c.set("requestContext", { ...baseRequestContext, principal });
+              requestContext = { ...requestContext, principal };
+              c.set("requestContext", requestContext);
               c.set(
                 "logger",
                 baseLogger.child({

@@ -11,6 +11,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - Request and response contracts are defined with Zod and exposed through OpenAPI.
 - UUID input accepts upper/lowercase RFC UUIDs; application-facing canonical values are lowercase.
 - W3C `traceparent` propagation with separate request IDs, trace IDs, and span IDs.
+- Production request context captures the direct Bun socket peer address without trusting forwarding headers by default.
 - Provider-neutral `Principal` / `PrincipalResolver` authentication context without coupling services to Hono or a specific identity provider.
 - Application-layer tenant authorization with scope-gated sample user operations and tenant-scoped persistence.
 - Vendor-neutral `Tracer` / `Meter` ports with optional OpenTelemetry trace and metrics export.
