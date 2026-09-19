@@ -211,6 +211,52 @@ test(
         expect(fetchedResponse.status).toBe(200);
         expect((await fetchedResponse.json()) as UserResponse).toEqual(created);
 
+        const idempotencyKey = crypto.randomUUID();
+        const idempotentEmail = `e2e-idempotent-${crypto.randomUUID()}@example.com`;
+        const idempotentHeaders = {
+          ...authenticatedHeaders(authorization),
+          "idempotency-key": idempotencyKey,
+        };
+
+        const firstIdempotentResponse = await boundedFetch(`${baseUrl}/users`, {
+          method: "POST",
+          headers: idempotentHeaders,
+          body: JSON.stringify({
+            email: idempotentEmail.toUpperCase(),
+            name: "Idempotent User",
+          }),
+        });
+        expect(firstIdempotentResponse.status).toBe(201);
+        const firstIdempotent = (await firstIdempotentResponse.json()) as UserResponse;
+
+        const replayResponse = await boundedFetch(`${baseUrl}/users`, {
+          method: "POST",
+          headers: idempotentHeaders,
+          body: JSON.stringify({
+            email: idempotentEmail,
+            name: "Idempotent User",
+          }),
+        });
+        expect(replayResponse.status).toBe(201);
+        const replay = (await replayResponse.json()) as UserResponse;
+        expect(replay.id).toBe(firstIdempotent.id);
+        expect(replay).toEqual(firstIdempotent);
+
+        const mismatchResponse = await boundedFetch(`${baseUrl}/users`, {
+          method: "POST",
+          headers: idempotentHeaders,
+          body: JSON.stringify({
+            email: idempotentEmail,
+            name: "Changed Idempotent User",
+          }),
+        });
+        expect(mismatchResponse.status).toBe(422);
+        const mismatchBody = await mismatchResponse.json();
+        expect(mismatchBody).toMatchObject({
+          error: { code: "IDEMPOTENCY_KEY_REUSED" },
+        });
+        expect(JSON.stringify(mismatchBody)).not.toContain(idempotencyKey);
+
         return created;
       },
     );
