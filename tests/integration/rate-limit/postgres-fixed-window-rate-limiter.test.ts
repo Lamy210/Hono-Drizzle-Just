@@ -151,7 +151,12 @@ test("returns exact quota metadata for allowed and denied fixed-window decisions
     windowSeconds: 30,
   });
   if (!denied.allowed) {
-    expect(denied.retryAfterSeconds).toBe(denied.quota?.resetAfterSeconds);
+    const quota = denied.quota;
+    expect(quota).toBeDefined();
+    if (quota === undefined) {
+      throw new Error("PostgreSQL rate limiter must return quota metadata");
+    }
+    expect(denied.retryAfterSeconds).toBe(quota.resetAfterSeconds);
   }
 });
 
