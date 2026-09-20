@@ -37,6 +37,8 @@ describe("loadConfig", () => {
       httpRateLimitUsersReadWindowSeconds: 60,
       databasePoolMax: 20,
       databaseConnectionTimeoutMs: 5_000,
+      databaseStatementTimeoutMs: 15_000,
+      databaseIdleInTransactionSessionTimeoutMs: 30_000,
       healthCheckTimeoutMs: 1_500,
       shutdownTimeoutMs: 10_000,
       otelEnabled: false,
@@ -183,6 +185,33 @@ describe("loadConfig", () => {
     ).toThrow(ConfigurationError);
     expect(() =>
       loadConfig({ ...required, HTTP_RATE_LIMIT_USERS_READ_WINDOW_SECONDS: "86401" }),
+    ).toThrow(ConfigurationError);
+  });
+
+  test("parses database execution timeout settings including explicit disable", () => {
+    const config = loadConfig({
+      ...required,
+      DATABASE_CONNECTION_TIMEOUT_MS: "7000",
+      DATABASE_STATEMENT_TIMEOUT_MS: "2500",
+      DATABASE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS: "0",
+    });
+
+    expect(config).toMatchObject({
+      databaseConnectionTimeoutMs: 7_000,
+      databaseStatementTimeoutMs: 2_500,
+      databaseIdleInTransactionSessionTimeoutMs: 0,
+    });
+  });
+
+  test("rejects database execution timeout settings outside bounded ranges", () => {
+    expect(() => loadConfig({ ...required, DATABASE_STATEMENT_TIMEOUT_MS: "-1" })).toThrow(
+      ConfigurationError,
+    );
+    expect(() =>
+      loadConfig({
+        ...required,
+        DATABASE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS: "3600001",
+      }),
     ).toThrow(ConfigurationError);
   });
 

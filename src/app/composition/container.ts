@@ -47,6 +47,8 @@ export function createProductionContainer(config: AppConfig): {
     connectionString: config.databaseUrl,
     max: config.databasePoolMax,
     connectionTimeoutMillis: config.databaseConnectionTimeoutMs,
+    statementTimeoutMillis: config.databaseStatementTimeoutMs,
+    idleInTransactionSessionTimeoutMillis: config.databaseIdleInTransactionSessionTimeoutMs,
     observability: {
       meter: telemetry.meter,
       poolName: databasePoolName,
