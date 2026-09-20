@@ -1,0 +1,1 @@
+CREATE INDEX "rate_limit_buckets_expires_at_scope_identity_hash_idx" ON "rate_limit_buckets" USING btree ("expires_at","scope","identity_hash");

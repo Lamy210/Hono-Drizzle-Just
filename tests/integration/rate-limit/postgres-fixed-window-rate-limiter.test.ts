@@ -192,15 +192,15 @@ test("resets an expired bucket atomically instead of growing one row per window"
   expect(rows[0]?.windowStartedAt.getTime()).toBeGreaterThan(0);
 });
 
-test("periodic hot-path cleanup removes expired identities before consuming", async () => {
-  const expiredHash = digester.sha256Hex("http.global\0expired-client");
-  await database.db.insert(rateLimitBuckets).values({
+test("periodic hot-path cleanup deletes at most one bounded expired batch", async () => {
+  const expiredRows = Array.from({ length: 1_005 }, (_, index) => ({
     scope: "http.global",
-    identityHash: expiredHash,
+    identityHash: digester.sha256Hex(`http.global\\0expired-client-${index}`),
     windowStartedAt: new Date(0),
     requestCount: 99,
     expiresAt: new Date(0),
-  });
+  }));
+  await database.db.insert(rateLimitBuckets).values(expiredRows);
 
   const limiter = new PostgresFixedWindowRateLimiter(database.db, digester, {
     limit: 10,
@@ -208,11 +208,39 @@ test("periodic hot-path cleanup removes expired identities before consuming", as
   });
   await limiter.consume({ scope: "http.global", identity: "203.0.113.44" });
 
-  const expired = await database.db
-    .select()
-    .from(rateLimitBuckets)
-    .where(eq(rateLimitBuckets.identityHash, expiredHash));
-  expect(expired).toHaveLength(0);
+  const rows = await database.db.select().from(rateLimitBuckets);
+  const expired = rows.filter((row) => row.expiresAt.getTime() === 0);
+  expect(expired).toHaveLength(5);
+  expect(rows).toHaveLength(6);
+});
+
+test("independent limiter instances split expired cleanup work with skip locked", async () => {
+  const expiredRows = Array.from({ length: 1_500 }, (_, index) => ({
+    scope: "http.global",
+    identityHash: digester.sha256Hex(`http.global\\0parallel-expired-${index}`),
+    windowStartedAt: new Date(0),
+    requestCount: 99,
+    expiresAt: new Date(0),
+  }));
+  await database.db.insert(rateLimitBuckets).values(expiredRows);
+
+  const first = new PostgresFixedWindowRateLimiter(database.db, digester, {
+    limit: 10,
+    windowSeconds: 60,
+  });
+  const second = new PostgresFixedWindowRateLimiter(database.db, digester, {
+    limit: 10,
+    windowSeconds: 60,
+  });
+
+  await Promise.all([
+    first.consume({ scope: "http.global", identity: "203.0.113.50" }),
+    second.consume({ scope: "http.global", identity: "203.0.113.51" }),
+  ]);
+
+  const rows = await database.db.select().from(rateLimitBuckets);
+  expect(rows.filter((row) => row.expiresAt.getTime() === 0)).toHaveLength(0);
+  expect(rows).toHaveLength(2);
 });
 
 test("rejects invalid adapter configuration and malformed generic identities", async () => {
