@@ -43,13 +43,27 @@ function buildApp(rateLimiter?: RateLimiter, remoteAddress?: string) {
   );
 }
 
-test("rate limiter receives the canonical client address and allows the request", async () => {
-  const consume = mock(async () => ({ allowed: true }) as const);
+test("allowed requests expose bounded draft RateLimit fields when quota metadata is available", async () => {
+  const consume = mock(
+    async () =>
+      ({
+        allowed: true,
+        quota: {
+          policyId: "http.global",
+          limit: 120,
+          remaining: 119,
+          windowSeconds: 60,
+          resetAfterSeconds: 47,
+        },
+      }) as const,
+  );
   const app = buildApp({ consume }, "203.0.113.10");
 
   const response = await app.request("/openapi.json");
 
   expect(response.status).toBe(200);
+  expect(response.headers.get("ratelimit-policy")).toBe('"http.global";q=120;w=60');
+  expect(response.headers.get("ratelimit")).toBe('"http.global";r=119;t=47');
   expect(consume).toHaveBeenCalledTimes(1);
   expect(consume).toHaveBeenCalledWith({
     scope: "http.global",
@@ -82,8 +96,21 @@ test("user routes select stable read and write scopes without path identifiers",
   expect(JSON.stringify(consume.mock.calls)).not.toContain(userId);
 });
 
-test("rate limit denial returns the correlated common 429 envelope and Retry-After", async () => {
-  const consume = mock(async () => ({ allowed: false, retryAfterSeconds: 2.2 }) as const);
+test("rate limit denial returns quota fields, the correlated common 429 envelope, and Retry-After", async () => {
+  const consume = mock(
+    async () =>
+      ({
+        allowed: false,
+        retryAfterSeconds: 3,
+        quota: {
+          policyId: "http.global",
+          limit: 120,
+          remaining: 0,
+          windowSeconds: 60,
+          resetAfterSeconds: 3,
+        },
+      }) as const,
+  );
   const app = buildApp({ consume }, "198.51.100.20");
   const requestId = "550e8400-e29b-41d4-a716-446655440000";
   const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
@@ -97,6 +124,8 @@ test("rate limit denial returns the correlated common 429 envelope and Retry-Aft
 
   expect(response.status).toBe(429);
   expect(response.headers.get("retry-after")).toBe("3");
+  expect(response.headers.get("ratelimit-policy")).toBe('"http.global";q=120;w=60');
+  expect(response.headers.get("ratelimit")).toBe('"http.global";r=0;t=3');
   expect(await response.json()).toEqual({
     error: { code: "RATE_LIMITED", message: "Too many requests" },
     requestId,
@@ -124,6 +153,43 @@ test("missing network identity skips rate limiting for in-process and non-networ
 
   expect(response.status).toBe(200);
   expect(consume).not.toHaveBeenCalled();
+});
+
+test("adapters without quota metadata remain compatible and emit no draft RateLimit fields", async () => {
+  const consume = mock(async () => ({ allowed: true }) as const);
+  const app = buildApp({ consume }, "203.0.113.10");
+
+  const response = await app.request("/openapi.json");
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("ratelimit-policy")).toBeNull();
+  expect(response.headers.get("ratelimit")).toBeNull();
+});
+
+test("invalid quota metadata becomes a correlated internal error without emitting unsafe headers", async () => {
+  const consume = mock(
+    async () =>
+      ({
+        allowed: true,
+        quota: {
+          policyId: 'http.global"\r\nx-injected: yes',
+          limit: 120,
+          remaining: 119,
+          windowSeconds: 60,
+          resetAfterSeconds: 30,
+        },
+      }) as const,
+  );
+  const app = buildApp({ consume }, "203.0.113.10");
+
+  const response = await app.request("/openapi.json");
+
+  expect(response.status).toBe(500);
+  expect(response.headers.get("x-injected")).toBeNull();
+  expect(response.headers.get("ratelimit")).toBeNull();
+  expect(await response.json()).toMatchObject({
+    error: { code: "INTERNAL_ERROR", message: "Internal server error" },
+  });
 });
 
 test("invalid limiter retry metadata becomes a correlated internal error", async () => {

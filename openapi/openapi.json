@@ -235,7 +235,21 @@
                 }
               }
             },
-            "description": "User created or idempotently replayed"
+            "description": "User created or idempotently replayed",
+            "headers": {
+              "RateLimit": {
+                "description": "Provisional current quota field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "RateLimit-Policy": {
+                "description": "Provisional quota policy field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -305,7 +319,28 @@
                 }
               }
             },
-            "description": "Rate limit exceeded"
+            "description": "Rate limit exceeded",
+            "headers": {
+              "RateLimit": {
+                "description": "Provisional current quota field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "RateLimit-Policy": {
+                "description": "Provisional quota policy field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying a rate-limited request",
+                "schema": {
+                  "pattern": "^[1-9][0-9]*$",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -336,7 +371,21 @@
                 }
               }
             },
-            "description": "User"
+            "description": "User",
+            "headers": {
+              "RateLimit": {
+                "description": "Provisional current quota field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "RateLimit-Policy": {
+                "description": "Provisional quota policy field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -386,7 +435,28 @@
                 }
               }
             },
-            "description": "Rate limit exceeded"
+            "description": "Rate limit exceeded",
+            "headers": {
+              "RateLimit": {
+                "description": "Provisional current quota field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "RateLimit-Policy": {
+                "description": "Provisional quota policy field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before retrying a rate-limited request",
+                "schema": {
+                  "pattern": "^[1-9][0-9]*$",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "tags": [

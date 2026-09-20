@@ -117,16 +117,27 @@ export class PostgresFixedWindowRateLimiter implements RateLimiter {
     if (!bucket) {
       throw new Error("Rate limiter upsert returned no row");
     }
+
+    const resetAfterSeconds = Math.max(
+      1,
+      Math.ceil((bucket.expiresAt.getTime() - Date.now()) / 1_000),
+    );
+    const quota = {
+      policyId: request.scope,
+      limit: policy.limit,
+      remaining: Math.max(0, policy.limit - bucket.requestCount),
+      windowSeconds: policy.windowSeconds,
+      resetAfterSeconds,
+    } as const;
+
     if (bucket.requestCount <= policy.limit) {
-      return { allowed: true };
+      return { allowed: true, quota };
     }
 
     return {
       allowed: false,
-      retryAfterSeconds: Math.max(
-        1,
-        Math.ceil((bucket.expiresAt.getTime() - Date.now()) / 1_000),
-      ),
+      retryAfterSeconds: resetAfterSeconds,
+      quota,
     };
   }
 

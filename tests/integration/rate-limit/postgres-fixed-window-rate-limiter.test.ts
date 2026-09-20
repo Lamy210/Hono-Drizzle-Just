@@ -34,6 +34,18 @@ test("atomically enforces one shared fixed-window limit under concurrency", asyn
 
   expect(decisions.filter((decision) => decision.allowed)).toHaveLength(5);
   expect(decisions.filter((decision) => !decision.allowed)).toHaveLength(15);
+  expect(
+    decisions.every(
+      (decision) =>
+        decision.quota?.policyId === "http.global" &&
+        decision.quota.limit === 5 &&
+        decision.quota.windowSeconds === 60 &&
+        decision.quota.remaining >= 0 &&
+        decision.quota.remaining <= 4 &&
+        decision.quota.resetAfterSeconds >= 1 &&
+        decision.quota.resetAfterSeconds <= 60,
+    ),
+  ).toBe(true);
 
   const [bucket] = await database.db.select().from(rateLimitBuckets);
   expect(bucket?.requestCount).toBe(20);
@@ -47,13 +59,13 @@ test("keeps scopes and client identities isolated", async () => {
     windowSeconds: 60,
   });
 
-  expect(await limiter.consume({ scope: "http.global", identity: "198.51.100.10" })).toEqual({
+  expect(await limiter.consume({ scope: "http.global", identity: "198.51.100.10" })).toMatchObject({
     allowed: true,
   });
-  expect(await limiter.consume({ scope: "http.global", identity: "198.51.100.11" })).toEqual({
+  expect(await limiter.consume({ scope: "http.global", identity: "198.51.100.11" })).toMatchObject({
     allowed: true,
   });
-  expect(await limiter.consume({ scope: "users.write", identity: "198.51.100.10" })).toEqual({
+  expect(await limiter.consume({ scope: "users.write", identity: "198.51.100.10" })).toMatchObject({
     allowed: true,
   });
 
@@ -73,7 +85,7 @@ test("applies independent scope-specific limits and windows", async () => {
   });
   const identity = "198.51.100.77";
 
-  expect(await limiter.consume({ scope: "http.users.write", identity })).toEqual({
+  expect(await limiter.consume({ scope: "http.users.write", identity })).toMatchObject({
     allowed: true,
   });
   const writeDenied = await limiter.consume({ scope: "http.users.write", identity });
@@ -83,8 +95,8 @@ test("applies independent scope-specific limits and windows", async () => {
     expect(writeDenied.retryAfterSeconds).toBeLessThanOrEqual(10);
   }
 
-  expect(await limiter.consume({ scope: "http.users.read", identity })).toEqual({ allowed: true });
-  expect(await limiter.consume({ scope: "http.users.read", identity })).toEqual({ allowed: true });
+  expect(await limiter.consume({ scope: "http.users.read", identity })).toMatchObject({ allowed: true });
+  expect(await limiter.consume({ scope: "http.users.read", identity })).toMatchObject({ allowed: true });
   const readDenied = await limiter.consume({ scope: "http.users.read", identity });
   expect(readDenied.allowed).toBe(false);
   if (!readDenied.allowed) {
@@ -93,13 +105,58 @@ test("applies independent scope-specific limits and windows", async () => {
   }
 
   for (let index = 0; index < 3; index += 1) {
-    expect(await limiter.consume({ scope: "http.global", identity })).toEqual({ allowed: true });
+    expect(await limiter.consume({ scope: "http.global", identity })).toMatchObject({ allowed: true });
   }
   const globalDenied = await limiter.consume({ scope: "http.global", identity });
   expect(globalDenied.allowed).toBe(false);
   if (!globalDenied.allowed) {
     expect(globalDenied.retryAfterSeconds).toBeGreaterThanOrEqual(1);
     expect(globalDenied.retryAfterSeconds).toBeLessThanOrEqual(60);
+  }
+});
+
+test("returns exact quota metadata for allowed and denied fixed-window decisions", async () => {
+  const limiter = new PostgresFixedWindowRateLimiter(database.db, digester, {
+    limit: 2,
+    windowSeconds: 30,
+  });
+  const request = { scope: "http.global", identity: "203.0.113.90" } as const;
+
+  const first = await limiter.consume(request);
+  expect(first.allowed).toBe(true);
+  expect(first.quota).toMatchObject({
+    policyId: "http.global",
+    limit: 2,
+    remaining: 1,
+    windowSeconds: 30,
+  });
+  expect(first.quota?.resetAfterSeconds).toBeGreaterThanOrEqual(1);
+  expect(first.quota?.resetAfterSeconds).toBeLessThanOrEqual(30);
+
+  const second = await limiter.consume(request);
+  expect(second.allowed).toBe(true);
+  expect(second.quota).toMatchObject({
+    policyId: "http.global",
+    limit: 2,
+    remaining: 0,
+    windowSeconds: 30,
+  });
+
+  const denied = await limiter.consume(request);
+  expect(denied.allowed).toBe(false);
+  expect(denied.quota).toMatchObject({
+    policyId: "http.global",
+    limit: 2,
+    remaining: 0,
+    windowSeconds: 30,
+  });
+  if (!denied.allowed) {
+    const quota = denied.quota;
+    expect(quota).toBeDefined();
+    if (quota === undefined) {
+      throw new Error("PostgreSQL rate limiter must return quota metadata");
+    }
+    expect(denied.retryAfterSeconds).toBe(quota.resetAfterSeconds);
   }
 });
 
@@ -110,7 +167,7 @@ test("resets an expired bucket atomically instead of growing one row per window"
   });
   const request = { scope: "http.global", identity: "192.0.2.25" } as const;
 
-  expect(await limiter.consume(request)).toEqual({ allowed: true });
+  expect(await limiter.consume(request)).toMatchObject({ allowed: true });
   const denied = await limiter.consume(request);
   expect(denied.allowed).toBe(false);
   if (!denied.allowed) {
@@ -124,7 +181,7 @@ test("resets an expired bucket atomically instead of growing one row per window"
     .set({ expiresAt: new Date(0) })
     .where(eq(rateLimitBuckets.identityHash, identityHash));
 
-  expect(await limiter.consume(request)).toEqual({ allowed: true });
+  expect(await limiter.consume(request)).toMatchObject({ allowed: true });
 
   const rows = await database.db
     .select()
