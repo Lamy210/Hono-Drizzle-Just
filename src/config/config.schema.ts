@@ -95,6 +95,10 @@ const RawConfigSchema = z
     HTTP_RATE_LIMIT_ENABLED: booleanEnv(false),
     HTTP_RATE_LIMIT_REQUESTS: integerEnv(120, 1, 1_000_000),
     HTTP_RATE_LIMIT_WINDOW_SECONDS: integerEnv(60, 1, 86_400),
+    HTTP_RATE_LIMIT_USERS_WRITE_REQUESTS: integerEnv(30, 1, 1_000_000),
+    HTTP_RATE_LIMIT_USERS_WRITE_WINDOW_SECONDS: integerEnv(60, 1, 86_400),
+    HTTP_RATE_LIMIT_USERS_READ_REQUESTS: integerEnv(120, 1, 1_000_000),
+    HTTP_RATE_LIMIT_USERS_READ_WINDOW_SECONDS: integerEnv(60, 1, 86_400),
     DATABASE_POOL_MAX: integerEnv(10, 1, 100),
     DATABASE_CONNECTION_TIMEOUT_MS: integerEnv(5_000, 100, 120_000),
     HEALTH_CHECK_TIMEOUT_MS: integerEnv(1_500, 50, 30_000),
@@ -186,6 +190,10 @@ export interface AppConfig {
   readonly httpRateLimitEnabled: boolean;
   readonly httpRateLimitRequests: number;
   readonly httpRateLimitWindowSeconds: number;
+  readonly httpRateLimitUsersWriteRequests: number;
+  readonly httpRateLimitUsersWriteWindowSeconds: number;
+  readonly httpRateLimitUsersReadRequests: number;
+  readonly httpRateLimitUsersReadWindowSeconds: number;
   readonly databasePoolMax: number;
   readonly databaseConnectionTimeoutMs: number;
   readonly healthCheckTimeoutMs: number;
@@ -215,6 +223,10 @@ export const AppConfigSchema = RawConfigSchema.transform(
     httpRateLimitEnabled: raw.HTTP_RATE_LIMIT_ENABLED,
     httpRateLimitRequests: raw.HTTP_RATE_LIMIT_REQUESTS,
     httpRateLimitWindowSeconds: raw.HTTP_RATE_LIMIT_WINDOW_SECONDS,
+    httpRateLimitUsersWriteRequests: raw.HTTP_RATE_LIMIT_USERS_WRITE_REQUESTS,
+    httpRateLimitUsersWriteWindowSeconds: raw.HTTP_RATE_LIMIT_USERS_WRITE_WINDOW_SECONDS,
+    httpRateLimitUsersReadRequests: raw.HTTP_RATE_LIMIT_USERS_READ_REQUESTS,
+    httpRateLimitUsersReadWindowSeconds: raw.HTTP_RATE_LIMIT_USERS_READ_WINDOW_SECONDS,
     databasePoolMax: raw.DATABASE_POOL_MAX,
     databaseConnectionTimeoutMs: raw.DATABASE_CONNECTION_TIMEOUT_MS,
     healthCheckTimeoutMs: raw.HEALTH_CHECK_TIMEOUT_MS,

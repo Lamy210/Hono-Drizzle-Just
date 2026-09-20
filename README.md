@@ -168,8 +168,12 @@ Configuration is loaded once during startup. Application modules should not read
 | `HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES` | `2097152` | Bun transport hard cap; must be greater than `HTTP_MAX_REQUEST_BODY_BYTES` |
 | `HTTP_TRUSTED_PROXY_CIDRS` | empty | Comma-delimited trusted reverse-proxy IPv4/IPv6 CIDRs allowed to influence `clientAddress` through `X-Forwarded-For` |
 | `HTTP_RATE_LIMIT_ENABLED` | `false` | Enable the shared PostgreSQL HTTP rate limiter in production composition |
-| `HTTP_RATE_LIMIT_REQUESTS` | `120` | Requests allowed per client identity in one fixed window |
-| `HTTP_RATE_LIMIT_WINDOW_SECONDS` | `60` | Fixed-window duration in seconds |
+| `HTTP_RATE_LIMIT_REQUESTS` | `120` | Default requests allowed per client identity for routes without a specific policy |
+| `HTTP_RATE_LIMIT_WINDOW_SECONDS` | `60` | Default fixed-window duration in seconds |
+| `HTTP_RATE_LIMIT_USERS_WRITE_REQUESTS` | `30` | Requests allowed for the `POST /users` write policy |
+| `HTTP_RATE_LIMIT_USERS_WRITE_WINDOW_SECONDS` | `60` | Fixed-window duration for the users write policy |
+| `HTTP_RATE_LIMIT_USERS_READ_REQUESTS` | `120` | Requests allowed for the `GET /users/{id}` read policy |
+| `HTTP_RATE_LIMIT_USERS_READ_WINDOW_SECONDS` | `60` | Fixed-window duration for the users read policy |
 | `HEALTH_CHECK_TIMEOUT_MS` | `1500` | Critical dependency readiness deadline |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | Grace period for in-flight HTTP requests |
 | `OTEL_ENABLED` | `false` | Enable OpenTelemetry trace/metrics SDK and exporters |
@@ -205,7 +209,9 @@ The PostgreSQL `user_creation_idempotency` ledger and user insert are owned by t
 
 Rate limiting is exposed through the application-owned `RateLimiter` port and remains disabled by default. The HTTP policy uses the normalized `RequestContext.clientAddress` as the identity, returns `RATE_LIMITED` / HTTP 429 with `Retry-After`, and excludes `/health`, `/health/live`, and `/health/ready` so platform probes cannot be throttled. Requests without a network identity, such as in-process contract generation, skip the limiter.
 
-When `HTTP_RATE_LIMIT_ENABLED=true`, production composition installs the shared PostgreSQL fixed-window adapter using `HTTP_RATE_LIMIT_REQUESTS` and `HTTP_RATE_LIMIT_WINDOW_SECONDS`. The adapter stores one row per `(scope, identity_hash)`, atomically increments or resets that row with PostgreSQL upsert semantics, and therefore shares counters across replicas that use the same database. The raw client address is never persisted: the stored identity is SHA-256 of the scope plus the normalized identity. Expired identities are cleaned periodically on the request path, while an expired row for an active identity is reused rather than creating one row per window.
+The HTTP policy resolves a bounded scope before routing/body validation: `POST /users` uses `http.users.write`, `GET /users/{id}` uses `http.users.read`, and all other non-health requests use `http.global`. The resource ID itself is never copied into the scope. Production defaults therefore allow a stricter write quota (30 requests / 60 seconds) while reads inherit a 120 / 60 policy and unrelated routes use the global 120 / 60 policy. Each policy can be tuned independently through typed environment configuration.
+
+When `HTTP_RATE_LIMIT_ENABLED=true`, production composition installs the shared PostgreSQL fixed-window adapter using the global default policy plus the configured users read/write overrides. The adapter stores one row per `(scope, identity_hash)`, atomically increments or resets that row with PostgreSQL upsert semantics, and therefore shares counters across replicas that use the same database. The raw client address is never persisted: the stored identity is SHA-256 of the scope plus the normalized identity. Expired identities are cleaned periodically on the request path, while an expired row for an active identity is reused rather than creating one row per window. A scope without an explicit override falls back to the global policy.
 
 The PostgreSQL adapter is fail-closed: database/adapter failures follow the common internal-error path instead of silently disabling abuse protection. Deployments that require a different latency or availability trade-off can replace the `RateLimiter` port with Redis or an edge-backed implementation without changing the HTTP contract. A process-local Map is intentionally not the production default because counters would split across replicas. The OpenAPI user routes advertise 429 because enabling the port changes their observable response surface.
 

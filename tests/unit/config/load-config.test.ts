@@ -30,6 +30,10 @@ describe("loadConfig", () => {
       httpRateLimitEnabled: false,
       httpRateLimitRequests: 120,
       httpRateLimitWindowSeconds: 60,
+      httpRateLimitUsersWriteRequests: 30,
+      httpRateLimitUsersWriteWindowSeconds: 60,
+      httpRateLimitUsersReadRequests: 120,
+      httpRateLimitUsersReadWindowSeconds: 60,
       databasePoolMax: 20,
       databaseConnectionTimeoutMs: 5_000,
       healthCheckTimeoutMs: 1_500,
@@ -141,12 +145,20 @@ describe("loadConfig", () => {
       HTTP_RATE_LIMIT_ENABLED: "true",
       HTTP_RATE_LIMIT_REQUESTS: "250",
       HTTP_RATE_LIMIT_WINDOW_SECONDS: "30",
+      HTTP_RATE_LIMIT_USERS_WRITE_REQUESTS: "20",
+      HTTP_RATE_LIMIT_USERS_WRITE_WINDOW_SECONDS: "15",
+      HTTP_RATE_LIMIT_USERS_READ_REQUESTS: "400",
+      HTTP_RATE_LIMIT_USERS_READ_WINDOW_SECONDS: "45",
     });
 
     expect(config).toMatchObject({
       httpRateLimitEnabled: true,
       httpRateLimitRequests: 250,
       httpRateLimitWindowSeconds: 30,
+      httpRateLimitUsersWriteRequests: 20,
+      httpRateLimitUsersWriteWindowSeconds: 15,
+      httpRateLimitUsersReadRequests: 400,
+      httpRateLimitUsersReadWindowSeconds: 45,
     });
   });
 
@@ -160,6 +172,12 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...required, HTTP_RATE_LIMIT_WINDOW_SECONDS: "86401" })).toThrow(
       ConfigurationError,
     );
+    expect(() =>
+      loadConfig({ ...required, HTTP_RATE_LIMIT_USERS_WRITE_REQUESTS: "0" }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      loadConfig({ ...required, HTTP_RATE_LIMIT_USERS_READ_WINDOW_SECONDS: "86401" }),
+    ).toThrow(ConfigurationError);
   });
 
   test("parses explicit OpenTelemetry settings", () => {

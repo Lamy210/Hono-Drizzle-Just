@@ -2,6 +2,7 @@ import type { AppConfig } from "../../config/load-config";
 import { ReadinessChecker } from "../../core/health/readiness-checker";
 import { ApplicationLifecycle } from "../../core/lifecycle/application-lifecycle";
 import { StaticBearerPrincipalResolver } from "../../infrastructure/auth/static-bearer-principal-resolver";
+import { HTTP_RATE_LIMIT_SCOPES } from "../../http/rate-limit-policy";
 import { Sha256StringDigester } from "../../infrastructure/crypto/sha256-string-digester";
 import { createDatabase } from "../../infrastructure/database/database";
 import { DatabaseObserver } from "../../infrastructure/database/database-observer";
@@ -70,6 +71,16 @@ export function createProductionContainer(config: AppConfig): {
         {
           limit: config.httpRateLimitRequests,
           windowSeconds: config.httpRateLimitWindowSeconds,
+          policies: {
+            [HTTP_RATE_LIMIT_SCOPES.usersWrite]: {
+              limit: config.httpRateLimitUsersWriteRequests,
+              windowSeconds: config.httpRateLimitUsersWriteWindowSeconds,
+            },
+            [HTTP_RATE_LIMIT_SCOPES.usersRead]: {
+              limit: config.httpRateLimitUsersReadRequests,
+              windowSeconds: config.httpRateLimitUsersReadWindowSeconds,
+            },
+          },
         },
         databaseObserver,
         rateLimitObserver,

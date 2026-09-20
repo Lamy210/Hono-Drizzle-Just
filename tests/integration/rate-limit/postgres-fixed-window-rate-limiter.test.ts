@@ -62,6 +62,47 @@ test("keeps scopes and client identities isolated", async () => {
   expect(new Set(rows.map((row) => row.identityHash)).size).toBe(3);
 });
 
+test("applies independent scope-specific limits and windows", async () => {
+  const limiter = new PostgresFixedWindowRateLimiter(database.db, digester, {
+    limit: 3,
+    windowSeconds: 60,
+    policies: {
+      "http.users.write": { limit: 1, windowSeconds: 10 },
+      "http.users.read": { limit: 2, windowSeconds: 30 },
+    },
+  });
+  const identity = "198.51.100.77";
+
+  expect(await limiter.consume({ scope: "http.users.write", identity })).toEqual({
+    allowed: true,
+  });
+  const writeDenied = await limiter.consume({ scope: "http.users.write", identity });
+  expect(writeDenied.allowed).toBe(false);
+  if (!writeDenied.allowed) {
+    expect(writeDenied.retryAfterSeconds).toBeGreaterThanOrEqual(1);
+    expect(writeDenied.retryAfterSeconds).toBeLessThanOrEqual(10);
+  }
+
+  expect(await limiter.consume({ scope: "http.users.read", identity })).toEqual({ allowed: true });
+  expect(await limiter.consume({ scope: "http.users.read", identity })).toEqual({ allowed: true });
+  const readDenied = await limiter.consume({ scope: "http.users.read", identity });
+  expect(readDenied.allowed).toBe(false);
+  if (!readDenied.allowed) {
+    expect(readDenied.retryAfterSeconds).toBeGreaterThanOrEqual(1);
+    expect(readDenied.retryAfterSeconds).toBeLessThanOrEqual(30);
+  }
+
+  for (let index = 0; index < 3; index += 1) {
+    expect(await limiter.consume({ scope: "http.global", identity })).toEqual({ allowed: true });
+  }
+  const globalDenied = await limiter.consume({ scope: "http.global", identity });
+  expect(globalDenied.allowed).toBe(false);
+  if (!globalDenied.allowed) {
+    expect(globalDenied.retryAfterSeconds).toBeGreaterThanOrEqual(1);
+    expect(globalDenied.retryAfterSeconds).toBeLessThanOrEqual(60);
+  }
+});
+
 test("resets an expired bucket atomically instead of growing one row per window", async () => {
   const limiter = new PostgresFixedWindowRateLimiter(database.db, digester, {
     limit: 1,
@@ -130,6 +171,22 @@ test("rejects invalid adapter configuration and malformed generic identities", a
       new PostgresFixedWindowRateLimiter(database.db, digester, {
         limit: 1,
         windowSeconds: 86_401,
+      }),
+  ).toThrow(TypeError);
+  expect(
+    () =>
+      new PostgresFixedWindowRateLimiter(database.db, digester, {
+        limit: 1,
+        windowSeconds: 60,
+        policies: { "http.users.write": { limit: 0, windowSeconds: 60 } },
+      }),
+  ).toThrow(TypeError);
+  expect(
+    () =>
+      new PostgresFixedWindowRateLimiter(database.db, digester, {
+        limit: 1,
+        windowSeconds: 60,
+        policies: { "bad scope": { limit: 1, windowSeconds: 60 } },
       }),
   ).toThrow(TypeError);
 

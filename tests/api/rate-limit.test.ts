@@ -57,6 +57,31 @@ test("rate limiter receives the canonical client address and allows the request"
   });
 });
 
+test("user routes select stable read and write scopes without path identifiers", async () => {
+  const consume = mock(async () => ({ allowed: true }) as const);
+  const app = buildApp({ consume }, "203.0.113.10");
+  const userId = "550e8400-e29b-41d4-a716-446655440000";
+
+  const writeResponse = await app.request("/users", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "rate-limit@example.com", name: "Rate Limit" }),
+  });
+  const readResponse = await app.request(`/users/${userId}`);
+
+  expect(writeResponse.status).toBe(401);
+  expect(readResponse.status).toBe(401);
+  expect(consume).toHaveBeenNthCalledWith(1, {
+    scope: "http.users.write",
+    identity: "203.0.113.10",
+  });
+  expect(consume).toHaveBeenNthCalledWith(2, {
+    scope: "http.users.read",
+    identity: "203.0.113.10",
+  });
+  expect(JSON.stringify(consume.mock.calls)).not.toContain(userId);
+});
+
 test("rate limit denial returns the correlated common 429 envelope and Retry-After", async () => {
   const consume = mock(async () => ({ allowed: false, retryAfterSeconds: 2.2 }) as const);
   const app = buildApp({ consume }, "198.51.100.20");
