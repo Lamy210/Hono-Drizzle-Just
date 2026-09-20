@@ -37,7 +37,15 @@ export interface PostgresGcraRateLimiterOptions extends GcraRateLimitPolicy {
 
 interface GcraState {
   readonly theoreticalArrivalAt: Date;
-  readonly observedAt: Date;
+  readonly observedAt: string;
+}
+
+function databaseTimestampMs(value: string): number {
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) {
+    throw new TypeError("GCRA rate limiter received an invalid database timestamp");
+  }
+  return milliseconds;
 }
 
 export class PostgresGcraRateLimiter implements RateLimiter {
@@ -109,7 +117,7 @@ export class PostgresGcraRateLimiter implements RateLimiter {
         })
         .returning({
           theoreticalArrivalAt: rateLimitGcraBuckets.theoreticalArrivalAt,
-          observedAt: sql<Date>`clock_timestamp()`,
+          observedAt: sql<string>`clock_timestamp()::text`,
         }),
     );
 
@@ -138,7 +146,7 @@ export class PostgresGcraRateLimiter implements RateLimiter {
         )
         .returning({
           theoreticalArrivalAt: rateLimitGcraBuckets.theoreticalArrivalAt,
-          observedAt: sql<Date>`clock_timestamp()`,
+          observedAt: sql<string>`clock_timestamp()::text`,
         }),
     );
 
@@ -151,7 +159,7 @@ export class PostgresGcraRateLimiter implements RateLimiter {
       this.db
         .select({
           theoreticalArrivalAt: rateLimitGcraBuckets.theoreticalArrivalAt,
-          observedAt: sql<Date>`clock_timestamp()`,
+          observedAt: sql<string>`clock_timestamp()::text`,
         })
         .from(rateLimitGcraBuckets)
         .where(
@@ -169,7 +177,7 @@ export class PostgresGcraRateLimiter implements RateLimiter {
 
     const debtMs = Math.max(
       0,
-      current.theoreticalArrivalAt.getTime() - current.observedAt.getTime(),
+      current.theoreticalArrivalAt.getTime() - databaseTimestampMs(current.observedAt),
     );
     const toleranceMs = burstToleranceSeconds * 1_000;
 
@@ -195,7 +203,7 @@ export class PostgresGcraRateLimiter implements RateLimiter {
     const toleranceMs = intervalMs * (policy.limit - 1);
     const debtMs = Math.max(
       0,
-      state.theoreticalArrivalAt.getTime() - state.observedAt.getTime(),
+      state.theoreticalArrivalAt.getTime() - databaseTimestampMs(state.observedAt),
     );
     const remaining = Math.max(
       0,
