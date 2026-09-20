@@ -43,7 +43,7 @@ test("applies statement timeout per pooled session and keeps the pool usable aft
   }
 });
 
-test("idle transaction timeout terminates the checked-out session and the pool recovers", async () => {
+test("idle transaction timeout terminates the checked-out backend and the pool recovers", async () => {
   const database = createDatabase({
     connectionString: databaseUrl(),
     max: 1,
@@ -51,36 +51,57 @@ test("idle transaction timeout terminates the checked-out session and the pool r
     statementTimeoutMillis: 0,
     idleInTransactionSessionTimeoutMillis: 80,
   });
+  const monitor = createDatabase({
+    connectionString: databaseUrl(),
+    max: 1,
+    connectionTimeoutMillis: 500,
+    statementTimeoutMillis: 0,
+    idleInTransactionSessionTimeoutMillis: 0,
+  });
 
   const client = await database.pool.connect();
   let released = false;
+  let backendError: Error | undefined;
+  client.on("error", (error) => {
+    backendError = error;
+  });
+
   try {
     const settings = await client.query<{
       statementTimeout: string;
       idleTransactionTimeout: string;
+      backendPid: number;
     }>(`
       select
         current_setting('statement_timeout') as "statementTimeout",
-        current_setting('idle_in_transaction_session_timeout') as "idleTransactionTimeout"
+        current_setting('idle_in_transaction_session_timeout') as "idleTransactionTimeout",
+        pg_backend_pid() as "backendPid"
     `);
-    expect(settings.rows[0]).toEqual({
+    const setting = settings.rows[0];
+    expect(setting).toMatchObject({
       statementTimeout: "0",
       idleTransactionTimeout: "80ms",
     });
-
-    const disconnected = new Promise<Error>((resolve) => {
-      client.once("error", resolve);
-    });
+    if (!setting) {
+      throw new Error("expected PostgreSQL session settings");
+    }
 
     await client.query("begin");
-    const timeoutError = await Promise.race([
-      disconnected,
-      Bun.sleep(1_000).then(() => undefined),
-    ]);
-    expect(timeoutError).toBeDefined();
-    expect(timeoutError).toMatchObject({ code: "25P03" });
 
-    client.release(timeoutError ?? true);
+    let backendExists = true;
+    for (let attempt = 0; attempt < 40 && backendExists; attempt += 1) {
+      await Bun.sleep(25);
+      const activity = await monitor.pool.query<{ exists: boolean }>(
+        "select exists(select 1 from pg_stat_activity where pid = $1) as exists",
+        [setting.backendPid],
+      );
+      backendExists = activity.rows[0]?.exists ?? false;
+    }
+
+    expect(backendExists).toBe(false);
+    expect(backendError).toMatchObject({ code: "25P03" });
+
+    client.release(true);
     released = true;
 
     const healthy = await database.pool.query<{ value: number }>("select 1 as value");
@@ -89,6 +110,6 @@ test("idle transaction timeout terminates the checked-out session and the pool r
     if (!released) {
       client.release(true);
     }
-    await database.close();
+    await Promise.all([database.close(), monitor.close()]);
   }
 });
