@@ -1,4 +1,5 @@
 import type {
+  MetricOptions,
   ObservableMeter,
   ObservableMetricCallback,
   ObservableMetricOptions,
@@ -10,12 +11,14 @@ export class NoopMeter implements ObservableMeter {
     _name: string,
     _value = 1,
     _attributes?: TelemetryAttributes,
+    _options?: MetricOptions,
   ): void {}
 
   record(
     _name: string,
     _value: number,
     _attributes?: TelemetryAttributes,
+    _options?: MetricOptions,
   ): void {}
 
   observeUpDownCounter(

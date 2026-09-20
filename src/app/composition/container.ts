@@ -42,15 +42,20 @@ export function createProductionContainer(config: AppConfig): {
     tracer: telemetry.tracer,
     meter: telemetry.meter,
   });
+  const databasePoolName = "primary";
   const database = createDatabase({
     connectionString: config.databaseUrl,
     max: config.databasePoolMax,
     connectionTimeoutMillis: config.databaseConnectionTimeoutMs,
+    observability: {
+      meter: telemetry.meter,
+      poolName: databasePoolName,
+    },
   });
   const databasePoolObserver = new DatabasePoolObserver({
     meter: telemetry.meter,
     pool: database.pool,
-    poolName: "primary",
+    poolName: databasePoolName,
     maxConnections: config.databasePoolMax,
   });
   const stopDatabasePoolObservation = databasePoolObserver.observe();
