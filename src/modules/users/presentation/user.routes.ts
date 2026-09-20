@@ -17,6 +17,27 @@ export interface UserRouteDependencies {
   readonly getUserService: GetUserService;
 }
 
+const RateLimitResponseHeaders = {
+  "RateLimit-Policy": {
+    description:
+      "Provisional quota policy field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
+    schema: { type: "string" },
+  },
+  RateLimit: {
+    description:
+      "Provisional current quota field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
+    schema: { type: "string" },
+  },
+} as const;
+
+const RateLimitExceededResponseHeaders = {
+  ...RateLimitResponseHeaders,
+  "Retry-After": {
+    description: "Seconds to wait before retrying a rate-limited request",
+    schema: { type: "string", pattern: "^[1-9][0-9]*$" },
+  },
+} as const;
+
 const createUserRoute = createRoute({
   method: "post",
   path: "/users",
@@ -31,6 +52,7 @@ const createUserRoute = createRoute({
   responses: {
     201: {
       description: "User created or idempotently replayed",
+      headers: RateLimitResponseHeaders,
       content: { "application/json": { schema: UserResponseSchema } },
     },
     400: {
@@ -59,6 +81,7 @@ const createUserRoute = createRoute({
     },
     429: {
       description: "Rate limit exceeded",
+      headers: RateLimitExceededResponseHeaders,
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
   },
@@ -72,6 +95,7 @@ const getUserRoute = createRoute({
   responses: {
     200: {
       description: "User",
+      headers: RateLimitResponseHeaders,
       content: { "application/json": { schema: UserResponseSchema } },
     },
     400: {
@@ -92,6 +116,7 @@ const getUserRoute = createRoute({
     },
     429: {
       description: "Rate limit exceeded",
+      headers: RateLimitExceededResponseHeaders,
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
   },
