@@ -28,6 +28,7 @@ describe("loadConfig", () => {
       httpTransportMaxRequestBodyBytes: 2_097_152,
       httpTrustedProxyCidrs: [],
       httpRateLimitEnabled: false,
+      httpRateLimitAlgorithm: "fixed_window",
       httpRateLimitRequests: 120,
       httpRateLimitWindowSeconds: 60,
       httpRateLimitUsersWriteRequests: 30,
@@ -143,6 +144,7 @@ describe("loadConfig", () => {
     const config = loadConfig({
       ...required,
       HTTP_RATE_LIMIT_ENABLED: "true",
+      HTTP_RATE_LIMIT_ALGORITHM: "gcra",
       HTTP_RATE_LIMIT_REQUESTS: "250",
       HTTP_RATE_LIMIT_WINDOW_SECONDS: "30",
       HTTP_RATE_LIMIT_USERS_WRITE_REQUESTS: "20",
@@ -153,6 +155,7 @@ describe("loadConfig", () => {
 
     expect(config).toMatchObject({
       httpRateLimitEnabled: true,
+      httpRateLimitAlgorithm: "gcra",
       httpRateLimitRequests: 250,
       httpRateLimitWindowSeconds: 30,
       httpRateLimitUsersWriteRequests: 20,
@@ -164,6 +167,9 @@ describe("loadConfig", () => {
 
   test("rejects invalid rate limit settings", () => {
     expect(() => loadConfig({ ...required, HTTP_RATE_LIMIT_ENABLED: "yes" })).toThrow(
+      ConfigurationError,
+    );
+    expect(() => loadConfig({ ...required, HTTP_RATE_LIMIT_ALGORITHM: "sliding_window" })).toThrow(
       ConfigurationError,
     );
     expect(() => loadConfig({ ...required, HTTP_RATE_LIMIT_REQUESTS: "0" })).toThrow(

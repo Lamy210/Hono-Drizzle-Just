@@ -109,3 +109,18 @@ test("records errors and rethrows the original failure without leaking error tex
   expect(JSON.stringify(meter.counters[0])).not.toContain("database failed");
   expect(meter.records[0]?.value).toBe(0);
 });
+
+test("records GCRA as a bounded algorithm dimension", async () => {
+  const meter = new RecordingMeter();
+  const observer = new RateLimitObserver({ meter, now: () => 30 });
+
+  await observer.decision({ backend: "postgresql", algorithm: "gcra" }, async () => ({
+    allowed: true,
+  }));
+
+  expect(meter.counters[0]?.attributes).toEqual({
+    "rate_limit.backend": "postgresql",
+    "rate_limit.algorithm": "gcra",
+    "rate_limit.result": "allowed",
+  });
+});
