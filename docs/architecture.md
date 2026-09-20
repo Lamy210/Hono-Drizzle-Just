@@ -155,7 +155,7 @@ Transactions are a separate boundary. `DrizzleTransactionManager` optionally wra
 
 `createDatabaseAccess()` is the production composition helper that gives the root repository, transaction manager, and transaction-scoped repositories the same `DatabaseObserver`. This avoids accidentally losing query instrumentation when code crosses from root database access into a transaction.
 
-PostgreSQL pool-state measurements (`totalCount`, `idleCount`, `waitingCount`) are intentionally deferred. Those are instantaneous values and require observable gauge semantics; the current `Meter` contract only exposes counters and histograms, so the template does not misrepresent pool state using an inappropriate metric type.
+`ObservableMeter` extends the synchronous `Meter` port with callback-based observable up/down counters while leaving ordinary application/test meters source-compatible. `DatabasePoolObserver` maps the node-postgres pool snapshot into the current OpenTelemetry database pool metric model: `db.client.connection.count` emits separate `idle` and `used` measurements, `db.client.connection.max` reports the configured pool ceiling, and `db.client.connection.pending_requests` reports `waitingCount`. Every series carries only the bounded `db.client.connection.pool.name=primary` attribute plus the finite connection-state attribute where required. The observer is registered in production composition and unregistered during lifecycle shutdown before telemetry is finally flushed/shut down.
 
 The JSON logger remains an application-owned logging path. OpenTelemetry Logs are not required by the template; trace/span IDs provide correlation between structured logs and exported traces.
 
@@ -220,7 +220,7 @@ A dependency outage can therefore remove the instance from traffic without causi
 3. Force active connections closed with `server.stop(true)` if the deadline is exceeded.
 4. Close registered infrastructure resources through `ApplicationLifecycle`.
 
-Production composition registers telemetry before PostgreSQL. Reverse shutdown order therefore closes the database first and telemetry last, allowing shutdown-related telemetry to be flushed after other resources finish closing.
+Production composition registers telemetry, pool-observability cleanup, and PostgreSQL in that order. Reverse shutdown therefore closes PostgreSQL first, unregisters pool callbacks next, and flushes/shuts down telemetry last.
 
 The coordinator does not call `process.exit`; only the executable entry point controls process exit behavior.
 
