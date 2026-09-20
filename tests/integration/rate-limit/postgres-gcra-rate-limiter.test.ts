@@ -36,7 +36,7 @@ test("atomically caps an initial GCRA burst under concurrency", async () => {
 
   const rows = await database.db.select().from(rateLimitGcraBuckets);
   expect(rows).toHaveLength(1);
-  expect(rows[0]?.identityHash).toBe(digester.sha256Hex(`http.global\\0${identity}`));
+  expect(rows[0]?.identityHash).toBe(digester.sha256Hex(`http.global\0${identity}`));
   expect(JSON.stringify(rows[0])).not.toContain(identity);
 });
 
@@ -57,7 +57,7 @@ test("restores GCRA capacity gradually instead of waiting for a fixed-window rol
   });
   expect((await limiter.consume(request)).allowed).toBe(false);
 
-  const identityHash = digester.sha256Hex(`http.global\\0${request.identity}`);
+  const identityHash = digester.sha256Hex(`http.global\0${request.identity}`);
   const nearlyEligible = new Date(Date.now() + 4_000);
   await database.db
     .update(rateLimitGcraBuckets)
@@ -129,7 +129,7 @@ test("returns retry metadata from the theoretical arrival debt", async () => {
 test("bounded cleanup removes expired GCRA state before consuming", async () => {
   const expiredRows = Array.from({ length: 1_005 }, (_, index) => ({
     scope: "http.global",
-    identityHash: digester.sha256Hex(`http.global\\0gcra-expired-${index}`),
+    identityHash: digester.sha256Hex(`http.global\0gcra-expired-${index}`),
     theoreticalArrivalAt: new Date(0),
     expiresAt: new Date(0),
   }));
