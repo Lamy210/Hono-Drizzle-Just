@@ -15,7 +15,7 @@ import {
 } from "@opentelemetry/sdk-trace";
 import { NoopMeter } from "../../core/observability/noop-meter";
 import { NoopTracer } from "../../core/observability/noop-tracer";
-import type { Meter } from "../../core/observability/meter";
+import type { ObservableMeter } from "../../core/observability/meter";
 import type { Tracer } from "../../core/observability/tracer";
 import { OpenTelemetryMeter } from "./opentelemetry-meter";
 import { OpenTelemetryTracer } from "./opentelemetry-tracer";
@@ -35,7 +35,7 @@ export interface TelemetryExporters {
 
 export interface TelemetryRuntime {
   readonly tracer: Tracer;
-  readonly meter: Meter;
+  readonly meter: ObservableMeter;
   forceFlush(): Promise<void>;
   shutdown(): Promise<void>;
 }

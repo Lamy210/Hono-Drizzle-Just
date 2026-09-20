@@ -6,6 +6,7 @@ import { HTTP_RATE_LIMIT_SCOPES } from "../../http/rate-limit-policy";
 import { Sha256StringDigester } from "../../infrastructure/crypto/sha256-string-digester";
 import { createDatabase } from "../../infrastructure/database/database";
 import { DatabaseObserver } from "../../infrastructure/database/database-observer";
+import { DatabasePoolObserver } from "../../infrastructure/database/database-pool-observer";
 import { DatabaseHealthCheck } from "../../infrastructure/health/database-health-check";
 import { JsonConsoleLogger } from "../../infrastructure/logging/json-console-logger";
 import { PostgresFixedWindowRateLimiter } from "../../infrastructure/rate-limit/postgres-fixed-window-rate-limiter";
@@ -46,8 +47,17 @@ export function createProductionContainer(config: AppConfig): {
     max: config.databasePoolMax,
     connectionTimeoutMillis: config.databaseConnectionTimeoutMs,
   });
+  const databasePoolObserver = new DatabasePoolObserver({
+    meter: telemetry.meter,
+    pool: database.pool,
+    poolName: "primary",
+    maxConnections: config.databasePoolMax,
+  });
+  const stopDatabasePoolObservation = databasePoolObserver.observe();
+
   const lifecycle = new ApplicationLifecycle();
   lifecycle.register("telemetry", telemetry.shutdown);
+  lifecycle.register("database-pool-observability", stopDatabasePoolObservation);
   lifecycle.register("database", database.close);
 
   const { userRepository, userTransactions } = createDatabaseAccess(database.db, databaseObserver);
