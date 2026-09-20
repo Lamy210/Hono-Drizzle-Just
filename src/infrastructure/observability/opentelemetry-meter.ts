@@ -6,6 +6,7 @@ import type {
   ObservableUpDownCounter,
 } from "@opentelemetry/api";
 import type {
+  MetricOptions,
   ObservableMeter,
   ObservableMetricCallback,
   ObservableMetricOptions,
@@ -19,19 +20,29 @@ export class OpenTelemetryMeter implements ObservableMeter {
 
   constructor(private readonly meter: ApiMeter) {}
 
-  increment(name: string, value = 1, attributes?: TelemetryAttributes): void {
+  increment(
+    name: string,
+    value = 1,
+    attributes?: TelemetryAttributes,
+    options?: MetricOptions,
+  ): void {
     let counter = this.counters.get(name);
     if (!counter) {
-      counter = this.meter.createCounter(name);
+      counter = this.meter.createCounter(name, options);
       this.counters.set(name, counter);
     }
     counter.add(value, attributes);
   }
 
-  record(name: string, value: number, attributes?: TelemetryAttributes): void {
+  record(
+    name: string,
+    value: number,
+    attributes?: TelemetryAttributes,
+    options?: MetricOptions,
+  ): void {
     let histogram = this.histograms.get(name);
     if (!histogram) {
-      histogram = this.meter.createHistogram(name);
+      histogram = this.meter.createHistogram(name, options);
       this.histograms.set(name, histogram);
     }
     histogram.record(value, attributes);

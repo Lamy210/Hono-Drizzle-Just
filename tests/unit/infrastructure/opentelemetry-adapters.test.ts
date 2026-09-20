@@ -195,3 +195,39 @@ test("OpenTelemetryMeter forwards observable up/down measurements and unregister
   stop();
   expect(removeCallback).toHaveBeenCalledTimes(1);
 });
+
+test("OpenTelemetryMeter forwards semantic instrument options on first creation", () => {
+  const counter = { add: mock(() => undefined) };
+  const histogram = { record: mock(() => undefined) };
+  const createCounter = mock(() => counter);
+  const createHistogram = mock(() => histogram);
+  const meter = new OpenTelemetryMeter({ createCounter, createHistogram } as unknown as ApiMeter);
+
+  meter.increment(
+    "db.client.connection.timeouts",
+    1,
+    { "db.client.connection.pool.name": "primary" },
+    { unit: "{timeout}", description: "Timeouts." },
+  );
+  meter.record(
+    "db.client.connection.wait_time",
+    0.05,
+    { "db.client.connection.pool.name": "primary" },
+    { unit: "s", description: "Wait time." },
+  );
+
+  expect(createCounter).toHaveBeenCalledWith(
+    "db.client.connection.timeouts",
+    { unit: "{timeout}", description: "Timeouts." },
+  );
+  expect(createHistogram).toHaveBeenCalledWith(
+    "db.client.connection.wait_time",
+    { unit: "s", description: "Wait time." },
+  );
+  expect(counter.add).toHaveBeenCalledWith(1, {
+    "db.client.connection.pool.name": "primary",
+  });
+  expect(histogram.record).toHaveBeenCalledWith(0.05, {
+    "db.client.connection.pool.name": "primary",
+  });
+});
