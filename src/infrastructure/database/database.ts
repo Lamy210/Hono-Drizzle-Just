@@ -8,6 +8,8 @@ export interface DatabaseOptions {
   readonly connectionString: string;
   readonly max?: number;
   readonly connectionTimeoutMillis?: number;
+  readonly statementTimeoutMillis?: number;
+  readonly idleInTransactionSessionTimeoutMillis?: number;
   readonly observability?: {
     readonly meter: Meter;
     readonly poolName: string;
@@ -20,6 +22,8 @@ export function createDatabase(options: DatabaseOptions) {
     connectionString: options.connectionString,
     max: options.max,
     connectionTimeoutMillis: options.connectionTimeoutMillis,
+    statement_timeout: options.statementTimeoutMillis,
+    idle_in_transaction_session_timeout: options.idleInTransactionSessionTimeoutMillis,
   };
   const pool = options.observability
     ? new ObservedPostgresPool(poolConfig, options.observability)
