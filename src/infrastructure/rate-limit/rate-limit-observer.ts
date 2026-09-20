@@ -5,7 +5,7 @@ export type RateLimitNow = () => number;
 
 export interface RateLimitObservationDescriptor {
   readonly backend: "postgresql";
-  readonly algorithm: "fixed_window";
+  readonly algorithm: "fixed_window" | "gcra";
 }
 
 export interface RateLimitObserverOptions {

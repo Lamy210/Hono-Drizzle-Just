@@ -93,6 +93,7 @@ const RawConfigSchema = z
       message: "must contain at most 32 comma-delimited IPv4/IPv6 CIDR ranges",
     }),
     HTTP_RATE_LIMIT_ENABLED: booleanEnv(false),
+    HTTP_RATE_LIMIT_ALGORITHM: z.enum(["fixed_window", "gcra"]).default("fixed_window"),
     HTTP_RATE_LIMIT_REQUESTS: integerEnv(120, 1, 1_000_000),
     HTTP_RATE_LIMIT_WINDOW_SECONDS: integerEnv(60, 1, 86_400),
     HTTP_RATE_LIMIT_USERS_WRITE_REQUESTS: integerEnv(30, 1, 1_000_000),
@@ -188,6 +189,7 @@ export interface AppConfig {
   readonly httpTransportMaxRequestBodyBytes: number;
   readonly httpTrustedProxyCidrs: readonly string[];
   readonly httpRateLimitEnabled: boolean;
+  readonly httpRateLimitAlgorithm: "fixed_window" | "gcra";
   readonly httpRateLimitRequests: number;
   readonly httpRateLimitWindowSeconds: number;
   readonly httpRateLimitUsersWriteRequests: number;
@@ -221,6 +223,7 @@ export const AppConfigSchema = RawConfigSchema.transform(
     httpTransportMaxRequestBodyBytes: raw.HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES,
     httpTrustedProxyCidrs: parseTrustedProxyCidrs(raw.HTTP_TRUSTED_PROXY_CIDRS),
     httpRateLimitEnabled: raw.HTTP_RATE_LIMIT_ENABLED,
+    httpRateLimitAlgorithm: raw.HTTP_RATE_LIMIT_ALGORITHM,
     httpRateLimitRequests: raw.HTTP_RATE_LIMIT_REQUESTS,
     httpRateLimitWindowSeconds: raw.HTTP_RATE_LIMIT_WINDOW_SECONDS,
     httpRateLimitUsersWriteRequests: raw.HTTP_RATE_LIMIT_USERS_WRITE_REQUESTS,

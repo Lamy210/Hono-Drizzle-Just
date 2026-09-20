@@ -22,7 +22,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - Environment variables are parsed once at startup into a typed configuration object.
 - API responses include a conservative security-header baseline without forcing CORS, HSTS, or cross-origin isolation policy.
 - Unmatched routes and unsupported HTTP methods use the same correlated JSON error envelope; 405 responses include an `Allow` header.
-- Optional application-owned `RateLimiter` integration returns correlated HTTP 429 responses with `Retry-After`; production composition includes an opt-in shared PostgreSQL fixed-window adapter with low-cardinality decision metrics.
+- Optional application-owned `RateLimiter` integration returns correlated HTTP 429 responses with `Retry-After`; production composition includes selectable shared PostgreSQL fixed-window and GCRA adapters with low-cardinality decision metrics.
 - Deployment-safe liveness/readiness probes and graceful shutdown are built in.
 - Database changes are delivered as committed Drizzle migrations rather than runtime schema pushes.
 
@@ -168,12 +168,13 @@ Configuration is loaded once during startup. Application modules should not read
 | `HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES` | `2097152` | Bun transport hard cap; must be greater than `HTTP_MAX_REQUEST_BODY_BYTES` |
 | `HTTP_TRUSTED_PROXY_CIDRS` | empty | Comma-delimited trusted reverse-proxy IPv4/IPv6 CIDRs allowed to influence `clientAddress` through `X-Forwarded-For` |
 | `HTTP_RATE_LIMIT_ENABLED` | `false` | Enable the shared PostgreSQL HTTP rate limiter in production composition |
+| `HTTP_RATE_LIMIT_ALGORITHM` | `fixed_window` | PostgreSQL limiter algorithm: `fixed_window` or `gcra` |
 | `HTTP_RATE_LIMIT_REQUESTS` | `120` | Default requests allowed per client identity for routes without a specific policy |
-| `HTTP_RATE_LIMIT_WINDOW_SECONDS` | `60` | Default fixed-window duration in seconds |
+| `HTTP_RATE_LIMIT_WINDOW_SECONDS` | `60` | Default policy window; fixed-window duration or GCRA averaging basis |
 | `HTTP_RATE_LIMIT_USERS_WRITE_REQUESTS` | `30` | Requests allowed for the `POST /users` write policy |
-| `HTTP_RATE_LIMIT_USERS_WRITE_WINDOW_SECONDS` | `60` | Fixed-window duration for the users write policy |
+| `HTTP_RATE_LIMIT_USERS_WRITE_WINDOW_SECONDS` | `60` | Policy window for the users write scope |
 | `HTTP_RATE_LIMIT_USERS_READ_REQUESTS` | `120` | Requests allowed for the `GET /users/{id}` read policy |
-| `HTTP_RATE_LIMIT_USERS_READ_WINDOW_SECONDS` | `60` | Fixed-window duration for the users read policy |
+| `HTTP_RATE_LIMIT_USERS_READ_WINDOW_SECONDS` | `60` | Policy window for the users read scope |
 | `HEALTH_CHECK_TIMEOUT_MS` | `1500` | Critical dependency readiness deadline |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | Grace period for in-flight HTTP requests |
 | `OTEL_ENABLED` | `false` | Enable OpenTelemetry trace/metrics SDK and exporters |
@@ -207,7 +208,7 @@ The PostgreSQL `user_creation_idempotency` ledger and user insert are owned by t
 
 ## Inbound HTTP policy
 
-Rate limiting is exposed through the application-owned `RateLimiter` port and remains disabled by default. The HTTP policy uses the normalized `RequestContext.clientAddress` as the identity, returns `RATE_LIMITED` / HTTP 429 with `Retry-After`, and excludes `/health`, `/health/live`, and `/health/ready` so platform probes cannot be throttled. Requests without a network identity, such as in-process contract generation, skip the limiter.
+Rate limiting is exposed through the application-owned `RateLimiter` port and remains disabled by default. Production composition supports both PostgreSQL fixed-window and GCRA adapters. `HTTP_RATE_LIMIT_ALGORITHM=fixed_window` preserves the existing bucket behavior, while `gcra` reuses the same requests/window policy values but smooths sustained traffic after allowing an initial burst up to the configured limit. The HTTP policy uses the normalized `RequestContext.clientAddress` as the identity, returns `RATE_LIMITED` / HTTP 429 with `Retry-After`, and excludes `/health`, `/health/live`, and `/health/ready` so platform probes cannot be throttled. Requests without a network identity, such as in-process contract generation, skip the limiter.
 
 The port may optionally return quota metadata. The PostgreSQL fixed-window adapter does so, allowing the HTTP boundary to publish `RateLimit-Policy` and `RateLimit` response fields on completed allowed requests and on direct 429 responses. The emitted syntax follows `draft-ietf-httpapi-ratelimit-headers-11` (May 2026), for example `RateLimit-Policy: "http.users.write";q=30;w=60` and `RateLimit: "http.users.write";r=29;t=60`. That document is still an Internet-Draft rather than an RFC, so these fields are explicitly provisional; `Retry-After` remains the authoritative wait instruction on 429. Adapters that omit quota metadata continue to work and emit none of the provisional fields.
 

@@ -9,6 +9,7 @@ import { DatabaseObserver } from "../../infrastructure/database/database-observe
 import { DatabaseHealthCheck } from "../../infrastructure/health/database-health-check";
 import { JsonConsoleLogger } from "../../infrastructure/logging/json-console-logger";
 import { PostgresFixedWindowRateLimiter } from "../../infrastructure/rate-limit/postgres-fixed-window-rate-limiter";
+import { PostgresGcraRateLimiter } from "../../infrastructure/rate-limit/postgres-gcra-rate-limiter";
 import { RateLimitObserver } from "../../infrastructure/rate-limit/rate-limit-observer";
 import { createTelemetry } from "../../infrastructure/observability/telemetry";
 import { CreateUserService } from "../../modules/users/application/create-user.service";
@@ -46,7 +47,6 @@ export function createProductionContainer(config: AppConfig): {
     connectionTimeoutMillis: config.databaseConnectionTimeoutMs,
   });
   const lifecycle = new ApplicationLifecycle();
-  // Resources close in reverse registration order: database first, telemetry last.
   lifecycle.register("telemetry", telemetry.shutdown);
   lifecycle.register("database", database.close);
 
@@ -64,28 +64,37 @@ export function createProductionContainer(config: AppConfig): {
     : undefined;
   const digester = new Sha256StringDigester();
   const rateLimitObserver = new RateLimitObserver({ meter: telemetry.meter });
-  const rateLimiter = config.httpRateLimitEnabled
-    ? new PostgresFixedWindowRateLimiter(
-        database.db,
-        digester,
-        {
-          limit: config.httpRateLimitRequests,
-          windowSeconds: config.httpRateLimitWindowSeconds,
-          policies: {
-            [HTTP_RATE_LIMIT_SCOPES.usersWrite]: {
-              limit: config.httpRateLimitUsersWriteRequests,
-              windowSeconds: config.httpRateLimitUsersWriteWindowSeconds,
-            },
-            [HTTP_RATE_LIMIT_SCOPES.usersRead]: {
-              limit: config.httpRateLimitUsersReadRequests,
-              windowSeconds: config.httpRateLimitUsersReadWindowSeconds,
-            },
-          },
-        },
-        databaseObserver,
-        rateLimitObserver,
-      )
-    : undefined;
+  const rateLimitOptions = {
+    limit: config.httpRateLimitRequests,
+    windowSeconds: config.httpRateLimitWindowSeconds,
+    policies: {
+      [HTTP_RATE_LIMIT_SCOPES.usersWrite]: {
+        limit: config.httpRateLimitUsersWriteRequests,
+        windowSeconds: config.httpRateLimitUsersWriteWindowSeconds,
+      },
+      [HTTP_RATE_LIMIT_SCOPES.usersRead]: {
+        limit: config.httpRateLimitUsersReadRequests,
+        windowSeconds: config.httpRateLimitUsersReadWindowSeconds,
+      },
+    },
+  };
+  const rateLimiter = !config.httpRateLimitEnabled
+    ? undefined
+    : config.httpRateLimitAlgorithm === "gcra"
+      ? new PostgresGcraRateLimiter(
+          database.db,
+          digester,
+          rateLimitOptions,
+          databaseObserver,
+          rateLimitObserver,
+        )
+      : new PostgresFixedWindowRateLimiter(
+          database.db,
+          digester,
+          rateLimitOptions,
+          databaseObserver,
+          rateLimitObserver,
+        );
 
   return {
     dependencies: {
