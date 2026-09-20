@@ -53,41 +53,92 @@ export class ObservedPostgresPool extends Pool {
   override connect(callback: ConnectCallback): void;
   override connect(callback?: ConnectCallback): Promise<PoolClient> | void {
     const startedAt = this.now();
+    const creatingNewConnection = this.idleCount === 0 && this.totalCount < this.options.max;
 
     if (callback) {
       super.connect((error, client, done) => {
-        this.observeAcquisition(startedAt, error);
-        callback(error, client, done);
+        if (error !== undefined || client === undefined) {
+          this.observeAcquisitionFailure(startedAt, error);
+          callback(error, client, done);
+          return;
+        }
+
+        const acquiredAt = this.now();
+        const release = this.observeSuccessfulAcquisition(
+          client,
+          startedAt,
+          acquiredAt,
+          creatingNewConnection,
+        );
+        callback(undefined, client, release);
       });
       return;
     }
 
     return super.connect().then(
       (client) => {
-        this.observeAcquisition(startedAt);
+        const acquiredAt = this.now();
+        this.observeSuccessfulAcquisition(client, startedAt, acquiredAt, creatingNewConnection);
         return client;
       },
       (error: unknown) => {
-        this.observeAcquisition(startedAt, error);
+        this.observeAcquisitionFailure(startedAt, error);
         throw error;
       },
     );
   }
 
-  private observeAcquisition(startedAt: number, error?: unknown): void {
-    if (error === undefined) {
+  private observeSuccessfulAcquisition(
+    client: PoolClient,
+    startedAt: number,
+    acquiredAt: number,
+    createdNewConnection: boolean,
+  ): (error?: unknown) => void {
+    const acquisitionSeconds = Math.max(0, acquiredAt - startedAt) / 1_000;
+    this.observation.meter.record(
+      "db.client.connection.wait_time",
+      acquisitionSeconds,
+      this.attributes,
+      {
+        unit: "s",
+        description: "Time taken to obtain an open connection from the PostgreSQL pool.",
+      },
+    );
+
+    if (createdNewConnection) {
       this.observation.meter.record(
-        "db.client.connection.wait_time",
-        Math.max(0, this.now() - startedAt) / 1_000,
+        "db.client.connection.create_time",
+        acquisitionSeconds,
         this.attributes,
         {
           unit: "s",
-          description: "Time taken to obtain an open connection from the PostgreSQL pool.",
+          description: "Time taken to create a new PostgreSQL pool connection.",
         },
       );
-      return;
     }
 
+    const originalRelease = client.release;
+    let released = false;
+    const release = (error?: unknown): void => {
+      if (!released) {
+        released = true;
+        this.observation.meter.record(
+          "db.client.connection.use_time",
+          Math.max(0, this.now() - acquiredAt) / 1_000,
+          this.attributes,
+          {
+            unit: "s",
+            description: "Time between borrowing and returning a PostgreSQL pool connection.",
+          },
+        );
+      }
+      (originalRelease as (releaseError?: unknown) => void)(error);
+    };
+    client.release = release;
+    return release;
+  }
+
+  private observeAcquisitionFailure(_startedAt: number, error: unknown): void {
     if (hasAcquireTimeout(error)) {
       this.observation.meter.increment(
         "db.client.connection.timeouts",

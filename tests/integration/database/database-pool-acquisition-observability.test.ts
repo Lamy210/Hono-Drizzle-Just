@@ -66,9 +66,35 @@ test("Pool.query acquisition records semantic wait time", async () => {
     const waitTimes = meter.records.filter(
       (measurement) => measurement.name === "db.client.connection.wait_time",
     );
+    const createTimes = meter.records.filter(
+      (measurement) => measurement.name === "db.client.connection.create_time",
+    );
+    const useTimes = meter.records.filter(
+      (measurement) => measurement.name === "db.client.connection.use_time",
+    );
     expect(waitTimes).toHaveLength(1);
+    expect(createTimes).toHaveLength(1);
+    expect(useTimes).toHaveLength(1);
     expect(waitTimes[0]?.value).toBeGreaterThanOrEqual(0);
+    expect(createTimes[0]?.value).toBe(waitTimes[0]?.value);
+    expect(useTimes[0]?.value).toBeGreaterThanOrEqual(0);
     expect(waitTimes[0]).toMatchObject({
+      attributes: {
+        "db.client.connection.pool.name": "primary",
+      },
+      options: {
+        unit: "s",
+      },
+    });
+    expect(createTimes[0]).toMatchObject({
+      attributes: {
+        "db.client.connection.pool.name": "primary",
+      },
+      options: {
+        unit: "s",
+      },
+    });
+    expect(useTimes[0]).toMatchObject({
       attributes: {
         "db.client.connection.pool.name": "primary",
       },
@@ -104,8 +130,17 @@ test("queued acquisition records the time spent waiting for the only pool connec
     const waitTimes = meter.records.filter(
       (measurement) => measurement.name === "db.client.connection.wait_time",
     );
+    const createTimes = meter.records.filter(
+      (measurement) => measurement.name === "db.client.connection.create_time",
+    );
+    const useTimes = meter.records.filter(
+      (measurement) => measurement.name === "db.client.connection.use_time",
+    );
     expect(waitTimes).toHaveLength(2);
     expect(waitTimes[1]?.value).toBeGreaterThanOrEqual(0.02);
+    expect(createTimes).toHaveLength(1);
+    expect(useTimes).toHaveLength(2);
+    expect(useTimes[0]?.value).toBeGreaterThanOrEqual(0.02);
   } finally {
     if (database.pool.idleCount === 0) {
       first.release();
@@ -147,7 +182,15 @@ test("pool acquisition timeout increments only the timeout counter", async () =>
     const waitTimes = meter.records.filter(
       (measurement) => measurement.name === "db.client.connection.wait_time",
     );
+    const createTimes = meter.records.filter(
+      (measurement) => measurement.name === "db.client.connection.create_time",
+    );
+    const useTimes = meter.records.filter(
+      (measurement) => measurement.name === "db.client.connection.use_time",
+    );
     expect(waitTimes).toHaveLength(1);
+    expect(createTimes).toHaveLength(1);
+    expect(useTimes).toHaveLength(0);
   } finally {
     held.release();
     await database.close();
