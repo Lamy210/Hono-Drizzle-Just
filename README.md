@@ -122,6 +122,8 @@ The CI databases may use separate names such as `app_test` and `app_e2e`; keep l
 
 Before the first production deployment, review every variable in `.env.example`, never commit local credentials or production secrets, and explicitly review `SERVICE_NAME`, `DATABASE_URL`, `LOG_LEVEL`, shutdown deadlines, and OpenTelemetry settings for the target environment.
 
+The database timeout settings intentionally cover different failure modes. `DATABASE_CONNECTION_TIMEOUT_MS` bounds pool acquisition/new-client connection time, `DATABASE_STATEMENT_TIMEOUT_MS` asks PostgreSQL to cancel a statement that executes too long, and `DATABASE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS` terminates a session that remains idle while holding an open transaction. The two PostgreSQL execution/session limits are configured per application connection rather than globally, so migration tooling and unrelated database clients are not implicitly changed.
+
 ## Dependency reproducibility
 
 `bun.lock` is committed source-of-truth for the resolved dependency graph. Local development may use `bun install`; when a dependency is added, removed, or updated, commit the resulting `package.json` and `bun.lock` changes together in the same pull request.
@@ -160,7 +162,9 @@ Configuration is loaded once during startup. Application modules should not read
 | `PORT` | `3000` | HTTP listen port |
 | `DATABASE_URL` | required | PostgreSQL connection URL |
 | `DATABASE_POOL_MAX` | `10` | Maximum PostgreSQL pool size |
-| `DATABASE_CONNECTION_TIMEOUT_MS` | `5000` | Pool connection timeout |
+| `DATABASE_CONNECTION_TIMEOUT_MS` | `5000` | Maximum time to obtain/connect a PostgreSQL pool client |
+| `DATABASE_STATEMENT_TIMEOUT_MS` | `15000` | PostgreSQL server-side statement timeout; `0` disables it |
+| `DATABASE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS` | `30000` | Terminate sessions left idle inside an open transaction; `0` disables it |
 | `LOG_LEVEL` | `info` | Minimum structured log level |
 | `HTTP_DEFAULT_TIMEOUT_MS` | `10000` | Total outbound HTTP deadline across attempts and retry delays |
 | `HTTP_DEFAULT_ATTEMPT_TIMEOUT_MS` | `3000` | Maximum duration of one outbound fetch attempt |
