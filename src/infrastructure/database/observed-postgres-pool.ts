@@ -58,7 +58,7 @@ export class ObservedPostgresPool extends Pool {
     if (callback) {
       super.connect((error, client, done) => {
         if (error !== undefined || client === undefined) {
-          this.observeAcquisitionFailure(startedAt, error);
+          this.observeAcquisitionFailure(error);
           callback(error, client, done);
           return;
         }
@@ -82,7 +82,7 @@ export class ObservedPostgresPool extends Pool {
         return client;
       },
       (error: unknown) => {
-        this.observeAcquisitionFailure(startedAt, error);
+        this.observeAcquisitionFailure(error);
         throw error;
       },
     );
@@ -138,7 +138,7 @@ export class ObservedPostgresPool extends Pool {
     return release;
   }
 
-  private observeAcquisitionFailure(_startedAt: number, error: unknown): void {
+  private observeAcquisitionFailure(error: unknown): void {
     if (hasAcquireTimeout(error)) {
       this.observation.meter.increment(
         "db.client.connection.timeouts",
