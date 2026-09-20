@@ -1,4 +1,4 @@
-import { char, integer, pgTable, primaryKey, timestamp, varchar } from "drizzle-orm/pg-core";
+import { char, index, integer, pgTable, primaryKey, timestamp, varchar } from "drizzle-orm/pg-core";
 
 export const rateLimitBuckets = pgTable(
   "rate_limit_buckets",
@@ -11,5 +11,12 @@ export const rateLimitBuckets = pgTable(
     requestCount: integer("request_count").default(1).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
   },
-  (table) => [primaryKey({ columns: [table.scope, table.identityHash] })],
+  (table) => [
+    primaryKey({ columns: [table.scope, table.identityHash] }),
+    index("rate_limit_buckets_expires_at_scope_identity_hash_idx").on(
+      table.expiresAt,
+      table.scope,
+      table.identityHash,
+    ),
+  ],
 );

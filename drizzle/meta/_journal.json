@@ -29,6 +29,13 @@
       "when": 1789842600000,
       "tag": "0003_rate_limit_buckets",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789873200000,
+      "tag": "0004_rate_limit_cleanup_index",
+      "breakpoints": true
     }
   ]
 }

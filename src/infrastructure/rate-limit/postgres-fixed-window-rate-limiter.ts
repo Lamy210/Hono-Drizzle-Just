@@ -1,4 +1,4 @@
-import { lte, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import type { StringDigester } from "../../core/crypto/string-digester";
 import type {
   RateLimitDecision,
@@ -14,6 +14,7 @@ const SCOPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,99}$/;
 const MAX_IDENTITY_LENGTH = 512;
 const MIN_CLEANUP_INTERVAL_MS = 60_000;
 const MAX_CLEANUP_INTERVAL_MS = 300_000;
+const CLEANUP_BATCH_SIZE = 1_000;
 
 function hasControlCharacters(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
@@ -177,7 +178,27 @@ export class PostgresFixedWindowRateLimiter implements RateLimiter {
 
     this.nextCleanupAt = now + this.cleanupIntervalMs;
     await this.observe("DELETE", () =>
-      this.db.delete(rateLimitBuckets).where(lte(rateLimitBuckets.expiresAt, sql`now()`)),
+      this.db.execute(sql`
+        with expired as (
+          select
+            ${rateLimitBuckets.scope},
+            ${rateLimitBuckets.identityHash}
+          from ${rateLimitBuckets}
+          where ${rateLimitBuckets.expiresAt} <= now()
+          order by
+            ${rateLimitBuckets.expiresAt},
+            ${rateLimitBuckets.scope},
+            ${rateLimitBuckets.identityHash}
+          limit ${CLEANUP_BATCH_SIZE}
+          for update skip locked
+        )
+        delete from ${rateLimitBuckets}
+        using expired
+        where
+          ${rateLimitBuckets.scope} = expired.scope
+          and ${rateLimitBuckets.identityHash} = expired.identity_hash
+          and ${rateLimitBuckets.expiresAt} <= now()
+      `),
     );
   }
 
