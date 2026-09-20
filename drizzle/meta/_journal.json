@@ -36,6 +36,13 @@
       "when": 1789873200000,
       "tag": "0004_rate_limit_cleanup_index",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789887600000,
+      "tag": "0005_rate_limit_gcra_buckets",
+      "breakpoints": true
     }
   ]
 }
