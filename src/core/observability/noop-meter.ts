@@ -1,7 +1,11 @@
-import type { Meter } from "./meter";
+import type {
+  ObservableMeter,
+  ObservableMetricCallback,
+  ObservableMetricOptions,
+} from "./meter";
 import type { TelemetryAttributes } from "./tracer";
 
-export class NoopMeter implements Meter {
+export class NoopMeter implements ObservableMeter {
   increment(
     _name: string,
     _value = 1,
@@ -13,4 +17,12 @@ export class NoopMeter implements Meter {
     _value: number,
     _attributes?: TelemetryAttributes,
   ): void {}
+
+  observeUpDownCounter(
+    _name: string,
+    _callback: ObservableMetricCallback,
+    _options?: ObservableMetricOptions,
+  ): () => void {
+    return () => undefined;
+  }
 }

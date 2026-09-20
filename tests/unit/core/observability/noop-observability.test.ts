@@ -24,11 +24,18 @@ test("NoopTracer executes the operation without changing its result", async () =
   expect(result).toBe(42);
 });
 
-test("NoopMeter accepts counters and histograms", () => {
+test("NoopMeter accepts synchronous and observable metrics without evaluating callbacks", () => {
   const meter = new NoopMeter();
+  let observations = 0;
 
   expect(() => {
     meter.increment("example.requests", 1, { route: "/users/:id" });
     meter.record("example.duration", 0.25, { route: "/users/:id" });
+    const stop = meter.observeUpDownCounter("example.current", () => {
+      observations += 1;
+      return [{ value: 1 }];
+    });
+    stop();
   }).not.toThrow();
+  expect(observations).toBe(0);
 });

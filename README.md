@@ -277,7 +277,7 @@ Database repositories use an explicit `DatabaseObserver` around actual Drizzle q
 
 Transaction boundaries are measured separately as `db.transaction` spans and `db.transaction.duration`. The transaction measurement covers the complete Drizzle transaction callback, while individual repository queries remain child operations when OpenTelemetry context propagation is enabled. Commit sets the transaction span to `ok`; rollback/error sets it to `error` while preserving the original application/database exception.
 
-PostgreSQL pool size/idle/waiting metrics are intentionally not represented yet. The current application-owned `Meter` exposes counters and histograms only; pool state requires observable gauge semantics and will be added only when that contract is introduced rather than approximated with the wrong metric type.
+PostgreSQL pool state is exported only when telemetry collection asks for it, using the application-owned `ObservableMeter` extension rather than sampling pool state on request paths. Production composition registers the default pool as `db.client.connection.pool.name=primary` and reports `db.client.connection.count` with `idle` / `used` state attributes, `db.client.connection.max`, and `db.client.connection.pending_requests`. The adapter uses observable up/down counters to match the current OpenTelemetry database pool conventions; connection strings, host names, database names, and request-derived values are not metric attributes. With `OTEL_ENABLED=false`, `NoopMeter` registers no callback and does not evaluate pool state.
 
 The built-in JSON logger remains the logging path. Trace and span IDs correlate those logs with telemetry without making the application logger depend on the OpenTelemetry Logs SDK.
 

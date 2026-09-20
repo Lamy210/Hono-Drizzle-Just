@@ -1,10 +1,21 @@
-import type { Counter, Histogram, Meter as ApiMeter } from "@opentelemetry/api";
-import type { Meter } from "../../core/observability/meter";
+import type {
+  Counter,
+  Histogram,
+  Meter as ApiMeter,
+  ObservableCallback as ApiObservableCallback,
+  ObservableUpDownCounter,
+} from "@opentelemetry/api";
+import type {
+  ObservableMeter,
+  ObservableMetricCallback,
+  ObservableMetricOptions,
+} from "../../core/observability/meter";
 import type { TelemetryAttributes } from "../../core/observability/tracer";
 
-export class OpenTelemetryMeter implements Meter {
+export class OpenTelemetryMeter implements ObservableMeter {
   private readonly counters = new Map<string, Counter>();
   private readonly histograms = new Map<string, Histogram>();
+  private readonly observableUpDownCounters = new Map<string, ObservableUpDownCounter>();
 
   constructor(private readonly meter: ApiMeter) {}
 
@@ -24,5 +35,33 @@ export class OpenTelemetryMeter implements Meter {
       this.histograms.set(name, histogram);
     }
     histogram.record(value, attributes);
+  }
+
+  observeUpDownCounter(
+    name: string,
+    observe: ObservableMetricCallback,
+    options?: ObservableMetricOptions,
+  ): () => void {
+    let instrument = this.observableUpDownCounters.get(name);
+    if (!instrument) {
+      instrument = this.meter.createObservableUpDownCounter(name, options);
+      this.observableUpDownCounters.set(name, instrument);
+    }
+
+    const callback: ApiObservableCallback = (result) => {
+      for (const measurement of observe()) {
+        result.observe(measurement.value, measurement.attributes);
+      }
+    };
+    instrument.addCallback(callback);
+
+    let removed = false;
+    return () => {
+      if (removed) {
+        return;
+      }
+      removed = true;
+      instrument?.removeCallback(callback);
+    };
   }
 }

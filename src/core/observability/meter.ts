@@ -13,3 +13,23 @@ export interface Meter {
     attributes?: TelemetryAttributes,
   ): void;
 }
+
+export interface ObservableMeasurement {
+  readonly value: number;
+  readonly attributes?: TelemetryAttributes;
+}
+
+export interface ObservableMetricOptions {
+  readonly description?: string;
+  readonly unit?: string;
+}
+
+export type ObservableMetricCallback = () => readonly ObservableMeasurement[];
+
+export interface ObservableMeter extends Meter {
+  observeUpDownCounter(
+    name: string,
+    callback: ObservableMetricCallback,
+    options?: ObservableMetricOptions,
+  ): () => void;
+}

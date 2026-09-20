@@ -144,3 +144,54 @@ test("OpenTelemetryMeter caches instruments and forwards measurements", () => {
   expect(histogram.record).toHaveBeenCalledWith(0.25, { route: "/users/:id" });
   expect(histogram.record).toHaveBeenCalledWith(0.5, { route: "/users/:id" });
 });
+
+test("OpenTelemetryMeter forwards observable up/down measurements and unregisters callbacks", () => {
+  type Result = {
+    observe(value: number, attributes?: Record<string, string>): void;
+  };
+  let registered: ((result: Result) => void) | undefined;
+  const addCallback = mock((callback: (result: Result) => void) => {
+    registered = callback;
+  });
+  const removeCallback = mock(() => undefined);
+  const createObservableUpDownCounter = mock(() => ({
+    addCallback,
+    removeCallback,
+  }));
+  const meter = new OpenTelemetryMeter({
+    createObservableUpDownCounter,
+  } as unknown as ApiMeter);
+  let current = 3;
+
+  const stop = meter.observeUpDownCounter(
+    "db.client.connection.pending_requests",
+    () => [
+      {
+        value: current,
+        attributes: { "db.client.connection.pool.name": "primary" },
+      },
+    ],
+    { unit: "{request}", description: "Pending pool requests." },
+  );
+
+  expect(createObservableUpDownCounter).toHaveBeenCalledWith(
+    "db.client.connection.pending_requests",
+    { unit: "{request}", description: "Pending pool requests." },
+  );
+
+  const observe = mock(() => undefined);
+  registered?.({ observe });
+  expect(observe).toHaveBeenCalledWith(3, {
+    "db.client.connection.pool.name": "primary",
+  });
+
+  current = 5;
+  registered?.({ observe });
+  expect(observe).toHaveBeenLastCalledWith(5, {
+    "db.client.connection.pool.name": "primary",
+  });
+
+  stop();
+  stop();
+  expect(removeCallback).toHaveBeenCalledTimes(1);
+});

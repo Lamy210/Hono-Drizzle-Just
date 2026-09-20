@@ -48,6 +48,11 @@ test("enabled telemetry exports nested spans and metrics with service resource a
   });
   telemetry.meter.increment("example.requests", 1, { method: "GET" });
   telemetry.meter.record("example.duration", 0.25, { method: "GET" });
+  const stopObservable = telemetry.meter.observeUpDownCounter(
+    "example.current",
+    () => [{ value: 3, attributes: { state: "active" } }],
+    { unit: "{item}" },
+  );
 
   await telemetry.forceFlush();
 
@@ -67,7 +72,9 @@ test("enabled telemetry exports nested spans and metrics with service resource a
   );
   expect(metricNames).toContain("example.requests");
   expect(metricNames).toContain("example.duration");
+  expect(metricNames).toContain("example.current");
 
+  stopObservable();
   await telemetry.shutdown();
 });
 
