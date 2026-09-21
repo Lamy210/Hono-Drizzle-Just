@@ -120,19 +120,20 @@ test("normalizes a real PostgreSQL serialization failure to DATABASE_BUSY", asyn
     lockTimeoutMillis: 0,
     idleInTransactionSessionTimeoutMillis: 0,
   });
-  const first = await database.pool.connect();
-  const second = await database.pool.connect();
   const tenantId = `serialization-${crypto.randomUUID()}`;
   const email = `${crypto.randomUUID()}@example.com`;
+
+  await database.pool.query(
+    "insert into users (tenant_id, email, name) values ($1, $2, $3)",
+    [tenantId, email, "Initial"],
+  );
+
+  const first = await database.pool.connect();
+  const second = await database.pool.connect();
   let firstInTransaction = false;
   let secondInTransaction = false;
 
   try {
-    await database.pool.query(
-      "insert into users (tenant_id, email, name) values ($1, $2, $3)",
-      [tenantId, email, "Initial"],
-    );
-
     await first.query("begin isolation level repeatable read");
     firstInTransaction = true;
     await second.query("begin isolation level repeatable read");
