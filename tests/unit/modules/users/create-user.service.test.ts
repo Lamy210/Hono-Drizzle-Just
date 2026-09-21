@@ -160,7 +160,8 @@ test("fresh idempotency claim hashes canonical input, creates once, and complete
   const complete = mock(async () => undefined);
   const logger = new JsonConsoleLogger({}, () => undefined);
   const infoSpy = spyOn(logger, "info");
-  const service = createService(transactionManager(repository, { claim, complete }), logger, digester);
+  const transactions = transactionManager(repository, { claim, complete });
+  const service = createService(transactions, logger, digester);
 
   const result = await service.execute(
     { email: " LAMY@example.com ", name: " Lamy " },
@@ -170,9 +171,8 @@ test("fresh idempotency claim hashes canonical input, creates once, and complete
 
   expect(sha256Hex).toHaveBeenCalledWith(rawKey);
   expect(sha256Hex).toHaveBeenCalledWith(canonical);
-  const transactionManager = service["transactions"];
-  expect(transactionManager.run).toHaveBeenCalledTimes(1);
-  expect(transactionManager.run.mock.calls[0]?.[1]).toEqual({ retry: "safe" });
+  expect(transactions.run).toHaveBeenCalledTimes(1);
+  expect(transactions.run.mock.calls[0]?.[1]).toEqual({ retry: "safe" });
   expect(claim).toHaveBeenCalledWith({
     tenantId: "tenant-a",
     keyHash,
