@@ -1,3 +1,4 @@
+import { normalizeDatabaseError } from "./database-error";
 import type { Meter } from "../../core/observability/meter";
 import type { Tracer } from "../../core/observability/tracer";
 
@@ -48,7 +49,7 @@ export class DatabaseObserver {
           return result;
         } catch (error) {
           span.setStatus("error");
-          throw error;
+          throw normalizeDatabaseError(error);
         } finally {
           this.options.meter.record(
             "db.client.operation.duration",
@@ -74,7 +75,7 @@ export class DatabaseObserver {
           return result;
         } catch (error) {
           span.setStatus("error");
-          throw error;
+          throw normalizeDatabaseError(error);
         } finally {
           this.options.meter.record(
             "db.transaction.duration",

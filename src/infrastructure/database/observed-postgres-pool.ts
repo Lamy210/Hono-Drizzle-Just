@@ -1,5 +1,6 @@
 import { Pool, type PoolClient, type PoolConfig } from "pg";
 import type { Meter } from "../../core/observability/meter";
+import { isDatabaseAcquireTimeout } from "./database-error";
 
 export type DatabasePoolNow = () => number;
 
@@ -14,25 +15,6 @@ type ConnectCallback = (
   client: PoolClient | undefined,
   done: (release?: unknown) => void,
 ) => void;
-
-function hasAcquireTimeout(error: unknown): boolean {
-  const visited = new Set<object>();
-  let current: unknown = error;
-
-  while (typeof current === "object" && current !== null && !visited.has(current)) {
-    visited.add(current);
-    const candidate = current as { readonly code?: unknown; readonly cause?: unknown; readonly message?: unknown };
-    if (candidate.code === "ETIMEDOUT") {
-      return true;
-    }
-    if (typeof candidate.message === "string" && candidate.message.toLowerCase().includes("timeout")) {
-      return true;
-    }
-    current = candidate.cause;
-  }
-
-  return false;
-}
 
 export class ObservedPostgresPool extends Pool {
   private readonly now: DatabasePoolNow;
@@ -139,7 +121,7 @@ export class ObservedPostgresPool extends Pool {
   }
 
   private observeAcquisitionFailure(error: unknown): void {
-    if (hasAcquireTimeout(error)) {
+    if (isDatabaseAcquireTimeout(error)) {
       this.observation.meter.increment(
         "db.client.connection.timeouts",
         1,
