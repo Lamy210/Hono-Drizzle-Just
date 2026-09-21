@@ -67,8 +67,9 @@ export class CreateUserService {
       `users:create:v1\n${normalized.email}\n${normalized.name}`,
     );
 
-    return this.transactions.run(async (unitOfWork) => {
-      const claim = await unitOfWork.userCreationIdempotency.claim({
+    return this.transactions.run(
+      async (unitOfWork) => {
+        const claim = await unitOfWork.userCreationIdempotency.claim({
         tenantId,
         keyHash,
         requestFingerprint,
@@ -105,7 +106,9 @@ export class CreateUserService {
         requestFingerprint,
         userId: user.id,
       });
-      return { user, created: true };
-    }, { retry: "safe" });
+        return { user, created: true };
+      },
+      { retry: "safe" },
+    );
   }
 }
