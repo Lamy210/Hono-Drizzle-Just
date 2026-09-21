@@ -238,6 +238,61 @@ test("uppercase UUID path input is accepted and normalized after tenant authoriz
   expect(body.tenantId).toBeUndefined();
 });
 
+test("authorized user listing applies pagination defaults and hides tenant metadata", async () => {
+  const { app, listPage } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request("/users");
+
+  expect(response.status).toBe(200);
+  expect(listPage).toHaveBeenCalledWith("tenant-a", { offset: 0, limit: 20 });
+  expect(await response.json()).toEqual({
+    data: [
+      {
+        id: "550e8400-e29b-41d4-a716-446655440000",
+        email: "lamy@example.com",
+        name: "Lamy",
+        createdAt: "2026-09-13T00:00:00.000Z",
+      },
+    ],
+    meta: { page: 1, perPage: 20, total: 1, totalPages: 1 },
+  });
+});
+
+test("user listing coerces bounded query pagination and derives the repository offset", async () => {
+  const { app, listPage } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request("/users?page=2&perPage=1");
+
+  expect(response.status).toBe(200);
+  expect(listPage).toHaveBeenCalledWith("tenant-a", { offset: 1, limit: 1 });
+  expect(await response.json()).toMatchObject({
+    meta: { page: 2, perPage: 1, total: 1, totalPages: 1 },
+  });
+});
+
+test("excessively deep user pages fail validation before repository work", async () => {
+  const { app, listPage } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request("/users?page=10001");
+
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
+  expect(listPage).not.toHaveBeenCalled();
+});
+
+test("user listing derives tenant scope only from the authorized principal", async () => {
+  const { app, listPage } = buildApp(principalResolver("tenant-b", ["users:read"]));
+
+  const response = await app.request("/users");
+
+  expect(response.status).toBe(200);
+  expect(listPage).toHaveBeenCalledWith("tenant-b", { offset: 0, limit: 20 });
+  expect(await response.json()).toEqual({
+    data: [],
+    meta: { page: 1, perPage: 20, total: 0, totalPages: 0 },
+  });
+});
+
 test("cross-tenant GET is indistinguishable from a missing user", async () => {
   const { app, repository } = buildApp(principalResolver("tenant-b", ["users:read"]));
   const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000");
