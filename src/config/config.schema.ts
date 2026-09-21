@@ -103,6 +103,7 @@ const RawConfigSchema = z
     DATABASE_POOL_MAX: integerEnv(10, 1, 100),
     DATABASE_CONNECTION_TIMEOUT_MS: integerEnv(5_000, 100, 120_000),
     DATABASE_STATEMENT_TIMEOUT_MS: integerEnv(15_000, 0, 600_000),
+    DATABASE_LOCK_TIMEOUT_MS: integerEnv(2_000, 0, 120_000),
     DATABASE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS: integerEnv(30_000, 0, 3_600_000),
     HEALTH_CHECK_TIMEOUT_MS: integerEnv(1_500, 50, 30_000),
     SHUTDOWN_TIMEOUT_MS: integerEnv(10_000, 100, 120_000),
@@ -123,6 +124,18 @@ const RawConfigSchema = z
         code: "custom",
         path: ["HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES"],
         message: "must be greater than HTTP_MAX_REQUEST_BODY_BYTES",
+      });
+    }
+
+    if (
+      raw.DATABASE_LOCK_TIMEOUT_MS > 0 &&
+      raw.DATABASE_STATEMENT_TIMEOUT_MS > 0 &&
+      raw.DATABASE_LOCK_TIMEOUT_MS >= raw.DATABASE_STATEMENT_TIMEOUT_MS
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["DATABASE_LOCK_TIMEOUT_MS"],
+        message: "must be less than DATABASE_STATEMENT_TIMEOUT_MS when both are enabled",
       });
     }
 
@@ -201,6 +214,7 @@ export interface AppConfig {
   readonly databasePoolMax: number;
   readonly databaseConnectionTimeoutMs: number;
   readonly databaseStatementTimeoutMs: number;
+  readonly databaseLockTimeoutMs: number;
   readonly databaseIdleInTransactionSessionTimeoutMs: number;
   readonly healthCheckTimeoutMs: number;
   readonly shutdownTimeoutMs: number;
@@ -237,6 +251,7 @@ export const AppConfigSchema = RawConfigSchema.transform(
     databasePoolMax: raw.DATABASE_POOL_MAX,
     databaseConnectionTimeoutMs: raw.DATABASE_CONNECTION_TIMEOUT_MS,
     databaseStatementTimeoutMs: raw.DATABASE_STATEMENT_TIMEOUT_MS,
+    databaseLockTimeoutMs: raw.DATABASE_LOCK_TIMEOUT_MS,
     databaseIdleInTransactionSessionTimeoutMs: raw.DATABASE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS,
     healthCheckTimeoutMs: raw.HEALTH_CHECK_TIMEOUT_MS,
     shutdownTimeoutMs: raw.SHUTDOWN_TIMEOUT_MS,
