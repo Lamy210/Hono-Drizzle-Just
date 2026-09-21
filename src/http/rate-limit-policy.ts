@@ -26,7 +26,10 @@ export function resolveHttpRateLimitScope(input: HttpRateLimitPolicyInput): stri
   if (input.method === "POST" && input.path === "/users") {
     return HTTP_RATE_LIMIT_SCOPES.usersWrite;
   }
-  if (input.method === "GET" && isSingleUserResourcePath(input.path)) {
+  if (
+    input.method === "GET" &&
+    (input.path === "/users" || isSingleUserResourcePath(input.path))
+  ) {
     return HTTP_RATE_LIMIT_SCOPES.usersRead;
   }
   return HTTP_RATE_LIMIT_SCOPES.global;
