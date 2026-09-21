@@ -42,8 +42,8 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
   const findById = mock(async (tenantId: string) => (tenantId === user.tenantId ? user : null));
   const findByEmail = mock(async (_tenantId: string, _email: string) => null);
   const listPage = mock(
-    async (tenantId: string, _input: { readonly offset: number; readonly limit: number }) => ({
-      users: tenantId === user.tenantId ? [user] : [],
+    async (tenantId: string, input: { readonly offset: number; readonly limit: number }) => ({
+      users: tenantId === user.tenantId && input.offset === 0 ? [user] : [],
       total: tenantId === user.tenantId ? 1 : 0,
     }),
   );
@@ -265,7 +265,8 @@ test("user listing coerces bounded query pagination and derives the repository o
 
   expect(response.status).toBe(200);
   expect(listPage).toHaveBeenCalledWith("tenant-a", { offset: 1, limit: 1 });
-  expect(await response.json()).toMatchObject({
+  expect(await response.json()).toEqual({
+    data: [],
     meta: { page: 2, perPage: 1, total: 1, totalPages: 1 },
   });
 });
