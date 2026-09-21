@@ -38,6 +38,22 @@ test("coalesces concurrent readiness checks onto one in-flight database query", 
   expect(query).toHaveBeenCalledTimes(2);
 });
 
+test("starts a fresh database query after a failed probe settles", async () => {
+  let attempts = 0;
+  const query = mock(async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      throw new Error("database unavailable");
+    }
+  });
+  const healthCheck = new DatabaseHealthCheck(poolWithQuery(query), 1_000);
+
+  await expect(healthCheck.check()).rejects.toThrow("database unavailable");
+  await healthCheck.check();
+
+  expect(query).toHaveBeenCalledTimes(2);
+});
+
 test("timed-out callers reuse the pending database query until it settles", async () => {
   const pending = deferred();
   const query = mock(async () => {
