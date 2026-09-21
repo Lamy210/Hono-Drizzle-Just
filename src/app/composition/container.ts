@@ -68,7 +68,11 @@ export function createProductionContainer(config: AppConfig): {
   lifecycle.register("database-pool-observability", stopDatabasePoolObservation);
   lifecycle.register("database", database.close);
 
-  const { userRepository, userTransactions } = createDatabaseAccess(database.db, databaseObserver);
+  const { userRepository, userTransactions } = createDatabaseAccess(database.db, databaseObserver, {
+    maxAttempts: config.databaseTransactionRetryMaxAttempts,
+    baseDelayMs: config.databaseTransactionRetryBaseDelayMs,
+    maxDelayMs: config.databaseTransactionRetryMaxDelayMs,
+  });
   const readinessChecker = new ReadinessChecker([
     new DatabaseHealthCheck(database.pool, config.healthCheckTimeoutMs),
   ]);

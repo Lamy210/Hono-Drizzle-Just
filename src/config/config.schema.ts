@@ -105,6 +105,9 @@ const RawConfigSchema = z
     DATABASE_STATEMENT_TIMEOUT_MS: integerEnv(15_000, 0, 600_000),
     DATABASE_LOCK_TIMEOUT_MS: integerEnv(2_000, 0, 120_000),
     DATABASE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS: integerEnv(30_000, 0, 3_600_000),
+    DATABASE_TRANSACTION_RETRY_MAX_ATTEMPTS: integerEnv(3, 1, 10),
+    DATABASE_TRANSACTION_RETRY_BASE_DELAY_MS: integerEnv(10, 0, 10_000),
+    DATABASE_TRANSACTION_RETRY_MAX_DELAY_MS: integerEnv(100, 0, 60_000),
     HEALTH_CHECK_TIMEOUT_MS: integerEnv(1_500, 50, 30_000),
     SHUTDOWN_TIMEOUT_MS: integerEnv(10_000, 100, 120_000),
     OTEL_ENABLED: booleanEnv(false),
@@ -136,6 +139,17 @@ const RawConfigSchema = z
         code: "custom",
         path: ["DATABASE_LOCK_TIMEOUT_MS"],
         message: "must be less than DATABASE_STATEMENT_TIMEOUT_MS when both are enabled",
+      });
+    }
+
+    if (
+      raw.DATABASE_TRANSACTION_RETRY_MAX_DELAY_MS <
+      raw.DATABASE_TRANSACTION_RETRY_BASE_DELAY_MS
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["DATABASE_TRANSACTION_RETRY_MAX_DELAY_MS"],
+        message: "must be greater than or equal to DATABASE_TRANSACTION_RETRY_BASE_DELAY_MS",
       });
     }
 
@@ -216,6 +230,9 @@ export interface AppConfig {
   readonly databaseStatementTimeoutMs: number;
   readonly databaseLockTimeoutMs: number;
   readonly databaseIdleInTransactionSessionTimeoutMs: number;
+  readonly databaseTransactionRetryMaxAttempts: number;
+  readonly databaseTransactionRetryBaseDelayMs: number;
+  readonly databaseTransactionRetryMaxDelayMs: number;
   readonly healthCheckTimeoutMs: number;
   readonly shutdownTimeoutMs: number;
   readonly otelEnabled: boolean;
@@ -253,6 +270,9 @@ export const AppConfigSchema = RawConfigSchema.transform(
     databaseStatementTimeoutMs: raw.DATABASE_STATEMENT_TIMEOUT_MS,
     databaseLockTimeoutMs: raw.DATABASE_LOCK_TIMEOUT_MS,
     databaseIdleInTransactionSessionTimeoutMs: raw.DATABASE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS,
+    databaseTransactionRetryMaxAttempts: raw.DATABASE_TRANSACTION_RETRY_MAX_ATTEMPTS,
+    databaseTransactionRetryBaseDelayMs: raw.DATABASE_TRANSACTION_RETRY_BASE_DELAY_MS,
+    databaseTransactionRetryMaxDelayMs: raw.DATABASE_TRANSACTION_RETRY_MAX_DELAY_MS,
     healthCheckTimeoutMs: raw.HEALTH_CHECK_TIMEOUT_MS,
     shutdownTimeoutMs: raw.SHUTDOWN_TIMEOUT_MS,
     otelEnabled: raw.OTEL_ENABLED,

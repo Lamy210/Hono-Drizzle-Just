@@ -4,6 +4,7 @@ import {
   isDatabaseAcquireTimeout,
   isRetryableTransactionFailure,
   normalizeDatabaseError,
+  retryableTransactionFailureReason,
 } from "../../../src/infrastructure/database/database-error";
 
 function codedError(code: string, message = "database failed", cause?: unknown): Error {
@@ -15,6 +16,9 @@ test("classifies PostgreSQL serialization and deadlock failures as retryable dat
     const raw = codedError(code, "sensitive concurrency diagnostic");
 
     expect(isRetryableTransactionFailure(raw)).toBe(true);
+    expect(retryableTransactionFailureReason(raw)).toBe(
+      code === "40001" ? "serialization_failure" : "deadlock_detected",
+    );
     expect(normalizeDatabaseError(raw)).toMatchObject({
       code: "DATABASE_BUSY",
       message: "Database is temporarily busy",
@@ -24,6 +28,7 @@ test("classifies PostgreSQL serialization and deadlock failures as retryable dat
   }
 
   expect(isRetryableTransactionFailure(codedError("23505"))).toBe(false);
+  expect(retryableTransactionFailureReason(codedError("23505"))).toBeUndefined();
 });
 
 test("classifies PostgreSQL lock waits as retryable database busy failures", () => {

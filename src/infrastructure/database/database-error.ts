@@ -1,7 +1,10 @@
 import { AppError } from "../../core/errors/app-error";
 
 const POSTGRES_UNAVAILABLE_CODES = new Set(["53300", "57P01", "57P02", "57P03", "57P04"]);
-const RETRYABLE_TRANSACTION_CODES = new Set(["40001", "40P01"]);
+const RETRYABLE_TRANSACTION_CODES = new Map([
+  ["40001", "serialization_failure"],
+  ["40P01", "deadlock_detected"],
+] as const);
 const NETWORK_UNAVAILABLE_CODES = new Set([
   "ECONNREFUSED",
   "ECONNRESET",
@@ -60,8 +63,30 @@ export function isDatabaseAcquireTimeout(error: unknown): boolean {
   });
 }
 
+export type RetryableTransactionFailureReason =
+  | "serialization_failure"
+  | "deadlock_detected";
+
+export function retryableTransactionFailureReason(
+  error: unknown,
+): RetryableTransactionFailureReason | undefined {
+  for (const candidate of walkErrorChain(error)) {
+    const code = errorCode(candidate);
+    if (code === undefined) {
+      continue;
+    }
+    const reason = RETRYABLE_TRANSACTION_CODES.get(
+      code as "40001" | "40P01",
+    );
+    if (reason !== undefined) {
+      return reason;
+    }
+  }
+  return undefined;
+}
+
 export function isRetryableTransactionFailure(error: unknown): boolean {
-  return hasCode(error, (code) => RETRYABLE_TRANSACTION_CODES.has(code));
+  return retryableTransactionFailureReason(error) !== undefined;
 }
 
 function unavailable(error: unknown): boolean {

@@ -101,6 +101,7 @@ In particular:
 - Authorization stays in the application layer: protected use cases derive tenant ownership only from `RequestContext.principal`, and authorization failures must not disclose required scopes, other tenant IDs, or row existence.
 - Tenant-owned repositories must keep tenant ID in their public method signatures and SQL predicates; do not add an unscoped user lookup as a convenience method.
 - Idempotency handling must remain tenant-scoped and transactional. Hash raw keys before persistence, never add raw keys/hashes/fingerprints to logs or telemetry, and replay users only through tenant-scoped repository methods.
+- Transaction retry is opt-in. Use `retry: "safe"` only when the complete transaction callback can be replayed after rollback without duplicating external-service calls, message publication, filesystem writes, or other non-transactional business side effects. Do not broaden retryable SQLSTATEs casually; `23505` remains a domain conflict unless a specific use case proves replay is correct.
 - Telemetry attributes must remain low-cardinality and must not contain SQL bind values, credentials, email addresses, UUIDs, or other sensitive/request-specific values.
 
 ## Database changes

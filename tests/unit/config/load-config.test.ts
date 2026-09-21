@@ -40,6 +40,9 @@ describe("loadConfig", () => {
       databaseStatementTimeoutMs: 15_000,
       databaseLockTimeoutMs: 2_000,
       databaseIdleInTransactionSessionTimeoutMs: 30_000,
+      databaseTransactionRetryMaxAttempts: 3,
+      databaseTransactionRetryBaseDelayMs: 10,
+      databaseTransactionRetryMaxDelayMs: 100,
       healthCheckTimeoutMs: 1_500,
       shutdownTimeoutMs: 10_000,
       otelEnabled: false,
@@ -231,6 +234,32 @@ describe("loadConfig", () => {
         ...required,
         DATABASE_STATEMENT_TIMEOUT_MS: "2000",
         DATABASE_LOCK_TIMEOUT_MS: "2500",
+      }),
+    ).toThrow(ConfigurationError);
+  });
+
+  test("parses and validates transaction retry settings", () => {
+    const config = loadConfig({
+      ...required,
+      DATABASE_TRANSACTION_RETRY_MAX_ATTEMPTS: "5",
+      DATABASE_TRANSACTION_RETRY_BASE_DELAY_MS: "25",
+      DATABASE_TRANSACTION_RETRY_MAX_DELAY_MS: "250",
+    });
+
+    expect(config).toMatchObject({
+      databaseTransactionRetryMaxAttempts: 5,
+      databaseTransactionRetryBaseDelayMs: 25,
+      databaseTransactionRetryMaxDelayMs: 250,
+    });
+
+    expect(() =>
+      loadConfig({ ...required, DATABASE_TRANSACTION_RETRY_MAX_ATTEMPTS: "11" }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      loadConfig({
+        ...required,
+        DATABASE_TRANSACTION_RETRY_BASE_DELAY_MS: "200",
+        DATABASE_TRANSACTION_RETRY_MAX_DELAY_MS: "100",
       }),
     ).toThrow(ConfigurationError);
   });

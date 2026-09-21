@@ -246,7 +246,7 @@ Application services that need atomic persistence depend on `TransactionManager<
 
 The sample user creation flow performs the tenant-local duplicate lookup and tenant-owned insert in the same transaction. When an `Idempotency-Key` is supplied, ledger claim/replay, user creation, and ledger completion use that same transaction, so a failed create cannot leave a committed incomplete claim. Returning from the operation commits; throwing rolls back the complete unit of work. PostgreSQL constraints remain authoritative under concurrency, and repository adapters translate known database errors after unwrapping Drizzle's error cause chain.
 
-Automatic transaction retries and implicit `AsyncLocalStorage` transactions are intentionally not enabled by default.
+Transaction retries are opt-in rather than automatic. `TransactionManager.run(operation, { retry: "safe" })` declares that the complete callback is safe to replay after PostgreSQL `40001` serialization failures or `40P01` deadlocks. The default remains no retry. Retry-safe callbacks must not perform externally visible work that survives database rollback, such as publishing messages, calling external services, writing files, or emitting one-time business side effects. Production defaults allow 3 total attempts with capped exponential full jitter (10 ms base, 100 ms cap), configurable through `DATABASE_TRANSACTION_RETRY_MAX_ATTEMPTS`, `DATABASE_TRANSACTION_RETRY_BASE_DELAY_MS`, and `DATABASE_TRANSACTION_RETRY_MAX_DELAY_MS`. The sample user-create use case opts in because all mutable work inside its callback is PostgreSQL-backed and its business log is emitted only after commit. Implicit `AsyncLocalStorage` transactions remain intentionally disabled.
 
 ## Database migrations
 
