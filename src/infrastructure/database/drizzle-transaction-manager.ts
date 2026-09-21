@@ -3,10 +3,7 @@ import type {
   TransactionRunOptions,
 } from "../../core/transaction/transaction-manager";
 import type { Database, DatabaseSession } from "./database";
-import {
-  retryableTransactionFailureReason,
-  type RetryableTransactionFailureReason,
-} from "./database-error";
+import { retryableTransactionFailureReason } from "./database-error";
 import type { DatabaseObserver } from "./database-observer";
 
 export type UnitOfWorkFactory<TUnitOfWork> = (session: DatabaseSession) => TUnitOfWork;
@@ -114,4 +111,3 @@ export class DrizzleTransactionManager<TUnitOfWork>
   }
 }
 
-export type { RetryableTransactionFailureReason };
