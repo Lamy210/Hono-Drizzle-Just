@@ -101,28 +101,30 @@ test("retries a replay-safe transaction with capped exponential full jitter", as
   expect(sleep.mock.calls.map(([delayMs]) => delayMs)).toEqual([5, 10]);
 });
 
-test("does not retry non-retryable failures even when replay is declared safe", async () => {
-  const { database, transaction } = fakeDatabase();
-  const sleep = mock(async () => undefined);
-  const manager = new DrizzleTransactionManager(
-    database,
-    () => ({}),
-    undefined,
-    { maxAttempts: 3, sleep },
-  );
-  const failure = codedError("23505");
+test("does not retry domain conflicts, lock timeouts, or query timeouts", async () => {
+  for (const code of ["23505", "55P03", "57014"]) {
+    const { database, transaction } = fakeDatabase();
+    const sleep = mock(async () => undefined);
+    const manager = new DrizzleTransactionManager(
+      database,
+      () => ({}),
+      undefined,
+      { maxAttempts: 3, sleep },
+    );
+    const failure = codedError(code);
 
-  await expect(
-    manager.run(
-      async () => {
-        throw failure;
-      },
-      { retry: "safe" },
-    ),
-  ).rejects.toBe(failure);
+    await expect(
+      manager.run(
+        async () => {
+          throw failure;
+        },
+        { retry: "safe" },
+      ),
+    ).rejects.toBe(failure);
 
-  expect(transaction).toHaveBeenCalledTimes(1);
-  expect(sleep).not.toHaveBeenCalled();
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  }
 });
 
 test("stops after the configured attempt budget is exhausted", async () => {
