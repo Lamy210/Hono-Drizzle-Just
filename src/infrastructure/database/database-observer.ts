@@ -1,4 +1,7 @@
-import { normalizeDatabaseError } from "./database-error";
+import {
+  normalizeDatabaseError,
+  type RetryableTransactionFailureReason,
+} from "./database-error";
 import type { Meter } from "../../core/observability/meter";
 import type { Tracer } from "../../core/observability/tracer";
 
@@ -57,6 +60,34 @@ export class DatabaseObserver {
             attributes,
           );
         }
+      },
+    );
+  }
+
+  transactionRetryScheduled(
+    reason: RetryableTransactionFailureReason,
+    delayMs: number,
+  ): void {
+    const attributes = {
+      "db.system.name": "postgresql",
+      "db.transaction.retry.reason": reason,
+    } as const;
+    this.options.meter.increment("db.transaction.retries", 1, attributes);
+    this.options.meter.record(
+      "db.transaction.retry.delay",
+      Math.max(0, delayMs) / 1_000,
+      attributes,
+      { unit: "s" },
+    );
+  }
+
+  transactionRetryExhausted(reason: RetryableTransactionFailureReason): void {
+    this.options.meter.increment(
+      "db.transaction.retry.exhausted",
+      1,
+      {
+        "db.system.name": "postgresql",
+        "db.transaction.retry.reason": reason,
       },
     );
   }
