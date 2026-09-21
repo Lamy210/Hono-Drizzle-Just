@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi";
+import { PaginationMetaSchema } from "../common/pagination";
 import { DateTimeSchema, EmailSchema, UuidSchema } from "../common/primitives";
 
 export const CreateUserRequestSchema = z
@@ -16,6 +17,13 @@ export const UserResponseSchema = z
     createdAt: DateTimeSchema,
   })
   .openapi("UserResponse");
+
+export const UserListResponseSchema = z
+  .object({
+    data: z.array(UserResponseSchema),
+    meta: PaginationMetaSchema,
+  })
+  .openapi("UserListResponse");
 
 export const UserPathParamsSchema = z.object({
   id: z.uuid().openapi({
