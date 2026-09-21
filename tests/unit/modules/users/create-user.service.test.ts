@@ -44,7 +44,9 @@ function transactionManager(
   idempotency?: UserCreationIdempotencyRepository,
 ): TransactionManager<UserUnitOfWork> {
   return {
-    run: mock(async (operation) => operation(userUnitOfWork(repository, idempotency))),
+    run: mock(async (operation, _options) =>
+      operation(userUnitOfWork(repository, idempotency)),
+    ),
   };
 }
 
@@ -128,6 +130,7 @@ test("no-key path preserves existing transaction behavior without touching idemp
   const user = await service.execute({ email: " LAMY@example.com ", name: " Lamy " }, context);
 
   expect(transactions.run).toHaveBeenCalledTimes(1);
+  expect(transactions.run.mock.calls[0]?.[1]).toEqual({ retry: "safe" });
   expect(findByEmail).toHaveBeenCalledWith("tenant-a", "lamy@example.com");
   expect(create).toHaveBeenCalledWith({
     tenantId: "tenant-a",
@@ -167,6 +170,9 @@ test("fresh idempotency claim hashes canonical input, creates once, and complete
 
   expect(sha256Hex).toHaveBeenCalledWith(rawKey);
   expect(sha256Hex).toHaveBeenCalledWith(canonical);
+  const transactionManager = service["transactions"];
+  expect(transactionManager.run).toHaveBeenCalledTimes(1);
+  expect(transactionManager.run.mock.calls[0]?.[1]).toEqual({ retry: "safe" });
   expect(claim).toHaveBeenCalledWith({
     tenantId: "tenant-a",
     keyHash,
