@@ -130,7 +130,7 @@ test("no-key path preserves existing transaction behavior without touching idemp
   const user = await service.execute({ email: " LAMY@example.com ", name: " Lamy " }, context);
 
   expect(transactions.run).toHaveBeenCalledTimes(1);
-  expect(transactions.run.mock.calls[0]?.[1]).toEqual({ retry: "safe" });
+  expect(transactions.run).toHaveBeenCalledWith(expect.any(Function), { retry: "safe" });
   expect(findByEmail).toHaveBeenCalledWith("tenant-a", "lamy@example.com");
   expect(create).toHaveBeenCalledWith({
     tenantId: "tenant-a",
@@ -172,7 +172,7 @@ test("fresh idempotency claim hashes canonical input, creates once, and complete
   expect(sha256Hex).toHaveBeenCalledWith(rawKey);
   expect(sha256Hex).toHaveBeenCalledWith(canonical);
   expect(transactions.run).toHaveBeenCalledTimes(1);
-  expect(transactions.run.mock.calls[0]?.[1]).toEqual({ retry: "safe" });
+  expect(transactions.run).toHaveBeenCalledWith(expect.any(Function), { retry: "safe" });
   expect(claim).toHaveBeenCalledWith({
     tenantId: "tenant-a",
     keyHash,
