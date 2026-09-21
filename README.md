@@ -236,7 +236,7 @@ The defaults target JSON APIs. Applications that intentionally accept large uplo
 
 `/health/live` only confirms that the process and HTTP stack are alive. It intentionally does not depend on PostgreSQL, so a database outage does not cause an orchestrator to restart an otherwise healthy process repeatedly.
 
-`/health/ready` checks critical dependencies. The default PostgreSQL check executes `select 1`; failures and timeouts return `503` with a sanitized per-check status.
+`/health/ready` checks critical dependencies. The default PostgreSQL check executes `select 1`; failures and timeouts return `503` with a sanitized per-check status. Concurrent readiness requests share one in-flight PostgreSQL probe until it settles, so repeated platform probes during a slow dependency do not multiply identical database work.
 
 On `SIGINT` or `SIGTERM`, the server stops accepting new connections and waits for in-flight requests. If they exceed `SHUTDOWN_TIMEOUT_MS`, active connections are force-closed. Registered resources are then closed once in reverse registration order. Production composition closes PostgreSQL before flushing/shutting down telemetry, so shutdown work can still be exported.
 

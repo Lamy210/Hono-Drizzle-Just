@@ -209,7 +209,7 @@ Database schemas and API schemas are deliberately separate.
 Liveness and readiness have different failure domains:
 
 - `/health/live` proves the process can serve HTTP and has no external dependency checks.
-- `/health/ready` runs critical `HealthCheck` implementations. The default production composition includes PostgreSQL.
+- `/health/ready` runs critical `HealthCheck` implementations. The default production composition includes PostgreSQL. Its adapter coalesces concurrent calls onto one in-flight `select 1` until that query settles; each caller keeps its own readiness timeout, preventing a slow dependency from causing probe-driven duplicate database work.
 - A readiness check exception is converted into `down`; internal exception messages are not returned to clients.
 - `/health` remains a compatibility liveness alias.
 
