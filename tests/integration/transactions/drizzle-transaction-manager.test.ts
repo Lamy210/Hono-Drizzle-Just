@@ -51,3 +51,33 @@ test("rolls back earlier tenant-scoped repository writes when a later write fail
   const persisted = await database.db.select().from(users).where(eq(users.email, email));
   expect(persisted).toHaveLength(0);
 });
+
+test("replays the complete database transaction only when marked retry-safe", async () => {
+  const email = `retry-${crypto.randomUUID()}@example.com`;
+  let attempts = 0;
+
+  const created = await transactions.run(
+    async (unitOfWork) => {
+      attempts += 1;
+      const user = await unitOfWork.users.create({
+        tenantId: "tenant-retry",
+        email,
+        name: `Attempt ${attempts}`,
+      });
+
+      if (attempts === 1) {
+        throw Object.assign(new Error("serialization failure"), { code: "40001" });
+      }
+      return user;
+    },
+    { retry: "safe" },
+  );
+
+  expect(attempts).toBe(2);
+  expect(created.name).toBe("Attempt 2");
+
+  const persisted = await database.db.select().from(users).where(eq(users.email, email));
+  expect(persisted).toHaveLength(1);
+  expect(persisted[0]?.name).toBe("Attempt 2");
+});
+
