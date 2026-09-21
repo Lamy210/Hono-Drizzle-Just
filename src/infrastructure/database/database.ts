@@ -9,6 +9,7 @@ export interface DatabaseOptions {
   readonly max?: number;
   readonly connectionTimeoutMillis?: number;
   readonly statementTimeoutMillis?: number;
+  readonly lockTimeoutMillis?: number;
   readonly idleInTransactionSessionTimeoutMillis?: number;
   readonly observability?: {
     readonly meter: Meter;
@@ -23,6 +24,7 @@ export function createDatabase(options: DatabaseOptions) {
     max: options.max,
     connectionTimeoutMillis: options.connectionTimeoutMillis,
     statement_timeout: options.statementTimeoutMillis,
+    lock_timeout: options.lockTimeoutMillis,
     idle_in_transaction_session_timeout: options.idleInTransactionSessionTimeoutMillis,
   };
   const pool = options.observability

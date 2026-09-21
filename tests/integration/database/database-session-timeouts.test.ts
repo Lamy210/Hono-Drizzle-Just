@@ -15,6 +15,7 @@ test("applies statement timeout per pooled session and keeps the pool usable aft
     max: 1,
     connectionTimeoutMillis: 500,
     statementTimeoutMillis: 80,
+    lockTimeoutMillis: 0,
     idleInTransactionSessionTimeoutMillis: 0,
   });
 
@@ -49,6 +50,7 @@ test("idle transaction timeout terminates the checked-out backend and the pool r
     max: 1,
     connectionTimeoutMillis: 500,
     statementTimeoutMillis: 0,
+    lockTimeoutMillis: 0,
     idleInTransactionSessionTimeoutMillis: 80,
   });
   const monitor = createDatabase({
@@ -56,6 +58,7 @@ test("idle transaction timeout terminates the checked-out backend and the pool r
     max: 1,
     connectionTimeoutMillis: 500,
     statementTimeoutMillis: 0,
+    lockTimeoutMillis: 0,
     idleInTransactionSessionTimeoutMillis: 0,
   });
 
@@ -111,5 +114,60 @@ test("idle transaction timeout terminates the checked-out backend and the pool r
       client.release(true);
     }
     await Promise.all([database.close(), monitor.close()]);
+  }
+});
+
+
+test("lock timeout aborts only the blocked statement and keeps both sessions usable", async () => {
+  const database = createDatabase({
+    connectionString: databaseUrl(),
+    max: 2,
+    connectionTimeoutMillis: 500,
+    statementTimeoutMillis: 1_000,
+    lockTimeoutMillis: 80,
+    idleInTransactionSessionTimeoutMillis: 0,
+  });
+
+  const blocker = await database.pool.connect();
+  const waiter = await database.pool.connect();
+  let blockerInTransaction = false;
+
+  try {
+    const settings = await waiter.query<{
+      statementTimeout: string;
+      lockTimeout: string;
+    }>(`
+      select
+        current_setting('statement_timeout') as "statementTimeout",
+        current_setting('lock_timeout') as "lockTimeout"
+    `);
+    expect(settings.rows[0]).toEqual({
+      statementTimeout: "1s",
+      lockTimeout: "80ms",
+    });
+
+    await blocker.query("begin");
+    blockerInTransaction = true;
+    await blocker.query("lock table users in access exclusive mode");
+
+    await expect(waiter.query("select 1 from users limit 1")).rejects.toMatchObject({
+      code: "55P03",
+    });
+
+    const waiterHealthy = await waiter.query<{ value: number }>("select 1 as value");
+    expect(waiterHealthy.rows[0]?.value).toBe(1);
+
+    await blocker.query("rollback");
+    blockerInTransaction = false;
+
+    const unblocked = await waiter.query<{ value: number }>("select 1 as value from users limit 1");
+    expect(unblocked.rows[0]?.value).toBe(1);
+  } finally {
+    if (blockerInTransaction) {
+      await blocker.query("rollback").catch(() => undefined);
+    }
+    blocker.release();
+    waiter.release();
+    await database.close();
   }
 });

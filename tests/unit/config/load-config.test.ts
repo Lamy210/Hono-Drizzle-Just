@@ -38,6 +38,7 @@ describe("loadConfig", () => {
       databasePoolMax: 20,
       databaseConnectionTimeoutMs: 5_000,
       databaseStatementTimeoutMs: 15_000,
+      databaseLockTimeoutMs: 2_000,
       databaseIdleInTransactionSessionTimeoutMs: 30_000,
       healthCheckTimeoutMs: 1_500,
       shutdownTimeoutMs: 10_000,
@@ -193,12 +194,14 @@ describe("loadConfig", () => {
       ...required,
       DATABASE_CONNECTION_TIMEOUT_MS: "7000",
       DATABASE_STATEMENT_TIMEOUT_MS: "2500",
+      DATABASE_LOCK_TIMEOUT_MS: "500",
       DATABASE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS: "0",
     });
 
     expect(config).toMatchObject({
       databaseConnectionTimeoutMs: 7_000,
       databaseStatementTimeoutMs: 2_500,
+      databaseLockTimeoutMs: 500,
       databaseIdleInTransactionSessionTimeoutMs: 0,
     });
   });
@@ -211,6 +214,23 @@ describe("loadConfig", () => {
       loadConfig({
         ...required,
         DATABASE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS: "3600001",
+      }),
+    ).toThrow(ConfigurationError);
+    expect(() => loadConfig({ ...required, DATABASE_LOCK_TIMEOUT_MS: "-1" })).toThrow(
+      ConfigurationError,
+    );
+    expect(() =>
+      loadConfig({
+        ...required,
+        DATABASE_STATEMENT_TIMEOUT_MS: "2000",
+        DATABASE_LOCK_TIMEOUT_MS: "2000",
+      }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      loadConfig({
+        ...required,
+        DATABASE_STATEMENT_TIMEOUT_MS: "2000",
+        DATABASE_LOCK_TIMEOUT_MS: "2500",
       }),
     ).toThrow(ConfigurationError);
   });
