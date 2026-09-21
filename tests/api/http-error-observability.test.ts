@@ -13,6 +13,7 @@ import type { TraceContext } from "../../src/core/tracing/trace-context";
 import { createErrorHandler } from "../../src/http/error-handler";
 import type { AppEnv } from "../../src/http/env";
 import { createRequestContextMiddleware } from "../../src/http/middleware/request-context.middleware";
+import { normalizeDatabaseError } from "../../src/infrastructure/database/database-error";
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 
 class RecordingSpan implements Span {
@@ -151,4 +152,42 @@ test("unknown exceptions are normalized to 500 and classified as server failures
     statusCode: 500,
   });
   expect(log.error).toMatchObject({ name: "Error", message: "unexpected internal failure" });
+});
+
+test("classified database failures expose only stable sanitized HTTP errors", async () => {
+  const { app, tracer, meter, lines } = createObservedApp();
+  const raw = Object.assign(
+    new Error("canceling statement due to statement timeout while executing SELECT secret_value"),
+    {
+      code: "57014",
+      query: "SELECT secret_value FROM private_table",
+      constraint: "private_constraint_name",
+    },
+  );
+  app.get("/database-timeout", () => {
+    throw normalizeDatabaseError(raw);
+  });
+
+  const response = await app.request("/database-timeout");
+  const body = await response.json();
+
+  expect(response.status).toBe(504);
+  expect(body).toMatchObject({
+    error: {
+      code: "DATABASE_TIMEOUT",
+      message: "Database operation timed out",
+    },
+  });
+  expect(JSON.stringify(body)).not.toContain("secret_value");
+  expect(JSON.stringify(body)).not.toContain("private_constraint_name");
+  expect(tracer.spans[0]?.status).toBe("error");
+  expect(meter.counters[0]?.attributes).toMatchObject({ status_code: 504 });
+
+  const log = JSON.parse(lines[0] ?? "{}");
+  expect(log).toMatchObject({
+    level: "error",
+    message: "http.request.error",
+    errorCode: "DATABASE_TIMEOUT",
+    statusCode: 504,
+  });
 });

@@ -38,6 +38,17 @@ const RateLimitExceededResponseHeaders = {
   },
 } as const;
 
+const DatabaseFailureResponses = {
+  503: {
+    description: "Database is temporarily busy or unavailable",
+    content: { "application/json": { schema: ErrorResponseSchema } },
+  },
+  504: {
+    description: "Database operation timed out",
+    content: { "application/json": { schema: ErrorResponseSchema } },
+  },
+} as const;
+
 const createUserRoute = createRoute({
   method: "post",
   path: "/users",
@@ -84,6 +95,7 @@ const createUserRoute = createRoute({
       headers: RateLimitExceededResponseHeaders,
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
+    ...DatabaseFailureResponses,
   },
 });
 
@@ -119,6 +131,7 @@ const getUserRoute = createRoute({
       headers: RateLimitExceededResponseHeaders,
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
+    ...DatabaseFailureResponses,
   },
 });
 
