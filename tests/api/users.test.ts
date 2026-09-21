@@ -7,6 +7,7 @@ import { Sha256StringDigester } from "../../src/infrastructure/crypto/sha256-str
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
+import { ListUsersService } from "../../src/modules/users/application/list-users.service";
 import type { UserCreationIdempotencyRepository } from "../../src/modules/users/application/user-creation-idempotency.repository";
 import type { UserUnitOfWork } from "../../src/modules/users/application/user-unit-of-work";
 import type { User } from "../../src/modules/users/domain/user";
@@ -40,6 +41,12 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
   };
   const findById = mock(async (tenantId: string) => (tenantId === user.tenantId ? user : null));
   const findByEmail = mock(async (_tenantId: string, _email: string) => null);
+  const listPage = mock(
+    async (tenantId: string, _input: { readonly offset: number; readonly limit: number }) => ({
+      users: tenantId === user.tenantId ? [user] : [],
+      total: tenantId === user.tenantId ? 1 : 0,
+    }),
+  );
   const create = mock(async (input: { tenantId: string; email: string; name: string }) => ({
     ...user,
     ...input,
@@ -57,6 +64,7 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
           new Sha256StringDigester(),
         ),
         getUserService: new GetUserService(repository),
+        listUsersService: new ListUsersService({ listPage }),
         ...(resolver === undefined ? {} : { principalResolver: resolver }),
       },
       maxRequestBodyBytes === undefined ? undefined : { maxRequestBodyBytes },
@@ -64,6 +72,7 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
     repository,
     findById,
     findByEmail,
+    listPage,
     create,
   };
 }
@@ -92,6 +101,17 @@ function createIdempotencyHarness() {
     return user;
   });
   const repository: UserRepository = { findById, findByEmail, create };
+  const listPage = mock(
+    async (tenantId: string, input: { readonly offset: number; readonly limit: number }) => {
+      const tenantUsers = [...usersById.values()]
+        .filter((user) => user.tenantId === tenantId)
+        .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
+      return {
+        users: tenantUsers.slice(input.offset, input.offset + input.limit),
+        total: tenantUsers.length,
+      };
+    },
+  );
 
   const claim = mock(async (input: {
     tenantId: string;
@@ -132,6 +152,7 @@ function createIdempotencyHarness() {
       readinessChecker: new ReadinessChecker([]),
       createUserService: service,
       getUserService: new GetUserService(repository),
+      listUsersService: new ListUsersService({ listPage }),
       principalResolver: principalResolver(tenantId, ["users:read", "users:write"]),
     });
 
