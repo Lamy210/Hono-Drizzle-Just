@@ -14,6 +14,16 @@ interface UserResponse {
   readonly createdAt: string;
 }
 
+interface UserListResponse {
+  readonly data: readonly UserResponse[];
+  readonly meta: {
+    readonly page: number;
+    readonly perPage: number;
+    readonly total: number;
+    readonly totalPages: number;
+  };
+}
+
 interface TenantServerConfig {
   readonly token: string;
   readonly subject: string;
@@ -211,6 +221,14 @@ test(
         expect(fetchedResponse.status).toBe(200);
         expect((await fetchedResponse.json()) as UserResponse).toEqual(created);
 
+        const listResponse = await boundedFetch(`${baseUrl}/users?page=1&perPage=20`, {
+          headers: { authorization },
+        });
+        expect(listResponse.status).toBe(200);
+        const listed = (await listResponse.json()) as UserListResponse;
+        expect(listed.data.some((user) => user.id === created.id)).toBe(true);
+        expect(listed.meta).toMatchObject({ page: 1, perPage: 20, total: 1, totalPages: 1 });
+
         const idempotencyKey = crypto.randomUUID();
         const idempotentEmail = `e2e-idempotent-${crypto.randomUUID()}@example.com`;
         const idempotentHeaders = {
@@ -291,6 +309,15 @@ test(
         });
         expect(fetchedResponse.status).toBe(200);
         expect((await fetchedResponse.json()) as UserResponse).toEqual(created);
+
+        const listResponse = await boundedFetch(`${baseUrl}/users`, {
+          headers: { authorization },
+        });
+        expect(listResponse.status).toBe(200);
+        const listed = (await listResponse.json()) as UserListResponse;
+        expect(listed.data.some((user) => user.id === created.id)).toBe(true);
+        expect(listed.data.some((user) => user.id === tenantAUser.id)).toBe(false);
+        expect(listed.meta.total).toBe(1);
 
         return created;
       },
