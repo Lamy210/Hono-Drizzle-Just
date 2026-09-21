@@ -2,12 +2,29 @@ import { expect, test } from "bun:test";
 import { AppError } from "../../../src/core/errors/app-error";
 import {
   isDatabaseAcquireTimeout,
+  isRetryableTransactionFailure,
   normalizeDatabaseError,
 } from "../../../src/infrastructure/database/database-error";
 
 function codedError(code: string, message = "database failed", cause?: unknown): Error {
   return Object.assign(new Error(message, cause === undefined ? undefined : { cause }), { code });
 }
+
+test("classifies PostgreSQL serialization and deadlock failures as retryable database busy", () => {
+  for (const code of ["40001", "40P01"]) {
+    const raw = codedError(code, "sensitive concurrency diagnostic");
+
+    expect(isRetryableTransactionFailure(raw)).toBe(true);
+    expect(normalizeDatabaseError(raw)).toMatchObject({
+      code: "DATABASE_BUSY",
+      message: "Database is temporarily busy",
+      status: 503,
+      cause: raw,
+    });
+  }
+
+  expect(isRetryableTransactionFailure(codedError("23505"))).toBe(false);
+});
 
 test("classifies PostgreSQL lock waits as retryable database busy failures", () => {
   const raw = codedError("55P03", "canceling statement due to lock timeout");

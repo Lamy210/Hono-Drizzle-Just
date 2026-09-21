@@ -110,3 +110,80 @@ test("normalizes a real pool acquisition timeout to DATABASE_UNAVAILABLE", async
     await database.close();
   }
 });
+
+test("normalizes a real PostgreSQL serialization failure to DATABASE_BUSY", async () => {
+  const database = createDatabase({
+    connectionString: databaseUrl(),
+    max: 2,
+    connectionTimeoutMillis: 500,
+    statementTimeoutMillis: 1_000,
+    lockTimeoutMillis: 0,
+    idleInTransactionSessionTimeoutMillis: 0,
+  });
+  const tenantId = `serialization-${crypto.randomUUID()}`;
+  const email = `${crypto.randomUUID()}@example.com`;
+
+  await database.pool.query(
+    "insert into users (tenant_id, email, name) values ($1, $2, $3)",
+    [tenantId, email, "Initial"],
+  );
+
+  const first = await database.pool.connect();
+  const second = await database.pool.connect();
+  let firstInTransaction = false;
+  let secondInTransaction = false;
+
+  try {
+    await first.query("begin isolation level repeatable read");
+    firstInTransaction = true;
+    await second.query("begin isolation level repeatable read");
+    secondInTransaction = true;
+
+    await first.query("select name from users where tenant_id = $1 and email = $2", [
+      tenantId,
+      email,
+    ]);
+    await second.query("select name from users where tenant_id = $1 and email = $2", [
+      tenantId,
+      email,
+    ]);
+
+    await first.query(
+      "update users set name = $1 where tenant_id = $2 and email = $3",
+      ["First writer", tenantId, email],
+    );
+    await first.query("commit");
+    firstInTransaction = false;
+
+    await expect(
+      observer().operation({ operation: "UPDATE", collection: "users" }, () =>
+        second.query(
+          "update users set name = $1 where tenant_id = $2 and email = $3",
+          ["Second writer", tenantId, email],
+        ),
+      ),
+    ).rejects.toMatchObject({
+      code: "DATABASE_BUSY",
+      message: "Database is temporarily busy",
+      status: 503,
+      cause: { code: "40001" },
+    });
+
+    await second.query("rollback");
+    secondInTransaction = false;
+  } finally {
+    if (firstInTransaction) {
+      await first.query("rollback").catch(() => undefined);
+    }
+    if (secondInTransaction) {
+      await second.query("rollback").catch(() => undefined);
+    }
+    first.release();
+    second.release();
+    await database.pool
+      .query("delete from users where tenant_id = $1 and email = $2", [tenantId, email])
+      .catch(() => undefined);
+    await database.close();
+  }
+});
+

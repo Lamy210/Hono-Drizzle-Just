@@ -1,6 +1,7 @@
 import { AppError } from "../../core/errors/app-error";
 
 const POSTGRES_UNAVAILABLE_CODES = new Set(["53300", "57P01", "57P02", "57P03", "57P04"]);
+const RETRYABLE_TRANSACTION_CODES = new Set(["40001", "40P01"]);
 const NETWORK_UNAVAILABLE_CODES = new Set([
   "ECONNREFUSED",
   "ECONNRESET",
@@ -59,6 +60,10 @@ export function isDatabaseAcquireTimeout(error: unknown): boolean {
   });
 }
 
+export function isRetryableTransactionFailure(error: unknown): boolean {
+  return hasCode(error, (code) => RETRYABLE_TRANSACTION_CODES.has(code));
+}
+
 function unavailable(error: unknown): boolean {
   if (
     hasCode(
@@ -80,7 +85,7 @@ export function normalizeDatabaseError(error: unknown): unknown {
     return error;
   }
 
-  if (hasCode(error, (code) => code === "55P03")) {
+  if (isRetryableTransactionFailure(error) || hasCode(error, (code) => code === "55P03")) {
     return new AppError("DATABASE_BUSY", "Database is temporarily busy", 503, undefined, {
       cause: error,
     });
