@@ -108,6 +108,27 @@ test("findByEmail records SELECT users without tenant or email cardinality", asy
   expect(attributes).not.toContain(tenantId);
 });
 
+test("listPage records bounded SELECT telemetry without tenant or pagination cardinality", async () => {
+  const email = `list-observed-${crypto.randomUUID()}@example.com`;
+  const tenantId = "tenant-observed-list";
+  await userFactory.create({ tenantId, email });
+
+  const result = await repository.listPage(tenantId, { offset: 0, limit: 20 });
+
+  expect(result.total).toBe(1);
+  expect(result.users[0]?.email).toBe(email);
+  expect(tracer.spans.map((entry) => entry.name)).toEqual(["SELECT users", "SELECT users"]);
+  expect(meter.records).toHaveLength(2);
+  const telemetry = JSON.stringify({
+    spans: tracer.spans.map((entry) => entry.options.attributes),
+    records: meter.records,
+  });
+  expect(telemetry).not.toContain(tenantId);
+  expect(telemetry).not.toContain(email);
+  expect(telemetry).not.toContain('"offset"');
+  expect(telemetry).not.toContain('"limit"');
+});
+
 test("create records INSERT users without tenant or input cardinality", async () => {
   const email = `insert-observed-${crypto.randomUUID()}@example.com`;
   const tenantId = "tenant-observed-create";
