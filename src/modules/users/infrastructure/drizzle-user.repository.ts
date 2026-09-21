@@ -81,14 +81,15 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
       return { users: [], total };
     }
 
-    const selectPage = async (): Promise<readonly User[]> =>
-      this.db
+    const selectPage = async (): Promise<readonly User[]> => {
+      return this.db
         .select()
         .from(users)
         .where(eq(users.tenantId, tenantId))
         .orderBy(desc(users.createdAt), desc(users.id))
         .limit(input.limit)
         .offset(input.offset);
+    };
     const page = this.observer
       ? await this.observer.operation({ operation: "SELECT", collection: "users" }, selectPage)
       : await selectPage();
