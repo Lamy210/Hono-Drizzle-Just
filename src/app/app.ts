@@ -19,6 +19,7 @@ import { createApiSecurityHeadersMiddleware } from "../http/middleware/security-
 import { requestLoggerMiddleware } from "../http/middleware/request-logger.middleware";
 import type { CreateUserService } from "../modules/users/application/create-user.service";
 import type { GetUserService } from "../modules/users/application/get-user.service";
+import type { ListUsersService } from "../modules/users/application/list-users.service";
 import { registerUserRoutes } from "../modules/users/presentation/user.routes";
 
 const DEFAULT_MAX_REQUEST_BODY_BYTES = 1_048_576;
@@ -28,6 +29,7 @@ export interface AppDependencies {
   readonly readinessChecker: ReadinessChecker;
   readonly createUserService: CreateUserService;
   readonly getUserService: GetUserService;
+  readonly listUsersService: ListUsersService;
   readonly principalResolver?: PrincipalResolver;
   readonly tracer?: Tracer;
   readonly meter?: Meter;
