@@ -3,9 +3,16 @@ import { DrizzleUserCreationIdempotencyRepository } from "../../modules/users/in
 import { DrizzleUserRepository } from "../../modules/users/infrastructure/drizzle-user.repository";
 import type { Database } from "../../infrastructure/database/database";
 import type { DatabaseObserver } from "../../infrastructure/database/database-observer";
-import { DrizzleTransactionManager } from "../../infrastructure/database/drizzle-transaction-manager";
+import {
+  DrizzleTransactionManager,
+  type DrizzleTransactionManagerOptions,
+} from "../../infrastructure/database/drizzle-transaction-manager";
 
-export function createDatabaseAccess(database: Database, observer: DatabaseObserver) {
+export function createDatabaseAccess(
+  database: Database,
+  observer: DatabaseObserver,
+  transactionOptions: DrizzleTransactionManagerOptions = {},
+) {
   const userRepository = new DrizzleUserRepository(database, observer);
   const userTransactions = new DrizzleTransactionManager<UserUnitOfWork>(
     database,
@@ -14,6 +21,7 @@ export function createDatabaseAccess(database: Database, observer: DatabaseObser
       userCreationIdempotency: new DrizzleUserCreationIdempotencyRepository(session, observer),
     }),
     observer,
+    transactionOptions,
   );
 
   return { userRepository, userTransactions };
