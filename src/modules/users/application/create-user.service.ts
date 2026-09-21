@@ -34,13 +34,16 @@ export class CreateUserService {
     const result = options.idempotencyKey
       ? await this.createIdempotently(options.idempotencyKey, tenantId, normalized)
       : {
-          user: await this.transactions.run(async (unitOfWork) => {
-            const existing = await unitOfWork.users.findByEmail(tenantId, normalized.email);
-            if (existing) {
-              throw new AppError("CONFLICT", "A user with this email already exists", 409);
-            }
-            return unitOfWork.users.create({ tenantId, ...normalized });
-          }),
+          user: await this.transactions.run(
+            async (unitOfWork) => {
+              const existing = await unitOfWork.users.findByEmail(tenantId, normalized.email);
+              if (existing) {
+                throw new AppError("CONFLICT", "A user with this email already exists", 409);
+              }
+              return unitOfWork.users.create({ tenantId, ...normalized });
+            },
+            { retry: "safe" },
+          ),
           created: true,
         };
 
@@ -103,6 +106,6 @@ export class CreateUserService {
         userId: user.id,
       });
       return { user, created: true };
-    });
+    }, { retry: "safe" });
   }
 }
