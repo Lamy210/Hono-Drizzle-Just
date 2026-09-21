@@ -64,7 +64,10 @@ The application-owned transaction abstraction is generic:
 
 ```text
 TransactionManager<TUnitOfWork>
-  run(operation: (unitOfWork: TUnitOfWork) => Promise<TResult>)
+  run(
+    operation: (unitOfWork: TUnitOfWork) => Promise<TResult>,
+    options?: { retry?: "never" | "safe" }
+  )
 ```
 
 Each feature defines the narrow unit of work needed by its use cases. For the sample user module, `UserUnitOfWork` exposes the tenant-scoped `UserRepository` and the feature-scoped `UserCreationIdempotencyRepository`; it contains no Drizzle types.
