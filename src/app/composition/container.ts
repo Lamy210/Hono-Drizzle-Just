@@ -16,6 +16,7 @@ import { createTelemetry } from "../../infrastructure/observability/telemetry";
 import { CreateUserService } from "../../modules/users/application/create-user.service";
 import { GetUserService } from "../../modules/users/application/get-user.service";
 import { ListUsersService } from "../../modules/users/application/list-users.service";
+import { UpdateUserService } from "../../modules/users/application/update-user.service";
 import type { AppDependencies } from "../app";
 import { createDatabaseAccess } from "./database-access";
 
@@ -126,6 +127,7 @@ export function createProductionContainer(config: AppConfig): {
       createUserService: new CreateUserService(userTransactions, logger, digester),
       getUserService: new GetUserService(userRepository),
       listUsersService: new ListUsersService(userRepository),
+      updateUserService: new UpdateUserService(userRepository),
       ...(principalResolver === undefined ? {} : { principalResolver }),
       ...(rateLimiter === undefined ? {} : { rateLimiter }),
       tracer: telemetry.tracer,
