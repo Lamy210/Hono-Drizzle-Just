@@ -8,6 +8,7 @@ import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
 import { ListUsersService } from "../../src/modules/users/application/list-users.service";
+import { UpdateUserService } from "../../src/modules/users/application/update-user.service";
 import type { UserUnitOfWork } from "../../src/modules/users/application/user-unit-of-work";
 import type { UserRepository } from "../../src/modules/users/domain/user.repository";
 import { userUnitOfWork } from "../helpers/user-unit-of-work";
@@ -40,6 +41,9 @@ function buildApp(rateLimiter?: RateLimiter, remoteAddress?: string) {
       getUserService: new GetUserService(repository),
       listUsersService: new ListUsersService({
         listPage: mock(async () => ({ users: [], total: 0 })),
+      }),
+      updateUserService: new UpdateUserService({
+        update: mock(async () => null),
       }),
       ...(rateLimiter === undefined ? {} : { rateLimiter }),
     },
