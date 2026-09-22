@@ -32,7 +32,7 @@ function configKeys(text: string): string[] {
   if (start < 0 || end < 0) {
     throw new Error("RawConfigSchema boundaries are unavailable");
   }
-  return [...text.slice(start, end).matchAll(/^    ([A-Z][A-Z0-9_]+):/gm)].map(
+  return [...text.slice(start, end).matchAll(/^\s{4}([A-Z][A-Z0-9_]+):/gm)].map(
     (match) => match[1] ?? "",
   );
 }
@@ -45,7 +45,7 @@ function documentedConfigKeys(text: string): string[] {
   const afterHeading = text.slice(start + "## Configuration".length);
   const nextHeading = afterHeading.search(/^## /m);
   const section = nextHeading < 0 ? afterHeading : afterHeading.slice(0, nextHeading);
-  return [...section.matchAll(/^\| \`([A-Z][A-Z0-9_]*)\` \|/gm)].map(
+  return [...section.matchAll(/^\|\s+`([A-Z][A-Z0-9_]*)`\s+\|/gm)].map(
     (match) => match[1] ?? "",
   );
 }
