@@ -2,21 +2,26 @@ import { z } from "@hono/zod-openapi";
 import { PaginationMetaSchema } from "../common/pagination";
 import { DateTimeSchema, EmailSchema, UuidSchema } from "../common/primitives";
 
+const UserNameSchema = z.string().trim().min(1).max(100).openapi({ example: "Lamy" });
+
 export const CreateUserRequestSchema = z
   .object({
     email: EmailSchema,
-    name: z.string().trim().min(1).max(100).openapi({ example: "Lamy" }),
+    name: UserNameSchema,
   })
   .openapi("CreateUserRequest");
 
 export const UpdateUserRequestSchema = z
-  .object({
-    email: EmailSchema.optional(),
-    name: z.string().trim().min(1).max(100).openapi({ example: "Updated Lamy" }).optional(),
-  })
-  .refine((value) => value.email !== undefined || value.name !== undefined, {
-    message: "At least one of email or name is required",
-  })
+  .union([
+    z.object({
+      email: EmailSchema,
+      name: UserNameSchema.optional(),
+    }),
+    z.object({
+      email: EmailSchema.optional(),
+      name: UserNameSchema,
+    }),
+  ])
   .openapi("UpdateUserRequest");
 
 export const UserResponseSchema = z
