@@ -23,7 +23,10 @@ export function resolveHttpRateLimitScope(input: HttpRateLimitPolicyInput): stri
   if (BYPASS_PATHS.has(input.path)) {
     return undefined;
   }
-  if (input.method === "POST" && input.path === "/users") {
+  if (
+    (input.method === "POST" && input.path === "/users") ||
+    (input.method === "PATCH" && isSingleUserResourcePath(input.path))
+  ) {
     return HTTP_RATE_LIMIT_SCOPES.usersWrite;
   }
   if (
