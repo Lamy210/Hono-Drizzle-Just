@@ -16,6 +16,10 @@ export class UpdateUserService {
     context: RequestContext,
   ): Promise<User> {
     const { tenantId } = requireTenantScope(context, "users:write");
+    if (input.email === undefined && input.name === undefined) {
+      throw new AppError("VALIDATION_ERROR", "At least one user field is required", 400);
+    }
+
     const normalized: UserUpdateFields =
       input.email === undefined
         ? { name: input.name.trim() }
