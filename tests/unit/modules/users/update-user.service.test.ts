@@ -57,6 +57,20 @@ test("returns tenant-local not found without a second existence probe", async ()
   expect(update).toHaveBeenCalledTimes(1);
 });
 
+test("rejects an empty direct service update before repository access", async () => {
+  const update = mock(async () => null);
+  const service = new UpdateUserService({ update });
+
+  await expect(
+    service.execute(
+      "550e8400-e29b-41d4-a716-446655440000",
+      {},
+      context,
+    ),
+  ).rejects.toMatchObject({ code: "VALIDATION_ERROR", status: 400 });
+  expect(update).not.toHaveBeenCalled();
+});
+
 test("rejects missing write scope before repository access", async () => {
   const update = mock(async () => null);
   const service = new UpdateUserService({ update });
