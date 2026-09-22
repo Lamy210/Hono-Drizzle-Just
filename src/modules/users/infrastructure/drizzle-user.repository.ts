@@ -1,8 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, count, desc, eq } from "drizzle-orm";
 import { AppError } from "../../../core/errors/app-error";
 import { users } from "../../../db/schema";
 import type { DatabaseSession } from "../../../infrastructure/database/database";
 import type { DatabaseObserver } from "../../../infrastructure/database/database-observer";
+import type { UserListRepository } from "../application/user-list.repository";
 import type { TenantScopedCreateUserInput, User } from "../domain/user";
 import type { UserRepository } from "../domain/user.repository";
 
@@ -25,7 +26,7 @@ function isUniqueViolation(error: unknown): boolean {
   return hasErrorCode(error, "23505");
 }
 
-export class DrizzleUserRepository implements UserRepository {
+export class DrizzleUserRepository implements UserRepository, UserListRepository {
   constructor(
     private readonly db: DatabaseSession,
     private readonly observer?: DatabaseObserver,
@@ -59,6 +60,41 @@ export class DrizzleUserRepository implements UserRepository {
     return this.observer
       ? this.observer.operation({ operation: "SELECT", collection: "users" }, execute)
       : execute();
+  }
+
+  async listPage(
+    tenantId: string,
+    input: { readonly offset: number; readonly limit: number },
+  ): Promise<{ readonly users: readonly User[]; readonly total: number }> {
+    const countPage = async (): Promise<number> => {
+      const [row] = await this.db
+        .select({ total: count() })
+        .from(users)
+        .where(eq(users.tenantId, tenantId));
+      return row?.total ?? 0;
+    };
+    const total = this.observer
+      ? await this.observer.operation({ operation: "SELECT", collection: "users" }, countPage)
+      : await countPage();
+
+    if (input.offset >= total) {
+      return { users: [], total };
+    }
+
+    const selectPage = async (): Promise<readonly User[]> => {
+      return this.db
+        .select()
+        .from(users)
+        .where(eq(users.tenantId, tenantId))
+        .orderBy(desc(users.createdAt), desc(users.id))
+        .limit(input.limit)
+        .offset(input.offset);
+    };
+    const page = this.observer
+      ? await this.observer.operation({ operation: "SELECT", collection: "users" }, selectPage)
+      : await selectPage();
+
+    return { users: page, total };
   }
 
   async create(input: TenantScopedCreateUserInput): Promise<User> {

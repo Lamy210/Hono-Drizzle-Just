@@ -148,6 +148,7 @@ The service listens on `http://localhost:3000` by default.
 - `GET /health/live` — process/HTTP liveness; does not query PostgreSQL
 - `GET /health/ready` — readiness; returns 503 when a critical dependency is unavailable
 - `POST /users` - protected; requires an authenticated tenant principal with `users:write`; optional `Idempotency-Key` enables tenant-scoped replay
+- `GET /users` - protected tenant-scoped listing; requires `users:read`; supports `page` (1-10,000, default 1) and `perPage` (1-100, default 20)
 - `GET /users/{id}` - protected; requires an authenticated tenant principal with `users:read`
 - `GET /openapi.json`
 
@@ -195,9 +196,11 @@ Invalid configuration fails startup before database/service composition. Configu
 
 ## Authentication and tenant authorization
 
-`PrincipalResolver` remains the provider-neutral authentication port. The sample user module adds an application-layer authorization boundary on top of that identity: `POST /users` requires `users:write`, while `GET /users/{id}` requires `users:read`. Anonymous protected requests return `401`; an authenticated principal with a missing/invalid tenant or missing scope returns `403`; and a user that is absent from the authorized tenant, including a row owned by another tenant, returns `404` without an unscoped existence check.
+`PrincipalResolver` remains the provider-neutral authentication port. The sample user module adds an application-layer authorization boundary on top of that identity: `POST /users` requires `users:write`, while both `GET /users` and `GET /users/{id}` require `users:read`. Anonymous protected requests return `401`; an authenticated principal with a missing/invalid tenant or missing scope returns `403`; and a user that is absent from the authorized tenant, including a row owned by another tenant, returns `404` without an unscoped existence check.
 
-Tenant ownership is derived only from `RequestContext.principal.tenantId`. Client payloads or ad-hoc tenant headers cannot select a tenant. `UserRepository` requires the tenant ID in its read methods, Drizzle includes the tenant predicate in SQL lookups, and user email uniqueness is enforced by PostgreSQL as `(tenant_id, email)`. The same normalized email may therefore exist in different tenants while remaining unique inside one tenant.
+Tenant ownership is derived only from `RequestContext.principal.tenantId`. Client payloads, query parameters, or ad-hoc tenant headers cannot select a tenant. `UserRepository` requires the tenant ID in its single-record read methods, while the separate application-owned `UserListRepository` requires tenant ID plus bounded offset/limit input for listing. Drizzle includes the tenant predicate in both count and page queries, and user email uniqueness is enforced by PostgreSQL as `(tenant_id, email)`. The same normalized email may therefore exist in different tenants while remaining unique inside one tenant.
+
+The sample list API uses bounded offset pagination because the repository already ships a reusable page/per-page contract. Results are ordered by `created_at DESC, id DESC` for a deterministic tie-break, and the response shape is `{ data, meta: { page, perPage, total, totalPages } }`. Page numbers are capped at 10,000 and page size at 100 to prevent unbounded client-selected offsets/page sizes. Offset pagination can still shift while concurrent writes occur and becomes less efficient for very deep datasets; generated services with large or high-write collections should replace this sample query with cursor/keyset pagination rather than simply raising the cap.
 
 The built-in `StaticBearerPrincipalResolver` exists only to make local development, CI, and black-box E2E exercise the real authentication/authorization composition path. It is disabled by default, its credential and principal data come from `AUTH_DEV_STATIC_*` configuration, and startup rejects `AUTH_DEV_STATIC_ENABLED=true` when `NODE_ENV=production`. Deployed applications must compose a real identity-provider adapter that validates JWT/session/OIDC/Ory/Cognito or equivalent credentials and maps trusted identity data into `Principal`; do not promote the static resolver into a production authentication scheme.
 

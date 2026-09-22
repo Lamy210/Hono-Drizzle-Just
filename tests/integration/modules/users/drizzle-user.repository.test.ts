@@ -39,6 +39,46 @@ test("repository scopes ID and email reads to the requested tenant", async () =>
   expect(await repository.findByEmail("tenant-b", email)).toBeNull();
 });
 
+test("paginated listing is tenant-scoped, deterministic, and preserves the tenant total", async () => {
+  await database.db.insert(users).values([
+    {
+      id: "550e8400-e29b-41d4-a716-446655440001",
+      tenantId: "tenant-a",
+      email: "old@example.com",
+      name: "Old",
+      createdAt: new Date("2026-09-18T00:00:00.000Z"),
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440002",
+      tenantId: "tenant-a",
+      email: "middle@example.com",
+      name: "Middle",
+      createdAt: new Date("2026-09-19T00:00:00.000Z"),
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440003",
+      tenantId: "tenant-a",
+      email: "new@example.com",
+      name: "New",
+      createdAt: new Date("2026-09-20T00:00:00.000Z"),
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440004",
+      tenantId: "tenant-b",
+      email: "other@example.com",
+      name: "Other tenant",
+      createdAt: new Date("2026-09-21T00:00:00.000Z"),
+    },
+  ]);
+
+  const page = await repository.listPage("tenant-a", { offset: 1, limit: 1 });
+  expect(page.total).toBe(3);
+  expect(page.users.map((user) => user.email)).toEqual(["middle@example.com"]);
+
+  const beyondEnd = await repository.listPage("tenant-a", { offset: 10, limit: 2 });
+  expect(beyondEnd).toEqual({ users: [], total: 3 });
+});
+
 test("the same normalized email can exist in separate tenants", async () => {
   const email = `shared-${crypto.randomUUID()}@example.com`;
 

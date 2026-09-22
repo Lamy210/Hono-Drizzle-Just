@@ -7,6 +7,7 @@ import { Sha256StringDigester } from "../../src/infrastructure/crypto/sha256-str
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
+import { ListUsersService } from "../../src/modules/users/application/list-users.service";
 import type { UserCreationIdempotencyRepository } from "../../src/modules/users/application/user-creation-idempotency.repository";
 import type { UserUnitOfWork } from "../../src/modules/users/application/user-unit-of-work";
 import type { User } from "../../src/modules/users/domain/user";
@@ -40,6 +41,12 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
   };
   const findById = mock(async (tenantId: string) => (tenantId === user.tenantId ? user : null));
   const findByEmail = mock(async (_tenantId: string, _email: string) => null);
+  const listPage = mock(
+    async (tenantId: string, input: { readonly offset: number; readonly limit: number }) => ({
+      users: tenantId === user.tenantId && input.offset === 0 ? [user] : [],
+      total: tenantId === user.tenantId ? 1 : 0,
+    }),
+  );
   const create = mock(async (input: { tenantId: string; email: string; name: string }) => ({
     ...user,
     ...input,
@@ -57,6 +64,7 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
           new Sha256StringDigester(),
         ),
         getUserService: new GetUserService(repository),
+        listUsersService: new ListUsersService({ listPage }),
         ...(resolver === undefined ? {} : { principalResolver: resolver }),
       },
       maxRequestBodyBytes === undefined ? undefined : { maxRequestBodyBytes },
@@ -64,6 +72,7 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
     repository,
     findById,
     findByEmail,
+    listPage,
     create,
   };
 }
@@ -92,6 +101,17 @@ function createIdempotencyHarness() {
     return user;
   });
   const repository: UserRepository = { findById, findByEmail, create };
+  const listPage = mock(
+    async (tenantId: string, input: { readonly offset: number; readonly limit: number }) => {
+      const tenantUsers = [...usersById.values()]
+        .filter((user) => user.tenantId === tenantId)
+        .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
+      return {
+        users: tenantUsers.slice(input.offset, input.offset + input.limit),
+        total: tenantUsers.length,
+      };
+    },
+  );
 
   const claim = mock(async (input: {
     tenantId: string;
@@ -132,6 +152,7 @@ function createIdempotencyHarness() {
       readinessChecker: new ReadinessChecker([]),
       createUserService: service,
       getUserService: new GetUserService(repository),
+      listUsersService: new ListUsersService({ listPage }),
       principalResolver: principalResolver(tenantId, ["users:read", "users:write"]),
     });
 
@@ -215,6 +236,62 @@ test("uppercase UUID path input is accepted and normalized after tenant authoriz
   const body = await response.json();
   expect(body.id).toBe("550e8400-e29b-41d4-a716-446655440000");
   expect(body.tenantId).toBeUndefined();
+});
+
+test("authorized user listing applies pagination defaults and hides tenant metadata", async () => {
+  const { app, listPage } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request("/users");
+
+  expect(response.status).toBe(200);
+  expect(listPage).toHaveBeenCalledWith("tenant-a", { offset: 0, limit: 20 });
+  expect(await response.json()).toEqual({
+    data: [
+      {
+        id: "550e8400-e29b-41d4-a716-446655440000",
+        email: "lamy@example.com",
+        name: "Lamy",
+        createdAt: "2026-09-13T00:00:00.000Z",
+      },
+    ],
+    meta: { page: 1, perPage: 20, total: 1, totalPages: 1 },
+  });
+});
+
+test("user listing coerces bounded query pagination and derives the repository offset", async () => {
+  const { app, listPage } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request("/users?page=2&perPage=1");
+
+  expect(response.status).toBe(200);
+  expect(listPage).toHaveBeenCalledWith("tenant-a", { offset: 1, limit: 1 });
+  expect(await response.json()).toEqual({
+    data: [],
+    meta: { page: 2, perPage: 1, total: 1, totalPages: 1 },
+  });
+});
+
+test("excessively deep user pages fail validation before repository work", async () => {
+  const { app, listPage } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request("/users?page=10001");
+
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
+  expect(listPage).not.toHaveBeenCalled();
+});
+
+test("user listing derives tenant scope only from the authorized principal", async () => {
+  const { app, listPage } = buildApp(principalResolver("tenant-b", ["users:read"]));
+
+  const response = await app.request("/users");
+
+  expect(response.status).toBe(200);
+  expect(listPage).toHaveBeenCalledWith("tenant-b", { offset: 0, limit: 20 });
+  expect(await response.json()).toEqual({
+    data: [],
+    meta: { page: 1, perPage: 20, total: 0, totalPages: 0 },
+  });
 });
 
 test("cross-tenant GET is indistinguishable from a missing user", async () => {

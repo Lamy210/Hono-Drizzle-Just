@@ -1,20 +1,24 @@
 import { createRoute, type OpenAPIHono } from "@hono/zod-openapi";
 import { ErrorResponseSchema } from "../../../contracts/common/errors";
 import { IdempotencyKeyHeadersSchema } from "../../../contracts/common/idempotency";
+import { PaginationQuerySchema } from "../../../contracts/common/pagination";
 import { CanonicalUuidSchema } from "../../../contracts/common/primitives";
 import {
   CreateUserRequestSchema,
+  UserListResponseSchema,
   UserPathParamsSchema,
   UserResponseSchema,
 } from "../../../contracts/users/user.contracts";
 import type { AppEnv } from "../../../http/env";
 import type { CreateUserService } from "../application/create-user.service";
 import type { GetUserService } from "../application/get-user.service";
+import type { ListUsersService } from "../application/list-users.service";
 import { toUserResponse } from "./user.presenter";
 
 export interface UserRouteDependencies {
   readonly createUserService: CreateUserService;
   readonly getUserService: GetUserService;
+  readonly listUsersService: ListUsersService;
 }
 
 const RateLimitResponseHeaders = {
@@ -99,6 +103,38 @@ const createUserRoute = createRoute({
   },
 });
 
+const listUsersRoute = createRoute({
+  method: "get",
+  path: "/users",
+  tags: ["Users"],
+  request: { query: PaginationQuerySchema },
+  responses: {
+    200: {
+      description: "Tenant-scoped paginated users",
+      headers: RateLimitResponseHeaders,
+      content: { "application/json": { schema: UserListResponseSchema } },
+    },
+    400: {
+      description: "Validation error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Authentication required or credentials invalid",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    403: {
+      description: "Authenticated principal lacks tenant access or the required scope",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    429: {
+      description: "Rate limit exceeded",
+      headers: RateLimitExceededResponseHeaders,
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    ...DatabaseFailureResponses,
+  },
+});
+
 const getUserRoute = createRoute({
   method: "get",
   path: "/users/{id}",
@@ -146,6 +182,16 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
     );
     const response = UserResponseSchema.parse(toUserResponse(user));
     return c.json(response, 201);
+  });
+
+  app.openapi(listUsersRoute, async (c) => {
+    const query = c.req.valid("query");
+    const result = await dependencies.listUsersService.execute(query, c.get("requestContext"));
+    const response = UserListResponseSchema.parse({
+      data: result.users.map(toUserResponse),
+      meta: result.meta,
+    });
+    return c.json(response, 200);
   });
 
   app.openapi(getUserRoute, async (c) => {

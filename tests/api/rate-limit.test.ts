@@ -7,6 +7,7 @@ import { Sha256StringDigester } from "../../src/infrastructure/crypto/sha256-str
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
+import { ListUsersService } from "../../src/modules/users/application/list-users.service";
 import type { UserUnitOfWork } from "../../src/modules/users/application/user-unit-of-work";
 import type { UserRepository } from "../../src/modules/users/domain/user.repository";
 import { userUnitOfWork } from "../helpers/user-unit-of-work";
@@ -37,6 +38,9 @@ function buildApp(rateLimiter?: RateLimiter, remoteAddress?: string) {
         new Sha256StringDigester(),
       ),
       getUserService: new GetUserService(repository),
+      listUsersService: new ListUsersService({
+        listPage: mock(async () => ({ users: [], total: 0 })),
+      }),
       ...(rateLimiter === undefined ? {} : { rateLimiter }),
     },
     remoteAddress === undefined ? {} : { remoteAddressResolver: () => remoteAddress },
@@ -81,15 +85,21 @@ test("user routes select stable read and write scopes without path identifiers",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ email: "rate-limit@example.com", name: "Rate Limit" }),
   });
+  const listResponse = await app.request("/users");
   const readResponse = await app.request(`/users/${userId}`);
 
   expect(writeResponse.status).toBe(401);
+  expect(listResponse.status).toBe(401);
   expect(readResponse.status).toBe(401);
   expect(consume).toHaveBeenNthCalledWith(1, {
     scope: "http.users.write",
     identity: "203.0.113.10",
   });
   expect(consume).toHaveBeenNthCalledWith(2, {
+    scope: "http.users.read",
+    identity: "203.0.113.10",
+  });
+  expect(consume).toHaveBeenNthCalledWith(3, {
     scope: "http.users.read",
     identity: "203.0.113.10",
   });
