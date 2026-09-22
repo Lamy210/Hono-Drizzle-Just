@@ -8,6 +8,7 @@ import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
 import { ListUsersService } from "../../src/modules/users/application/list-users.service";
+import { UpdateUserService } from "../../src/modules/users/application/update-user.service";
 import type { UserCreationIdempotencyRepository } from "../../src/modules/users/application/user-creation-idempotency.repository";
 import type { UserUnitOfWork } from "../../src/modules/users/application/user-unit-of-work";
 import type { User } from "../../src/modules/users/domain/user";
@@ -47,6 +48,13 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
       total: tenantId === user.tenantId ? 1 : 0,
     }),
   );
+  const update = mock(
+    async (
+      tenantId: string,
+      id: string,
+      fields: { readonly email?: string; readonly name?: string },
+    ) => (tenantId === user.tenantId && id === user.id ? { ...user, ...fields } : null),
+  );
   const create = mock(async (input: { tenantId: string; email: string; name: string }) => ({
     ...user,
     ...input,
@@ -65,6 +73,7 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
         ),
         getUserService: new GetUserService(repository),
         listUsersService: new ListUsersService({ listPage }),
+        updateUserService: new UpdateUserService({ update }),
         ...(resolver === undefined ? {} : { principalResolver: resolver }),
       },
       maxRequestBodyBytes === undefined ? undefined : { maxRequestBodyBytes },
@@ -73,6 +82,7 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
     findById,
     findByEmail,
     listPage,
+    update,
     create,
   };
 }
@@ -153,6 +163,7 @@ function createIdempotencyHarness() {
       createUserService: service,
       getUserService: new GetUserService(repository),
       listUsersService: new ListUsersService({ listPage }),
+      updateUserService: new UpdateUserService({ update: mock(async () => null) }),
       principalResolver: principalResolver(tenantId, ["users:read", "users:write"]),
     });
 
