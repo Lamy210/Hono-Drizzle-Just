@@ -4,6 +4,7 @@ import { users } from "../../../db/schema";
 import type { DatabaseSession } from "../../../infrastructure/database/database";
 import type { DatabaseObserver } from "../../../infrastructure/database/database-observer";
 import type { UserListRepository } from "../application/user-list.repository";
+import type { UserUpdateFields, UserUpdateRepository } from "../application/user-update.repository";
 import type { TenantScopedCreateUserInput, User } from "../domain/user";
 import type { UserRepository } from "../domain/user.repository";
 
@@ -26,7 +27,7 @@ function isUniqueViolation(error: unknown): boolean {
   return hasErrorCode(error, "23505");
 }
 
-export class DrizzleUserRepository implements UserRepository, UserListRepository {
+export class DrizzleUserRepository implements UserRepository, UserListRepository, UserUpdateRepository {
   constructor(
     private readonly db: DatabaseSession,
     private readonly observer?: DatabaseObserver,
@@ -95,6 +96,34 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
       : await selectPage();
 
     return { users: page, total };
+  }
+
+  async update(
+    tenantId: string,
+    id: string,
+    fields: UserUpdateFields,
+  ): Promise<User | null> {
+    const execute = async (): Promise<User | null> => {
+      const [row] = await this.db
+        .update(users)
+        .set(fields)
+        .where(and(eq(users.tenantId, tenantId), eq(users.id, id)))
+        .returning();
+      return row ?? null;
+    };
+
+    try {
+      return this.observer
+        ? await this.observer.operation({ operation: "UPDATE", collection: "users" }, execute)
+        : await execute();
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new AppError("CONFLICT", "A user with this email already exists", 409, undefined, {
+          cause: error,
+        });
+      }
+      throw error;
+    }
   }
 
   async create(input: TenantScopedCreateUserInput): Promise<User> {

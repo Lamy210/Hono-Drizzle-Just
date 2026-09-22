@@ -139,7 +139,7 @@ Verification commands have five stable layers:
 - `just check-fast` runs lint, typecheck, and unit/API tests without requiring PostgreSQL. Use it in the normal edit loop.
 - `just check` adds committed Drizzle migration-history verification and is the same quality command used by GitHub Actions.
 - `just coverage` runs the unit/API suite with Bun's native coverage gate, requiring at least 80% line coverage and 75% function coverage and producing `coverage/lcov.info`.
-- `just test-e2e` launches the real production entrypoint twice with separate development/test bearer principals over the same migrated PostgreSQL database. It proves authenticated create/read/list, cross-tenant isolation for direct reads and listings, tenant-local email uniqueness, readiness, and SIGTERM shutdown. Use `bun run ci:e2e` to apply committed migrations first and run the standalone E2E gate.
+- `just test-e2e` launches the real production entrypoint twice with separate development/test bearer principals over the same migrated PostgreSQL database. It proves authenticated create/read/list/update, cross-tenant isolation for reads/listings/updates, tenant-local email uniqueness on create and update, readiness, and SIGTERM shutdown. Use `bun run ci:e2e` to apply committed migrations first and run the standalone E2E gate.
 - `just ci` runs the quality checks, coverage gate, applies committed migrations once, runs the PostgreSQL integration suite, and then runs black-box E2E against the migrated database. With the same database environment, it is the local full-CI equivalent.
 
 The service listens on `http://localhost:3000` by default.
@@ -150,6 +150,7 @@ The service listens on `http://localhost:3000` by default.
 - `POST /users` - protected; requires an authenticated tenant principal with `users:write`; optional `Idempotency-Key` enables tenant-scoped replay
 - `GET /users` - protected tenant-scoped listing; requires `users:read`; supports `page` (1-10,000, default 1) and `perPage` (1-100, default 20)
 - `GET /users/{id}` - protected; requires an authenticated tenant principal with `users:read`
+- `PATCH /users/{id}` - protected tenant-scoped partial update; requires `users:write`; accepts at least one of `email` or `name`
 - `GET /openapi.json`
 
 ## Configuration
@@ -180,7 +181,7 @@ Configuration is loaded once during startup. Application modules should not read
 | `HTTP_RATE_LIMIT_ALGORITHM` | `fixed_window` | PostgreSQL limiter algorithm: `fixed_window` or `gcra` |
 | `HTTP_RATE_LIMIT_REQUESTS` | `120` | Default requests allowed per client identity for routes without a specific policy |
 | `HTTP_RATE_LIMIT_WINDOW_SECONDS` | `60` | Default policy window; fixed-window duration or GCRA averaging basis |
-| `HTTP_RATE_LIMIT_USERS_WRITE_REQUESTS` | `30` | Requests allowed for the `POST /users` write policy |
+| `HTTP_RATE_LIMIT_USERS_WRITE_REQUESTS` | `30` | Requests allowed for the `POST /users` and `PATCH /users/{id}` write policy |
 | `HTTP_RATE_LIMIT_USERS_WRITE_WINDOW_SECONDS` | `60` | Policy window for the users write scope |
 | `HTTP_RATE_LIMIT_USERS_READ_REQUESTS` | `120` | Requests allowed for the `GET /users` and `GET /users/{id}` read policy |
 | `HTTP_RATE_LIMIT_USERS_READ_WINDOW_SECONDS` | `60` | Policy window for the users read scope |
@@ -199,9 +200,11 @@ Invalid configuration fails startup before database/service composition. Configu
 
 ## Authentication and tenant authorization
 
-`PrincipalResolver` remains the provider-neutral authentication port. The sample user module adds an application-layer authorization boundary on top of that identity: `POST /users` requires `users:write`, while both `GET /users` and `GET /users/{id}` require `users:read`. Anonymous protected requests return `401`; an authenticated principal with a missing/invalid tenant or missing scope returns `403`; and a user that is absent from the authorized tenant, including a row owned by another tenant, returns `404` without an unscoped existence check.
+`PrincipalResolver` remains the provider-neutral authentication port. The sample user module adds an application-layer authorization boundary on top of that identity: `POST /users` and `PATCH /users/{id}` require `users:write`, while both `GET /users` and `GET /users/{id}` require `users:read`. Anonymous protected requests return `401`; an authenticated principal with a missing/invalid tenant or missing scope returns `403`; and a user that is absent from the authorized tenant, including a row owned by another tenant, returns `404` without an unscoped existence check.
 
 Tenant ownership is derived only from `RequestContext.principal.tenantId`. Client payloads, query parameters, or ad-hoc tenant headers cannot select a tenant. `UserRepository` requires the tenant ID in its single-record read methods, while the separate application-owned `UserListRepository` requires tenant ID plus bounded offset/limit input for listing. Drizzle includes the tenant predicate in both count and page queries, and user email uniqueness is enforced by PostgreSQL as `(tenant_id, email)`. The same normalized email may therefore exist in different tenants while remaining unique inside one tenant.
+
+User updates use a separate application-owned `UserUpdateRepository`. `UpdateUserService` derives tenant ownership from the principal, canonicalizes the UUID, normalizes changed fields, and issues one tenant-scoped update through the adapter. The Drizzle implementation uses `UPDATE ... WHERE tenant_id = ? AND id = ? RETURNING`; a row owned by another tenant is therefore indistinguishable from a missing ID and returns 404 without a second existence query. PostgreSQL remains authoritative for tenant-local email uniqueness, and an update collision maps to the same sanitized 409 conflict as create.
 
 The sample list API uses bounded offset pagination because the repository already ships a reusable page/per-page contract. Results are ordered by `created_at DESC, id DESC` for a deterministic tie-break, and the response shape is `{ data, meta: { page, perPage, total, totalPages } }`. Page numbers are capped at 10,000 and page size at 100 to prevent unbounded client-selected offsets/page sizes. Offset pagination can still shift while concurrent writes occur and becomes less efficient for very deep datasets; generated services with large or high-write collections should replace this sample query with cursor/keyset pagination rather than simply raising the cap.
 

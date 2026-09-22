@@ -229,6 +229,19 @@ test(
         expect(listed.data.some((user) => user.id === created.id)).toBe(true);
         expect(listed.meta).toMatchObject({ page: 1, perPage: 20, total: 1, totalPages: 1 });
 
+        const updateResponse = await boundedFetch(`${baseUrl}/users/${created.id}`, {
+          method: "PATCH",
+          headers: authenticatedHeaders(authorization),
+          body: JSON.stringify({
+            name: "Tenant A Updated",
+            tenantId: "tenant-B",
+          }),
+        });
+        expect(updateResponse.status).toBe(200);
+        const updated = (await updateResponse.json()) as UserResponse;
+        expect(updated).toEqual({ ...created, name: "Tenant A Updated" });
+        expect("tenantId" in updated).toBe(false);
+
         const idempotencyKey = crypto.randomUUID();
         const idempotentEmail = `e2e-idempotent-${crypto.randomUUID()}@example.com`;
         const idempotentHeaders = {
@@ -260,6 +273,16 @@ test(
         expect(replay.id).toBe(firstIdempotent.id);
         expect(replay).toEqual(firstIdempotent);
 
+        const updateConflictResponse = await boundedFetch(`${baseUrl}/users/${created.id}`, {
+          method: "PATCH",
+          headers: authenticatedHeaders(authorization),
+          body: JSON.stringify({ email: idempotentEmail }),
+        });
+        expect(updateConflictResponse.status).toBe(409);
+        expect(await updateConflictResponse.json()).toMatchObject({
+          error: { code: "CONFLICT" },
+        });
+
         const mismatchResponse = await boundedFetch(`${baseUrl}/users`, {
           method: "POST",
           headers: idempotentHeaders,
@@ -275,7 +298,7 @@ test(
         });
         expect(JSON.stringify(mismatchBody)).not.toContain(idempotencyKey);
 
-        return created;
+        return updated;
       },
     );
 
@@ -292,6 +315,16 @@ test(
         });
         expect(crossTenant.status).toBe(404);
         expect(await crossTenant.json()).toMatchObject({ error: { code: "NOT_FOUND" } });
+
+        const crossTenantUpdate = await boundedFetch(`${baseUrl}/users/${tenantAUser.id}`, {
+          method: "PATCH",
+          headers: authenticatedHeaders(authorization),
+          body: JSON.stringify({ name: "Cross tenant update" }),
+        });
+        expect(crossTenantUpdate.status).toBe(404);
+        expect(await crossTenantUpdate.json()).toMatchObject({
+          error: { code: "NOT_FOUND" },
+        });
 
         const createdResponse = await boundedFetch(`${baseUrl}/users`, {
           method: "POST",

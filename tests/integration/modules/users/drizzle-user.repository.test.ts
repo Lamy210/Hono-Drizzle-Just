@@ -79,6 +79,53 @@ test("paginated listing is tenant-scoped, deterministic, and preserves the tenan
   expect(beyondEnd).toEqual({ users: [], total: 3 });
 });
 
+test("update is tenant-scoped and returns the updated row", async () => {
+  const created = await repository.create({
+    tenantId: "tenant-a",
+    email: `update-${crypto.randomUUID()}@example.com`,
+    name: "Before",
+  });
+
+  expect(
+    await repository.update("tenant-b", created.id, { name: "Cross tenant" }),
+  ).toBeNull();
+
+  const updated = await repository.update("tenant-a", created.id, {
+    email: `updated-${crypto.randomUUID()}@example.com`,
+    name: "After",
+  });
+
+  expect(updated).toMatchObject({
+    id: created.id,
+    tenantId: "tenant-a",
+    name: "After",
+  });
+  expect(updated?.email).not.toBe(created.email);
+});
+
+test("update maps tenant-local email uniqueness violations to conflict", async () => {
+  const first = await repository.create({
+    tenantId: "tenant-a",
+    email: `update-first-${crypto.randomUUID()}@example.com`,
+    name: "First",
+  });
+  const second = await repository.create({
+    tenantId: "tenant-a",
+    email: `update-second-${crypto.randomUUID()}@example.com`,
+    name: "Second",
+  });
+
+  await expect(
+    repository.update("tenant-a", second.id, { email: first.email }),
+  ).rejects.toMatchObject({ code: "CONFLICT", status: 409 });
+
+  expect(await repository.findById("tenant-a", second.id)).toMatchObject({
+    id: second.id,
+    email: second.email,
+    name: "Second",
+  });
+});
+
 test("the same normalized email can exist in separate tenants", async () => {
   const email = `shared-${crypto.randomUUID()}@example.com`;
 

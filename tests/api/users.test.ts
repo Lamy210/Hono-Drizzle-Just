@@ -8,6 +8,7 @@ import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
 import { ListUsersService } from "../../src/modules/users/application/list-users.service";
+import { UpdateUserService } from "../../src/modules/users/application/update-user.service";
 import type { UserCreationIdempotencyRepository } from "../../src/modules/users/application/user-creation-idempotency.repository";
 import type { UserUnitOfWork } from "../../src/modules/users/application/user-unit-of-work";
 import type { User } from "../../src/modules/users/domain/user";
@@ -47,6 +48,13 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
       total: tenantId === user.tenantId ? 1 : 0,
     }),
   );
+  const update = mock(
+    async (
+      tenantId: string,
+      id: string,
+      fields: { readonly email?: string; readonly name?: string },
+    ) => (tenantId === user.tenantId && id === user.id ? { ...user, ...fields } : null),
+  );
   const create = mock(async (input: { tenantId: string; email: string; name: string }) => ({
     ...user,
     ...input,
@@ -65,6 +73,7 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
         ),
         getUserService: new GetUserService(repository),
         listUsersService: new ListUsersService({ listPage }),
+        updateUserService: new UpdateUserService({ update }),
         ...(resolver === undefined ? {} : { principalResolver: resolver }),
       },
       maxRequestBodyBytes === undefined ? undefined : { maxRequestBodyBytes },
@@ -73,6 +82,7 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
     findById,
     findByEmail,
     listPage,
+    update,
     create,
   };
 }
@@ -153,6 +163,7 @@ function createIdempotencyHarness() {
       createUserService: service,
       getUserService: new GetUserService(repository),
       listUsersService: new ListUsersService({ listPage }),
+      updateUserService: new UpdateUserService({ update: mock(async () => null) }),
       principalResolver: principalResolver(tenantId, ["users:read", "users:write"]),
     });
 
@@ -292,6 +303,74 @@ test("user listing derives tenant scope only from the authorized principal", asy
     data: [],
     meta: { page: 1, perPage: 20, total: 0, totalPages: 0 },
   });
+});
+
+test("authorized PATCH updates only the principal tenant with normalized fields", async () => {
+  const { app, update } = buildApp(principalResolver("tenant-a", ["users:write"]));
+  const response = await app.request("/users/550E8400-E29B-41D4-A716-446655440000", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      email: "UPDATED@Example.com",
+      name: " Updated ",
+      tenantId: "tenant-b",
+    }),
+  });
+
+  expect(response.status).toBe(200);
+  expect(update).toHaveBeenCalledWith(
+    "tenant-a",
+    "550e8400-e29b-41d4-a716-446655440000",
+    { email: "updated@example.com", name: "Updated" },
+  );
+  expect(await response.json()).toEqual({
+    id: "550e8400-e29b-41d4-a716-446655440000",
+    email: "updated@example.com",
+    name: "Updated",
+    createdAt: "2026-09-13T00:00:00.000Z",
+  });
+});
+
+test("empty PATCH is rejected before repository work", async () => {
+  const { app, update } = buildApp(principalResolver("tenant-a", ["users:write"]));
+  const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
+  expect(update).not.toHaveBeenCalled();
+});
+
+test("PATCH requires users:write before repository work", async () => {
+  const { app, update } = buildApp(principalResolver("tenant-a", ["users:read"]));
+  const response = await app.request("/users/550e8400-e29b-41D4-A716-446655440000", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Updated" }),
+  });
+
+  expect(response.status).toBe(403);
+  expect(update).not.toHaveBeenCalled();
+});
+
+test("cross-tenant PATCH is indistinguishable from a missing user", async () => {
+  const { app, update } = buildApp(principalResolver("tenant-b", ["users:write"]));
+  const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Updated" }),
+  });
+
+  expect(response.status).toBe(404);
+  expect(await response.json()).toMatchObject({ error: { code: "NOT_FOUND" } });
+  expect(update).toHaveBeenCalledWith(
+    "tenant-b",
+    "550e8400-e29b-41d4-a716-446655440000",
+    { name: "Updated" },
+  );
 });
 
 test("cross-tenant GET is indistinguishable from a missing user", async () => {

@@ -5,6 +5,7 @@ import { PaginationQuerySchema } from "../../../contracts/common/pagination";
 import { CanonicalUuidSchema } from "../../../contracts/common/primitives";
 import {
   CreateUserRequestSchema,
+  UpdateUserRequestSchema,
   UserListResponseSchema,
   UserPathParamsSchema,
   UserResponseSchema,
@@ -13,12 +14,14 @@ import type { AppEnv } from "../../../http/env";
 import type { CreateUserService } from "../application/create-user.service";
 import type { GetUserService } from "../application/get-user.service";
 import type { ListUsersService } from "../application/list-users.service";
+import type { UpdateUserService } from "../application/update-user.service";
 import { toUserResponse } from "./user.presenter";
 
 export interface UserRouteDependencies {
   readonly createUserService: CreateUserService;
   readonly getUserService: GetUserService;
   readonly listUsersService: ListUsersService;
+  readonly updateUserService: UpdateUserService;
 }
 
 const RateLimitResponseHeaders = {
@@ -135,6 +138,56 @@ const listUsersRoute = createRoute({
   },
 });
 
+const updateUserRoute = createRoute({
+  method: "patch",
+  path: "/users/{id}",
+  tags: ["Users"],
+  request: {
+    params: UserPathParamsSchema,
+    body: {
+      required: true,
+      content: { "application/json": { schema: UpdateUserRequestSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Updated user",
+      headers: RateLimitResponseHeaders,
+      content: { "application/json": { schema: UserResponseSchema } },
+    },
+    400: {
+      description: "Validation error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Authentication required or credentials invalid",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    403: {
+      description: "Authenticated principal lacks tenant access or the required scope",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: "User not found in the current tenant",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    409: {
+      description: "Email already exists within the tenant",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    413: {
+      description: "Request body too large",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    429: {
+      description: "Rate limit exceeded",
+      headers: RateLimitExceededResponseHeaders,
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    ...DatabaseFailureResponses,
+  },
+});
+
 const getUserRoute = createRoute({
   method: "get",
   path: "/users/{id}",
@@ -191,6 +244,19 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
       data: result.users.map(toUserResponse),
       meta: result.meta,
     });
+    return c.json(response, 200);
+  });
+
+  app.openapi(updateUserRoute, async (c) => {
+    const { id } = c.req.valid("param");
+    const input = c.req.valid("json");
+    const canonicalId = CanonicalUuidSchema.parse(id);
+    const user = await dependencies.updateUserService.execute(
+      canonicalId,
+      input,
+      c.get("requestContext"),
+    );
+    const response = UserResponseSchema.parse(toUserResponse(user));
     return c.json(response, 200);
   });
 

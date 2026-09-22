@@ -20,6 +20,7 @@ import { requestLoggerMiddleware } from "../http/middleware/request-logger.middl
 import type { CreateUserService } from "../modules/users/application/create-user.service";
 import type { GetUserService } from "../modules/users/application/get-user.service";
 import type { ListUsersService } from "../modules/users/application/list-users.service";
+import type { UpdateUserService } from "../modules/users/application/update-user.service";
 import { registerUserRoutes } from "../modules/users/presentation/user.routes";
 
 const DEFAULT_MAX_REQUEST_BODY_BYTES = 1_048_576;
@@ -30,6 +31,7 @@ export interface AppDependencies {
   readonly createUserService: CreateUserService;
   readonly getUserService: GetUserService;
   readonly listUsersService: ListUsersService;
+  readonly updateUserService: UpdateUserService;
   readonly principalResolver?: PrincipalResolver;
   readonly tracer?: Tracer;
   readonly meter?: Meter;
