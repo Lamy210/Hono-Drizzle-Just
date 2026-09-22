@@ -9,6 +9,16 @@ export const CreateUserRequestSchema = z
   })
   .openapi("CreateUserRequest");
 
+export const UpdateUserRequestSchema = z
+  .object({
+    email: EmailSchema.optional(),
+    name: z.string().trim().min(1).max(100).openapi({ example: "Updated Lamy" }).optional(),
+  })
+  .refine((value) => value.email !== undefined || value.name !== undefined, {
+    message: "At least one of email or name is required",
+  })
+  .openapi("UpdateUserRequest");
+
 export const UserResponseSchema = z
   .object({
     id: UuidSchema,
