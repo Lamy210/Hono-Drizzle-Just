@@ -139,7 +139,7 @@ Verification commands have five stable layers:
 - `just check-fast` runs lint, typecheck, and unit/API tests without requiring PostgreSQL. Use it in the normal edit loop.
 - `just check` adds committed Drizzle migration-history verification and is the same quality command used by GitHub Actions.
 - `just coverage` runs the unit/API suite with Bun's native coverage gate, requiring at least 80% line coverage and 75% function coverage and producing `coverage/lcov.info`.
-- `just test-e2e` launches the real production entrypoint twice with separate development/test bearer principals over the same migrated PostgreSQL database. It proves authenticated create/read, cross-tenant 404 isolation, tenant-local email uniqueness, readiness, and SIGTERM shutdown. Use `bun run ci:e2e` to apply committed migrations first and run the standalone E2E gate.
+- `just test-e2e` launches the real production entrypoint twice with separate development/test bearer principals over the same migrated PostgreSQL database. It proves authenticated create/read/list, cross-tenant isolation for direct reads and listings, tenant-local email uniqueness, readiness, and SIGTERM shutdown. Use `bun run ci:e2e` to apply committed migrations first and run the standalone E2E gate.
 - `just ci` runs the quality checks, coverage gate, applies committed migrations once, runs the PostgreSQL integration suite, and then runs black-box E2E against the migrated database. With the same database environment, it is the local full-CI equivalent.
 
 The service listens on `http://localhost:3000` by default.
@@ -167,6 +167,9 @@ Configuration is loaded once during startup. Application modules should not read
 | `DATABASE_STATEMENT_TIMEOUT_MS` | `15000` | PostgreSQL server-side statement timeout; `0` disables it |
 | `DATABASE_LOCK_TIMEOUT_MS` | `2000` | Maximum PostgreSQL lock wait per acquisition attempt; `0` disables it |
 | `DATABASE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS` | `30000` | Terminate sessions left idle inside an open transaction; `0` disables it |
+| `DATABASE_TRANSACTION_RETRY_MAX_ATTEMPTS` | `3` | Maximum total attempts for transaction callbacks explicitly marked `retry: "safe"` |
+| `DATABASE_TRANSACTION_RETRY_BASE_DELAY_MS` | `10` | Initial full-jitter backoff cap for replay-safe transaction retries |
+| `DATABASE_TRANSACTION_RETRY_MAX_DELAY_MS` | `100` | Maximum full-jitter backoff cap for replay-safe transaction retries |
 | `LOG_LEVEL` | `info` | Minimum structured log level |
 | `HTTP_DEFAULT_TIMEOUT_MS` | `10000` | Total outbound HTTP deadline across attempts and retry delays |
 | `HTTP_DEFAULT_ATTEMPT_TIMEOUT_MS` | `3000` | Maximum duration of one outbound fetch attempt |
@@ -179,7 +182,7 @@ Configuration is loaded once during startup. Application modules should not read
 | `HTTP_RATE_LIMIT_WINDOW_SECONDS` | `60` | Default policy window; fixed-window duration or GCRA averaging basis |
 | `HTTP_RATE_LIMIT_USERS_WRITE_REQUESTS` | `30` | Requests allowed for the `POST /users` write policy |
 | `HTTP_RATE_LIMIT_USERS_WRITE_WINDOW_SECONDS` | `60` | Policy window for the users write scope |
-| `HTTP_RATE_LIMIT_USERS_READ_REQUESTS` | `120` | Requests allowed for the `GET /users/{id}` read policy |
+| `HTTP_RATE_LIMIT_USERS_READ_REQUESTS` | `120` | Requests allowed for the `GET /users` and `GET /users/{id}` read policy |
 | `HTTP_RATE_LIMIT_USERS_READ_WINDOW_SECONDS` | `60` | Policy window for the users read scope |
 | `HEALTH_CHECK_TIMEOUT_MS` | `1500` | Critical dependency readiness deadline |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | Grace period for in-flight HTTP requests |
