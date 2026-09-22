@@ -7,8 +7,10 @@ import { JsonConsoleLogger } from "../../../src/infrastructure/logging/json-cons
 import { CreateUserService } from "../../../src/modules/users/application/create-user.service";
 import { GetUserService } from "../../../src/modules/users/application/get-user.service";
 import { ListUsersService } from "../../../src/modules/users/application/list-users.service";
+import { UpdateUserService } from "../../../src/modules/users/application/update-user.service";
 import type { UserUnitOfWork } from "../../../src/modules/users/application/user-unit-of-work";
 import type { UserListRepository } from "../../../src/modules/users/application/user-list.repository";
+import type { UserUpdateRepository } from "../../../src/modules/users/application/user-update.repository";
 import type { UserRepository } from "../../../src/modules/users/domain/user.repository";
 import { userUnitOfWork } from "../../helpers/user-unit-of-work";
 
@@ -31,10 +33,11 @@ function buildContractApp() {
     name: "Contract User",
     createdAt: new Date("2026-09-16T00:00:00.000Z"),
   };
-  const repository: UserRepository & UserListRepository = {
+  const repository: UserRepository & UserListRepository & UserUpdateRepository = {
     findById: mock(async () => user),
     findByEmail: mock(async () => null),
     listPage: mock(async () => ({ users: [user], total: 1 })),
+    update: mock(async (_tenantId, _id, fields) => ({ ...user, ...fields })),
     create: mock(async (input) => ({ ...user, ...input })),
   };
   const transactions: TransactionManager<UserUnitOfWork> = {
@@ -48,6 +51,7 @@ function buildContractApp() {
     createUserService: new CreateUserService(transactions, logger, new Sha256StringDigester()),
     getUserService: new GetUserService(repository),
     listUsersService: new ListUsersService(repository),
+    updateUserService: new UpdateUserService(repository),
   });
 }
 
