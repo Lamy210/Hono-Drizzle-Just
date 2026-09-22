@@ -1,8 +1,8 @@
 import type { User } from "../domain/user";
 
 export interface UserUpdateFields {
-  readonly email?: string;
-  readonly name?: string;
+  readonly email?: string | undefined;
+  readonly name?: string | undefined;
 }
 
 export interface UserUpdateRepository {
