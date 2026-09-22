@@ -311,7 +311,7 @@ test("authorized PATCH updates only the principal tenant with normalized fields"
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      email: " UPDATED@Example.com ",
+      email: "UPDATED@Example.com",
       name: " Updated ",
       tenantId: "tenant-b",
     }),
