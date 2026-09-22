@@ -20,15 +20,12 @@ export class UpdateUserService {
       throw new AppError("VALIDATION_ERROR", "At least one user field is required", 400);
     }
 
-    const normalized: UserUpdateFields =
-      input.email === undefined
-        ? { name: input.name.trim() }
-        : input.name === undefined
-          ? { email: input.email.trim().toLowerCase() }
-          : {
-              email: input.email.trim().toLowerCase(),
-              name: input.name.trim(),
-            };
+    const normalized: UserUpdateFields = {
+      ...(input.email === undefined
+        ? {}
+        : { email: input.email.trim().toLowerCase() }),
+      ...(input.name === undefined ? {} : { name: input.name.trim() }),
+    };
 
     const user = await this.repository.update(
       tenantId,
