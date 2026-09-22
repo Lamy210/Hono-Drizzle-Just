@@ -251,6 +251,7 @@
       "get": {
         "parameters": [
           {
+            "description": "1-based page number, capped to bound offset pagination cost",
             "in": "query",
             "name": "page",
             "required": false,
@@ -264,6 +265,7 @@
             }
           },
           {
+            "description": "Number of users returned per page",
             "in": "query",
             "name": "perPage",
             "required": false,
