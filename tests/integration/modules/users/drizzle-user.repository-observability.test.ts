@@ -155,7 +155,7 @@ test("delete records DELETE users without tenant or id cardinality", async () =>
   expect(telemetry).not.toContain(seeded.id);
 });
 
-test("update records UPDATE users without tenant, id, or field cardinality", async () => {
+test("successful conditional update records one UPDATE span without tenant, id, or version cardinality", async () => {
   const tenantId = "tenant-observed-update";
   const seeded = await userFactory.create({
     tenantId,
@@ -164,9 +164,17 @@ test("update records UPDATE users without tenant, id, or field cardinality", asy
   tracer.spans.length = 0;
   meter.records.length = 0;
 
-  const updated = await repository.update(tenantId, seeded.id, { name: "Updated" });
+  const updated = await repository.update(
+    tenantId,
+    seeded.id,
+    { name: "Updated" },
+    { kind: "versions", versions: [seeded.version] },
+  );
 
-  expect(updated?.name).toBe("Updated");
+  expect(updated).toMatchObject({
+    state: "updated",
+    user: { name: "Updated", version: seeded.version + 1 },
+  });
   expect(tracer.spans).toHaveLength(1);
   expect(tracer.spans[0]?.name).toBe("UPDATE users");
   expect(tracer.spans[0]?.options.attributes).toEqual({
@@ -181,6 +189,37 @@ test("update records UPDATE users without tenant, id, or field cardinality", asy
   expect(telemetry).not.toContain(tenantId);
   expect(telemetry).not.toContain(seeded.id);
   expect(telemetry).not.toContain("Updated");
+  expect(telemetry).not.toContain(String(seeded.version));
+});
+
+test("stale conditional update records bounded UPDATE then existence SELECT telemetry", async () => {
+  const tenantId = "tenant-observed-stale-update";
+  const seeded = await userFactory.create({
+    tenantId,
+    email: `stale-update-observed-${crypto.randomUUID()}@example.com`,
+  });
+  tracer.spans.length = 0;
+  meter.records.length = 0;
+
+  const result = await repository.update(
+    tenantId,
+    seeded.id,
+    { name: "Stale" },
+    { kind: "versions", versions: [seeded.version + 10] },
+  );
+
+  expect(result).toEqual({ state: "precondition_failed" });
+  expect(tracer.spans.map((entry) => entry.name)).toEqual([
+    "UPDATE users",
+    "SELECT users",
+  ]);
+  const telemetry = JSON.stringify({
+    spans: tracer.spans.map((entry) => entry.options.attributes),
+    records: meter.records,
+  });
+  expect(telemetry).not.toContain(tenantId);
+  expect(telemetry).not.toContain(seeded.id);
+  expect(telemetry).not.toContain("Stale");
 });
 
 test("create records INSERT users without tenant or input cardinality", async () => {
