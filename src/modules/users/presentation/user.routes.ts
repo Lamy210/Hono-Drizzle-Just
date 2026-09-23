@@ -11,7 +11,6 @@ import {
   UserPathParamsSchema,
   UserResponseSchema,
 } from "../../../contracts/users/user.contracts";
-import { AppError } from "../../../core/errors/app-error";
 import type { AppEnv } from "../../../http/env";
 import type { CreateUserService } from "../application/create-user.service";
 import type { DeleteUserService } from "../application/delete-user.service";
@@ -308,18 +307,11 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
     const { id } = c.req.valid("param");
     const input = c.req.valid("json");
     const { "if-match": ifMatch } = c.req.valid("header");
-    if (ifMatch === undefined) {
-      throw new AppError(
-        "PRECONDITION_REQUIRED",
-        "If-Match header is required",
-        428,
-      );
-    }
     const canonicalId = CanonicalUuidSchema.parse(id);
     const user = await dependencies.updateUserService.execute(
       canonicalId,
       input,
-      parseUserIfMatch(ifMatch),
+      ifMatch === undefined ? undefined : parseUserIfMatch(ifMatch),
       c.get("requestContext"),
     );
     const response = UserResponseSchema.parse(toUserResponse(user));
