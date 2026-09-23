@@ -74,8 +74,25 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
       };
     },
   );
-  const deleteById = mock(async (tenantId: string, id: string) =>
-    tenantId === user.tenantId && id === user.id
+  const deleteById = mock(
+    async (
+      tenantId: string,
+      id: string,
+      precondition:
+        | { readonly kind: "any-current" }
+        | { readonly kind: "versions"; readonly versions: readonly number[] },
+    ) => {
+      if (tenantId !== user.tenantId || id !== user.id) {
+        return { state: "not_found" as const };
+      }
+      if (
+        precondition.kind === "versions" &&
+        !precondition.versions.includes(user.version)
+      ) {
+        return { state: "precondition_failed" as const };
+      }
+      return { state: "deleted" as const };
+    },
   );
   const create = mock(async (input: { tenantId: string; email: string; name: string }) => ({
     ...user,
@@ -186,7 +203,10 @@ function createIdempotencyHarness() {
       logger,
       readinessChecker: new ReadinessChecker([]),
       createUserService: service,
-      deleteUserService: new DeleteUserService({ deleteById: mock(async () => false) }, logger),
+      deleteUserService: new DeleteUserService(
+        { deleteById: mock(async () => ({ state: "not_found" as const })) },
+        logger,
+      ),
       getUserService: new GetUserService(repository),
       listUsersService: new ListUsersService({ listPage }),
       updateUserService: new UpdateUserService(
