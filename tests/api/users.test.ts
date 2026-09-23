@@ -299,6 +299,20 @@ test("uppercase UUID path input is accepted and normalized after tenant authoriz
   expect(response.headers.get("etag")).toBe('"v1"');
 });
 
+test("anonymous conditional GET remains 401 before validator evaluation", async () => {
+  const { app, repository } = buildApp();
+  const response = await app.request(
+    "/users/550e8400-e29b-41d4-a716-446655440000",
+    { headers: { "if-none-match": "*" } },
+  );
+
+  expect(response.status).toBe(401);
+  expect(await response.json()).toMatchObject({
+    error: { code: "UNAUTHORIZED" },
+  });
+  expect(repository.findById).not.toHaveBeenCalled();
+});
+
 test("matching If-None-Match returns 304 with the current ETag and no body", async () => {
   const { app, repository } = buildApp(principalResolver("tenant-a", ["users:read"]));
 
