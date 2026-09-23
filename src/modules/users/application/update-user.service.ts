@@ -6,6 +6,7 @@ import type { User } from "../domain/user";
 import type {
   UserUpdateFields,
   UserUpdateRepository,
+  UserVersionPrecondition,
 } from "./user-update.repository";
 
 export class UpdateUserService {
@@ -17,6 +18,7 @@ export class UpdateUserService {
   async execute(
     id: string,
     input: UserUpdateFields,
+    precondition: UserVersionPrecondition,
     context: RequestContext,
   ): Promise<User> {
     const { tenantId } = requireTenantScope(context, "users:write");
@@ -31,15 +33,24 @@ export class UpdateUserService {
       ...(input.name === undefined ? {} : { name: input.name.trim() }),
     };
 
-    const user = await this.repository.update(
+    const result = await this.repository.update(
       tenantId,
       id.toLowerCase(),
       normalized,
+      precondition,
     );
-    if (!user) {
+    if (result.state === "not_found") {
       throw new AppError("NOT_FOUND", "User not found", 404);
     }
+    if (result.state === "precondition_failed") {
+      throw new AppError(
+        "PRECONDITION_FAILED",
+        "The user changed since it was last retrieved",
+        412,
+      );
+    }
 
+    const user = result.user;
     this.logger.info("user.updated", {
       userId: user.id,
       requestId: context.requestId,
