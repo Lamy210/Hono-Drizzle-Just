@@ -1,11 +1,16 @@
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { AppError } from "../../../core/errors/app-error";
 import { users } from "../../../db/schema";
 import type { DatabaseSession } from "../../../infrastructure/database/database";
 import type { DatabaseObserver } from "../../../infrastructure/database/database-observer";
 import type { UserDeleteRepository } from "../application/user-delete.repository";
 import type { UserListRepository } from "../application/user-list.repository";
-import type { UserUpdateFields, UserUpdateRepository } from "../application/user-update.repository";
+import type {
+  UserUpdateFields,
+  UserUpdateRepository,
+  UserUpdateResult,
+  UserVersionPrecondition,
+} from "../application/user-update.repository";
 import type { TenantScopedCreateUserInput, User } from "../domain/user";
 import type { UserRepository } from "../domain/user.repository";
 
@@ -117,20 +122,40 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
     tenantId: string,
     id: string,
     fields: UserUpdateFields,
-  ): Promise<User | null> {
-    const execute = async (): Promise<User | null> => {
+    precondition: UserVersionPrecondition,
+  ): Promise<UserUpdateResult> {
+    const executeUpdate = async (): Promise<User | undefined> => {
+      if (precondition.kind === "versions" && precondition.versions.length === 0) {
+        return undefined;
+      }
+
+      const predicate =
+        precondition.kind === "any-current"
+          ? and(eq(users.tenantId, tenantId), eq(users.id, id))
+          : and(
+              eq(users.tenantId, tenantId),
+              eq(users.id, id),
+              inArray(users.version, [...precondition.versions]),
+            );
+
       const [row] = await this.db
         .update(users)
-        .set(fields)
-        .where(and(eq(users.tenantId, tenantId), eq(users.id, id)))
+        .set({
+          ...fields,
+          version: sql`${users.version} + 1`,
+        })
+        .where(predicate)
         .returning();
-      return row ?? null;
+      return row;
     };
 
     try {
-      return this.observer
-        ? await this.observer.operation({ operation: "UPDATE", collection: "users" }, execute)
-        : await execute();
+      const updated = this.observer
+        ? await this.observer.operation({ operation: "UPDATE", collection: "users" }, executeUpdate)
+        : await executeUpdate();
+      if (updated) {
+        return { state: "updated", user: updated };
+      }
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new AppError("CONFLICT", "A user with this email already exists", 409, undefined, {
@@ -139,6 +164,20 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
       }
       throw error;
     }
+
+    const checkExists = async (): Promise<boolean> => {
+      const [row] = await this.db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.tenantId, tenantId), eq(users.id, id)))
+        .limit(1);
+      return row !== undefined;
+    };
+    const exists = this.observer
+      ? await this.observer.operation({ operation: "SELECT", collection: "users" }, checkExists)
+      : await checkExists();
+
+    return exists ? { state: "precondition_failed" } : { state: "not_found" };
   }
 
   async create(input: TenantScopedCreateUserInput): Promise<User> {
