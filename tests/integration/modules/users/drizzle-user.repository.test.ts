@@ -189,6 +189,10 @@ test("update is tenant-scoped, version-guarded, and increments version atomicall
       version: 2,
     },
   });
+  if (updated.state === "updated") {
+    expect(updated.user.createdAt).toBeInstanceOf(Date);
+    expect(updated.user.createdAt.toISOString()).toBe(created.createdAt.toISOString());
+  }
 
   expect(
     await repository.update(
@@ -203,6 +207,103 @@ test("update is tenant-scoped, version-guarded, and increments version atomicall
     name: "After",
     version: 2,
   });
+});
+
+async function waitForBlockedAtomicUserMutation(): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await database.pool.query<{ blocked: boolean }>(
+      `select exists (
+         select 1
+           from pg_stat_activity
+          where pid <> pg_backend_pid()
+            and wait_event_type = 'Lock'
+            and (
+              query ilike '%with updated as%'
+              or query ilike '%with deleted as%'
+            )
+       ) as blocked`,
+    );
+    if (result.rows[0]?.blocked) {
+      return;
+    }
+    await Bun.sleep(10);
+  }
+  throw new Error("Timed out waiting for blocked atomic user mutation");
+}
+
+test("conditional update classifies a concurrent delete as precondition failure from one statement snapshot", async () => {
+  const created = await repository.create({
+    tenantId: "tenant-a",
+    email: `atomic-update-${crypto.randomUUID()}@example.com`,
+    name: "Before",
+  });
+  const blocker = await database.pool.connect();
+  let inTransaction = false;
+
+  try {
+    await blocker.query("begin");
+    inTransaction = true;
+    await blocker.query(
+      "delete from users where tenant_id = $1 and id = $2",
+      ["tenant-a", created.id],
+    );
+
+    const pending = repository.update(
+      "tenant-a",
+      created.id,
+      { name: "Should not win" },
+      { kind: "versions", versions: [created.version] },
+    );
+    await waitForBlockedAtomicUserMutation();
+
+    await blocker.query("commit");
+    inTransaction = false;
+
+    expect(await pending).toEqual({ state: "precondition_failed" });
+    expect(await repository.findById("tenant-a", created.id)).toBeNull();
+  } finally {
+    if (inTransaction) {
+      await blocker.query("rollback").catch(() => undefined);
+    }
+    blocker.release();
+  }
+});
+
+test("conditional delete classifies a concurrent delete as precondition failure from one statement snapshot", async () => {
+  const created = await repository.create({
+    tenantId: "tenant-a",
+    email: `atomic-delete-${crypto.randomUUID()}@example.com`,
+    name: "Delete",
+  });
+  const blocker = await database.pool.connect();
+  let inTransaction = false;
+
+  try {
+    await blocker.query("begin");
+    inTransaction = true;
+    await blocker.query(
+      "delete from users where tenant_id = $1 and id = $2",
+      ["tenant-a", created.id],
+    );
+
+    const pending = repository.deleteById(
+      "tenant-a",
+      created.id,
+      { kind: "versions", versions: [created.version] },
+    );
+    await waitForBlockedAtomicUserMutation();
+
+    await blocker.query("commit");
+    inTransaction = false;
+
+    expect(await pending).toEqual({ state: "precondition_failed" });
+    expect(await repository.findById("tenant-a", created.id)).toBeNull();
+  } finally {
+    if (inTransaction) {
+      await blocker.query("rollback").catch(() => undefined);
+    }
+    blocker.release();
+  }
 });
 
 test("update maps tenant-local email uniqueness violations to conflict", async () => {

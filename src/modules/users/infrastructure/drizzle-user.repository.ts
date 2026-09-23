@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, sql, type SQL } from "drizzle-orm";
 import { AppError } from "../../../core/errors/app-error";
 import { users } from "../../../db/schema";
 import type { DatabaseSession } from "../../../infrastructure/database/database";
@@ -31,6 +31,69 @@ function hasErrorCode(error: unknown, code: string): boolean {
 
 function isUniqueViolation(error: unknown): boolean {
   return hasErrorCode(error, "23505");
+}
+
+function versionPreconditionSql(precondition: UserVersionPrecondition): SQL {
+  if (precondition.kind === "any-current") {
+    return sql`true`;
+  }
+  if (precondition.versions.length === 0) {
+    return sql`false`;
+  }
+
+  return sql`${users.version} in (${sql.join(
+    precondition.versions.map((version) => sql`${version}`),
+    sql`, `,
+  )})`;
+}
+
+interface AtomicUserUpdateRow extends Record<string, unknown> {
+  readonly state: "updated" | "not_found" | "precondition_failed";
+  readonly id: string | null;
+  readonly tenant_id: string | null;
+  readonly email: string | null;
+  readonly name: string | null;
+  readonly version: number | null;
+  readonly created_at: unknown;
+}
+
+interface AtomicUserDeleteRow extends Record<string, unknown> {
+  readonly state: "deleted" | "not_found" | "precondition_failed";
+}
+
+function databaseDate(value: unknown): Date | undefined {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function updatedUserFromRow(row: AtomicUserUpdateRow): User {
+  const createdAt = databaseDate(row.created_at);
+  if (
+    row.id === null ||
+    row.tenant_id === null ||
+    row.email === null ||
+    row.name === null ||
+    row.version === null ||
+    createdAt === undefined
+  ) {
+    throw new Error("Atomic user update returned an incomplete row");
+  }
+
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    email: row.email,
+    name: row.name,
+    version: row.version,
+    createdAt,
+  };
 }
 
 export class DrizzleUserRepository implements UserRepository, UserListRepository, UserUpdateRepository, UserDeleteRepository {
@@ -109,45 +172,43 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
     id: string,
     precondition: UserVersionPrecondition,
   ): Promise<UserDeleteResult> {
-    const executeDelete = async (): Promise<boolean> => {
-      const predicate =
-        precondition.kind === "any-current"
-          ? and(eq(users.tenantId, tenantId), eq(users.id, id))
-          : and(
-              eq(users.tenantId, tenantId),
-              eq(users.id, id),
-              inArray(users.version, [...precondition.versions]),
-            );
+    const execute = async (): Promise<UserDeleteResult> => {
+      const result = await this.db.execute<AtomicUserDeleteRow>(sql`
+        with deleted as (
+          delete from ${users}
+          where
+            ${users.tenantId} = ${tenantId}
+            and ${users.id} = ${id}
+            and ${versionPreconditionSql(precondition)}
+          returning ${users.id} as id
+        )
+        select
+          case
+            when deleted.id is not null then 'deleted'
+            when exists (
+              select 1
+              from ${users}
+              where
+                ${users.tenantId} = ${tenantId}
+                and ${users.id} = ${id}
+            ) then 'precondition_failed'
+            else 'not_found'
+          end as state
+        from (select 1) as anchor
+        left join deleted on true
+        limit 1
+      `);
 
-      const [row] = await this.db
-        .delete(users)
-        .where(predicate)
-        .returning({ id: users.id });
-      return row !== undefined;
-    };
-
-    if (precondition.kind !== "versions" || precondition.versions.length > 0) {
-      const deleted = this.observer
-        ? await this.observer.operation({ operation: "DELETE", collection: "users" }, executeDelete)
-        : await executeDelete();
-      if (deleted) {
-        return { state: "deleted" };
+      const row = result.rows[0];
+      if (!row) {
+        throw new Error("Atomic user delete returned no classification");
       }
-    }
-
-    const checkExists = async (): Promise<boolean> => {
-      const [row] = await this.db
-        .select({ id: users.id })
-        .from(users)
-        .where(and(eq(users.tenantId, tenantId), eq(users.id, id)))
-        .limit(1);
-      return row !== undefined;
+      return { state: row.state };
     };
-    const exists = this.observer
-      ? await this.observer.operation({ operation: "SELECT", collection: "users" }, checkExists)
-      : await checkExists();
 
-    return exists ? { state: "precondition_failed" } : { state: "not_found" };
+    return this.observer
+      ? this.observer.operation({ operation: "DELETE", collection: "users" }, execute)
+      : execute();
   }
 
   async update(
@@ -156,36 +217,69 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
     fields: UserUpdateFields,
     precondition: UserVersionPrecondition,
   ): Promise<UserUpdateResult> {
-    const executeUpdate = async (): Promise<User | undefined> => {
-      const predicate =
-        precondition.kind === "any-current"
-          ? and(eq(users.tenantId, tenantId), eq(users.id, id))
-          : and(
-              eq(users.tenantId, tenantId),
-              eq(users.id, id),
-              inArray(users.version, [...precondition.versions]),
-            );
+    const assignments: SQL[] = [];
+    if (fields.email !== undefined) {
+      assignments.push(sql`"email" = ${fields.email}`);
+    }
+    if (fields.name !== undefined) {
+      assignments.push(sql`"name" = ${fields.name}`);
+    }
+    assignments.push(sql`"version" = ${users.version} + 1`);
 
-      const [row] = await this.db
-        .update(users)
-        .set({
-          ...fields,
-          version: sql`${users.version} + 1`,
-        })
-        .where(predicate)
-        .returning();
-      return row;
+    const execute = async (): Promise<UserUpdateResult> => {
+      const result = await this.db.execute<AtomicUserUpdateRow>(sql`
+        with updated as (
+          update ${users}
+          set ${sql.join(assignments, sql`, `)}
+          where
+            ${users.tenantId} = ${tenantId}
+            and ${users.id} = ${id}
+            and ${versionPreconditionSql(precondition)}
+          returning
+            ${users.id} as id,
+            ${users.tenantId} as tenant_id,
+            ${users.email} as email,
+            ${users.name} as name,
+            ${users.version} as version,
+            ${users.createdAt} as created_at
+        )
+        select
+          case
+            when updated.id is not null then 'updated'
+            when exists (
+              select 1
+              from ${users}
+              where
+                ${users.tenantId} = ${tenantId}
+                and ${users.id} = ${id}
+            ) then 'precondition_failed'
+            else 'not_found'
+          end as state,
+          updated.id,
+          updated.tenant_id,
+          updated.email,
+          updated.name,
+          updated.version,
+          updated.created_at
+        from (select 1) as anchor
+        left join updated on true
+        limit 1
+      `);
+
+      const row = result.rows[0];
+      if (!row) {
+        throw new Error("Atomic user update returned no classification");
+      }
+      if (row.state !== "updated") {
+        return { state: row.state };
+      }
+      return { state: "updated", user: updatedUserFromRow(row) };
     };
 
     try {
-      if (precondition.kind !== "versions" || precondition.versions.length > 0) {
-        const updated = this.observer
-          ? await this.observer.operation({ operation: "UPDATE", collection: "users" }, executeUpdate)
-          : await executeUpdate();
-        if (updated) {
-          return { state: "updated", user: updated };
-        }
-      }
+      return this.observer
+        ? await this.observer.operation({ operation: "UPDATE", collection: "users" }, execute)
+        : await execute();
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new AppError("CONFLICT", "A user with this email already exists", 409, undefined, {
@@ -194,20 +288,6 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
       }
       throw error;
     }
-
-    const checkExists = async (): Promise<boolean> => {
-      const [row] = await this.db
-        .select({ id: users.id })
-        .from(users)
-        .where(and(eq(users.tenantId, tenantId), eq(users.id, id)))
-        .limit(1);
-      return row !== undefined;
-    };
-    const exists = this.observer
-      ? await this.observer.operation({ operation: "SELECT", collection: "users" }, checkExists)
-      : await checkExists();
-
-    return exists ? { state: "precondition_failed" } : { state: "not_found" };
   }
 
   async create(input: TenantScopedCreateUserInput): Promise<User> {
