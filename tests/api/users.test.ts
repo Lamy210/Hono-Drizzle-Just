@@ -380,6 +380,48 @@ test("cross-tenant PATCH is indistinguishable from a missing user", async () => 
   );
 });
 
+test("authorized DELETE removes only the principal tenant user and returns 204", async () => {
+  const { app, deleteById } = buildApp(principalResolver("tenant-a", ["users:write"]));
+
+  const response = await app.request("/users/550E8400-E29B-41D4-A716-446655440000", {
+    method: "DELETE",
+  });
+
+  expect(response.status).toBe(204);
+  expect(await response.text()).toBe("");
+  expect(deleteById).toHaveBeenCalledWith(
+    "tenant-a",
+    "550e8400-e29b-41d4-a716-446655440000",
+  );
+});
+
+test("DELETE requires users:write before repository work", async () => {
+  const { app, deleteById } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
+    method: "DELETE",
+  });
+
+  expect(response.status).toBe(403);
+  expect(await response.json()).toMatchObject({ error: { code: "FORBIDDEN" } });
+  expect(deleteById).not.toHaveBeenCalled();
+});
+
+test("cross-tenant DELETE is indistinguishable from a missing user", async () => {
+  const { app, deleteById } = buildApp(principalResolver("tenant-b", ["users:write"]));
+
+  const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
+    method: "DELETE",
+  });
+
+  expect(response.status).toBe(404);
+  expect(await response.json()).toMatchObject({ error: { code: "NOT_FOUND" } });
+  expect(deleteById).toHaveBeenCalledWith(
+    "tenant-b",
+    "550e8400-e29b-41d4-a716-446655440000",
+  );
+});
+
 test("cross-tenant GET is indistinguishable from a missing user", async () => {
   const { app, repository } = buildApp(principalResolver("tenant-b", ["users:read"]));
   const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000");
