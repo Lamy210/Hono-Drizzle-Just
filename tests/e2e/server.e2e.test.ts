@@ -286,7 +286,11 @@ test(
         expect(updateResponse.status).toBe(200);
         const updatedEtag = updateResponse.headers.get("etag");
         expect(updatedEtag).toBe('"v2"');
-        const updated = (await updateResponse.json()) as UserResponse;
+        const updated = (await withTimeout(
+          updateResponse.json() as Promise<UserResponse>,
+          requestTimeoutMs,
+          "PATCH response body",
+        )) as UserResponse;
         expect(updated).toEqual({ ...created, name: "Tenant A Updated" });
         expect("tenantId" in updated).toBe(false);
 
