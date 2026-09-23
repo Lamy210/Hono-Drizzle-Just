@@ -129,7 +129,7 @@ test("listPage records bounded SELECT telemetry without tenant or pagination car
   expect(telemetry).not.toContain('"limit"');
 });
 
-test("delete records DELETE users without tenant or id cardinality", async () => {
+test("successful conditional delete records one DELETE span without tenant, id, or version cardinality", async () => {
   const tenantId = "tenant-observed-delete";
   const seeded = await userFactory.create({
     tenantId,
@@ -138,7 +138,13 @@ test("delete records DELETE users without tenant or id cardinality", async () =>
   tracer.spans.length = 0;
   meter.records.length = 0;
 
-  expect(await repository.deleteById(tenantId, seeded.id)).toBe(true);
+  expect(
+    await repository.deleteById(
+      tenantId,
+      seeded.id,
+      { kind: "versions", versions: [seeded.version] },
+    ),
+  ).toEqual({ state: "deleted" });
 
   expect(tracer.spans).toHaveLength(1);
   expect(tracer.spans[0]?.name).toBe("DELETE users");
@@ -147,12 +153,57 @@ test("delete records DELETE users without tenant or id cardinality", async () =>
     "db.operation.name": "DELETE",
     "db.collection.name": "users",
   });
+  expect(tracer.spans[0]?.options.attributes).not.toHaveProperty("version");
+  expect(meter.records[0]?.attributes).not.toHaveProperty("version");
   const telemetry = JSON.stringify({
     attributes: tracer.spans[0]?.options.attributes,
     records: meter.records,
   });
   expect(telemetry).not.toContain(tenantId);
   expect(telemetry).not.toContain(seeded.id);
+});
+
+test("stale conditional delete records DELETE then tenant-scoped existence SELECT", async () => {
+  const tenantId = "tenant-observed-stale-delete";
+  const seeded = await userFactory.create({
+    tenantId,
+    email: `stale-delete-observed-${crypto.randomUUID()}@example.com`,
+  });
+  tracer.spans.length = 0;
+  meter.records.length = 0;
+
+  expect(
+    await repository.deleteById(
+      tenantId,
+      seeded.id,
+      { kind: "versions", versions: [seeded.version + 1] },
+    ),
+  ).toEqual({ state: "precondition_failed" });
+
+  expect(tracer.spans.map((entry) => entry.name)).toEqual([
+    "DELETE users",
+    "SELECT users",
+  ]);
+});
+
+test("weak-only delete precondition performs only the existence SELECT", async () => {
+  const tenantId = "tenant-observed-weak-delete";
+  const seeded = await userFactory.create({
+    tenantId,
+    email: `weak-delete-observed-${crypto.randomUUID()}@example.com`,
+  });
+  tracer.spans.length = 0;
+  meter.records.length = 0;
+
+  expect(
+    await repository.deleteById(
+      tenantId,
+      seeded.id,
+      { kind: "versions", versions: [] },
+    ),
+  ).toEqual({ state: "precondition_failed" });
+
+  expect(tracer.spans.map((entry) => entry.name)).toEqual(["SELECT users"]);
 });
 
 test("successful conditional update records one UPDATE span without tenant, id, or version cardinality", async () => {
