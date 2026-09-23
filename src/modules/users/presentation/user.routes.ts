@@ -35,6 +35,16 @@ const EntityTagResponseHeader = {
   },
 } as const;
 
+const CreatedResourceLocationResponseHeader = {
+  Location: {
+    description: "URI reference for the created user resource",
+    schema: {
+      type: "string",
+      example: "/users/550e8400-e29b-41d4-a716-446655440000",
+    },
+  },
+} as const;
+
 const UserRevalidationCacheResponseHeader = {
   "Cache-Control": {
     description:
@@ -89,7 +99,11 @@ const createUserRoute = createRoute({
   responses: {
     201: {
       description: "User created or idempotently replayed",
-      headers: { ...RateLimitResponseHeaders, ...EntityTagResponseHeader },
+      headers: {
+        ...RateLimitResponseHeaders,
+        ...EntityTagResponseHeader,
+        ...CreatedResourceLocationResponseHeader,
+      },
       content: { "application/json": { schema: UserResponseSchema } },
     },
     400: {
@@ -323,6 +337,7 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
       idempotencyKey === undefined ? {} : { idempotencyKey },
     );
     const response = UserResponseSchema.parse(toUserResponse(user));
+    c.header("Location", `/users/${user.id}`);
     c.header("ETag", formatUserEntityTag(user.version));
     return c.json(response, 201);
   });
