@@ -18,12 +18,19 @@ export class UpdateUserService {
   async execute(
     id: string,
     input: UserUpdateFields,
-    precondition: UserVersionPrecondition,
+    precondition: UserVersionPrecondition | undefined,
     context: RequestContext,
   ): Promise<User> {
     const { tenantId } = requireTenantScope(context, "users:write");
     if (input.email === undefined && input.name === undefined) {
       throw new AppError("VALIDATION_ERROR", "At least one user field is required", 400);
+    }
+    if (precondition === undefined) {
+      throw new AppError(
+        "PRECONDITION_REQUIRED",
+        "If-Match header is required",
+        428,
+      );
     }
 
     const normalized: UserUpdateFields = {
