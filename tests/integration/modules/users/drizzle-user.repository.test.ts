@@ -130,28 +130,55 @@ test("delete is tenant-scoped and reports whether a row was removed", async () =
   expect(await repository.deleteById("tenant-a", created.id)).toBe(false);
 });
 
-test("update is tenant-scoped and returns the updated row", async () => {
+test("update is tenant-scoped, version-guarded, and increments version atomically", async () => {
   const created = await repository.create({
     tenantId: "tenant-a",
     email: `update-${crypto.randomUUID()}@example.com`,
     name: "Before",
   });
+  expect(created.version).toBe(1);
 
   expect(
-    await repository.update("tenant-b", created.id, { name: "Cross tenant" }),
-  ).toBeNull();
+    await repository.update(
+      "tenant-b",
+      created.id,
+      { name: "Cross tenant" },
+      { kind: "versions", versions: [created.version] },
+    ),
+  ).toEqual({ state: "not_found" });
 
-  const updated = await repository.update("tenant-a", created.id, {
-    email: `updated-${crypto.randomUUID()}@example.com`,
-    name: "After",
-  });
+  const nextEmail = `updated-${crypto.randomUUID()}@example.com`;
+  const updated = await repository.update(
+    "tenant-a",
+    created.id,
+    { email: nextEmail, name: "After" },
+    { kind: "versions", versions: [created.version] },
+  );
 
   expect(updated).toMatchObject({
-    id: created.id,
-    tenantId: "tenant-a",
-    name: "After",
+    state: "updated",
+    user: {
+      id: created.id,
+      tenantId: "tenant-a",
+      email: nextEmail,
+      name: "After",
+      version: 2,
+    },
   });
-  expect(updated?.email).not.toBe(created.email);
+
+  expect(
+    await repository.update(
+      "tenant-a",
+      created.id,
+      { name: "Stale overwrite" },
+      { kind: "versions", versions: [created.version] },
+    ),
+  ).toEqual({ state: "precondition_failed" });
+
+  expect(await repository.findById("tenant-a", created.id)).toMatchObject({
+    name: "After",
+    version: 2,
+  });
 });
 
 test("update maps tenant-local email uniqueness violations to conflict", async () => {
@@ -167,7 +194,12 @@ test("update maps tenant-local email uniqueness violations to conflict", async (
   });
 
   await expect(
-    repository.update("tenant-a", second.id, { email: first.email }),
+    repository.update(
+      "tenant-a",
+      second.id,
+      { email: first.email },
+      { kind: "versions", versions: [second.version] },
+    ),
   ).rejects.toMatchObject({ code: "CONFLICT", status: 409 });
 
   expect(await repository.findById("tenant-a", second.id)).toMatchObject({
@@ -198,6 +230,24 @@ test("repository maps a wrapped PostgreSQL tenant-local unique violation to a co
     code: "CONFLICT",
     status: 409,
   });
+});
+
+test("users persistence exposes a required version column with default 1", async () => {
+  const result = await database.pool.query<{
+    column_default: string | null;
+    is_nullable: string;
+    data_type: string;
+  }>(
+    `select column_default, is_nullable, data_type
+       from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'users'
+        and column_name = 'version'`,
+  );
+
+  expect(result.rows).toEqual([
+    { column_default: "1", is_nullable: "NO", data_type: "integer" },
+  ]);
 });
 
 test("users persistence exposes a required varchar(128) tenant_id column", async () => {
