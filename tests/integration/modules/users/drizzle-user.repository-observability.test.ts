@@ -129,6 +129,32 @@ test("listPage records bounded SELECT telemetry without tenant or pagination car
   expect(telemetry).not.toContain('"limit"');
 });
 
+test("delete records DELETE users without tenant or id cardinality", async () => {
+  const tenantId = "tenant-observed-delete";
+  const seeded = await userFactory.create({
+    tenantId,
+    email: `delete-observed-${crypto.randomUUID()}@example.com`,
+  });
+  tracer.spans.length = 0;
+  meter.records.length = 0;
+
+  expect(await repository.deleteById(tenantId, seeded.id)).toBe(true);
+
+  expect(tracer.spans).toHaveLength(1);
+  expect(tracer.spans[0]?.name).toBe("DELETE users");
+  expect(tracer.spans[0]?.options.attributes).toEqual({
+    "db.system.name": "postgresql",
+    "db.operation.name": "DELETE",
+    "db.collection.name": "users",
+  });
+  const telemetry = JSON.stringify({
+    attributes: tracer.spans[0]?.options.attributes,
+    records: meter.records,
+  });
+  expect(telemetry).not.toContain(tenantId);
+  expect(telemetry).not.toContain(seeded.id);
+});
+
 test("update records UPDATE users without tenant, id, or field cardinality", async () => {
   const tenantId = "tenant-observed-update";
   const seeded = await userFactory.create({

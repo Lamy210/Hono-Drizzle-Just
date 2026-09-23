@@ -25,7 +25,8 @@ export function resolveHttpRateLimitScope(input: HttpRateLimitPolicyInput): stri
   }
   if (
     (input.method === "POST" && input.path === "/users") ||
-    (input.method === "PATCH" && isSingleUserResourcePath(input.path))
+    ((input.method === "PATCH" || input.method === "DELETE") &&
+      isSingleUserResourcePath(input.path))
   ) {
     return HTTP_RATE_LIMIT_SCOPES.usersWrite;
   }

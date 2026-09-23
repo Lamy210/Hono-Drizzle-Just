@@ -115,6 +115,21 @@ test("paginated listing is tenant-scoped, deterministic, and preserves the tenan
   expect(beyondEnd).toEqual({ users: [], total: 3 });
 });
 
+test("delete is tenant-scoped and reports whether a row was removed", async () => {
+  const created = await repository.create({
+    tenantId: "tenant-a",
+    email: `delete-${crypto.randomUUID()}@example.com`,
+    name: "Delete",
+  });
+
+  expect(await repository.deleteById("tenant-b", created.id)).toBe(false);
+  expect(await repository.findById("tenant-a", created.id)).toEqual(created);
+
+  expect(await repository.deleteById("tenant-a", created.id)).toBe(true);
+  expect(await repository.findById("tenant-a", created.id)).toBeNull();
+  expect(await repository.deleteById("tenant-a", created.id)).toBe(false);
+});
+
 test("update is tenant-scoped and returns the updated row", async () => {
   const created = await repository.create({
     tenantId: "tenant-a",

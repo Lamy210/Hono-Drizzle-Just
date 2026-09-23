@@ -52,6 +52,42 @@ test("idempotency repository claims, completes, and replays an active tenant-loc
   });
 });
 
+test("deleting a user cascades its completed idempotency ledger row", async () => {
+  const module = await loadRepositoryModule();
+  expect(module).toBeDefined();
+  if (!module) return;
+
+  const repository = new module.DrizzleUserCreationIdempotencyRepository(database.db);
+  const tenantId = `tenant-delete-cascade-${crypto.randomUUID()}`;
+  const keyHash = hash("8");
+  const requestFingerprint = hash("9");
+
+  expect(
+    await repository.claim({ tenantId, keyHash, requestFingerprint, ttlSeconds: 86_400 }),
+  ).toEqual({ state: "claimed" });
+
+  const user = await users.create({
+    tenantId,
+    email: `${crypto.randomUUID()}@example.com`,
+    name: "Delete Cascade",
+  });
+  await repository.complete({ tenantId, keyHash, requestFingerprint, userId: user.id });
+
+  expect(await users.deleteById(tenantId, user.id)).toBe(true);
+
+  const persisted = await database.pool.query<{ count: string }>(
+    `select count(*)::text as count
+       from user_creation_idempotency
+      where tenant_id = $1 and key_hash = $2`,
+    [tenantId, keyHash],
+  );
+  expect(persisted.rows).toEqual([{ count: "0" }]);
+
+  expect(
+    await repository.claim({ tenantId, keyHash, requestFingerprint, ttlSeconds: 86_400 }),
+  ).toEqual({ state: "claimed" });
+});
+
 test("the same key hash is independent across tenants", async () => {
   const module = await loadRepositoryModule();
   expect(module).toBeDefined();

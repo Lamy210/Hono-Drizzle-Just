@@ -6,6 +6,7 @@ import type { TransactionManager } from "../../src/core/transaction/transaction-
 import { Sha256StringDigester } from "../../src/infrastructure/crypto/sha256-string-digester";
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
+import { DeleteUserService } from "../../src/modules/users/application/delete-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
 import { ListUsersService } from "../../src/modules/users/application/list-users.service";
 import { UpdateUserService } from "../../src/modules/users/application/update-user.service";
@@ -33,6 +34,7 @@ function buildApp(rateLimiter?: RateLimiter, remoteAddress?: string) {
     {
       logger,
       readinessChecker: new ReadinessChecker([]),
+      deleteUserService: new DeleteUserService({ deleteById: mock(async () => false) }),
       createUserService: new CreateUserService(
         transactions(repository),
         logger,
@@ -94,11 +96,15 @@ test("user routes select stable read and write scopes without path identifiers",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name: "Updated" }),
   });
+  const deleteResponse = await app.request(`/users/${userId}`, {
+    method: "DELETE",
+  });
   const listResponse = await app.request("/users");
   const readResponse = await app.request(`/users/${userId}`);
 
   expect(writeResponse.status).toBe(401);
   expect(patchResponse.status).toBe(401);
+  expect(deleteResponse.status).toBe(401);
   expect(listResponse.status).toBe(401);
   expect(readResponse.status).toBe(401);
   expect(consume).toHaveBeenNthCalledWith(1, {
@@ -110,10 +116,14 @@ test("user routes select stable read and write scopes without path identifiers",
     identity: "203.0.113.10",
   });
   expect(consume).toHaveBeenNthCalledWith(3, {
-    scope: "http.users.read",
+    scope: "http.users.write",
     identity: "203.0.113.10",
   });
   expect(consume).toHaveBeenNthCalledWith(4, {
+    scope: "http.users.read",
+    identity: "203.0.113.10",
+  });
+  expect(consume).toHaveBeenNthCalledWith(5, {
     scope: "http.users.read",
     identity: "203.0.113.10",
   });

@@ -3,6 +3,7 @@ import { AppError } from "../../../core/errors/app-error";
 import { users } from "../../../db/schema";
 import type { DatabaseSession } from "../../../infrastructure/database/database";
 import type { DatabaseObserver } from "../../../infrastructure/database/database-observer";
+import type { UserDeleteRepository } from "../application/user-delete.repository";
 import type { UserListRepository } from "../application/user-list.repository";
 import type { UserUpdateFields, UserUpdateRepository } from "../application/user-update.repository";
 import type { TenantScopedCreateUserInput, User } from "../domain/user";
@@ -27,7 +28,7 @@ function isUniqueViolation(error: unknown): boolean {
   return hasErrorCode(error, "23505");
 }
 
-export class DrizzleUserRepository implements UserRepository, UserListRepository, UserUpdateRepository {
+export class DrizzleUserRepository implements UserRepository, UserListRepository, UserUpdateRepository, UserDeleteRepository {
   constructor(
     private readonly db: DatabaseSession,
     private readonly observer?: DatabaseObserver,
@@ -96,6 +97,20 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
       : await selectPage();
 
     return { users: page, total };
+  }
+
+  async deleteById(tenantId: string, id: string): Promise<boolean> {
+    const execute = async (): Promise<boolean> => {
+      const [row] = await this.db
+        .delete(users)
+        .where(and(eq(users.tenantId, tenantId), eq(users.id, id)))
+        .returning({ id: users.id });
+      return row !== undefined;
+    };
+
+    return this.observer
+      ? this.observer.operation({ operation: "DELETE", collection: "users" }, execute)
+      : execute();
   }
 
   async update(
