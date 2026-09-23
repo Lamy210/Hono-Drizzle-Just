@@ -54,21 +54,34 @@ interface AtomicUserUpdateRow extends Record<string, unknown> {
   readonly email: string | null;
   readonly name: string | null;
   readonly version: number | null;
-  readonly created_at: Date | null;
+  readonly created_at: unknown;
 }
 
 interface AtomicUserDeleteRow extends Record<string, unknown> {
   readonly state: "deleted" | "not_found" | "precondition_failed";
 }
 
+function databaseDate(value: unknown): Date | undefined {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
 function updatedUserFromRow(row: AtomicUserUpdateRow): User {
+  const createdAt = databaseDate(row.created_at);
   if (
     row.id === null ||
     row.tenant_id === null ||
     row.email === null ||
     row.name === null ||
     row.version === null ||
-    row.created_at === null
+    createdAt === undefined
   ) {
     throw new Error("Atomic user update returned an incomplete row");
   }
@@ -79,7 +92,7 @@ function updatedUserFromRow(row: AtomicUserUpdateRow): User {
     email: row.email,
     name: row.name,
     version: row.version,
-    createdAt: row.created_at,
+    createdAt,
   };
 }
 
