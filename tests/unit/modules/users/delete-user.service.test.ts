@@ -18,23 +18,26 @@ const context: RequestContext = {
   },
 };
 
+const versionPrecondition = { kind: "versions" as const, versions: [1] };
+
 function loggingHarness() {
   const logger = new JsonConsoleLogger({}, () => undefined);
   return { logger, info: spyOn(logger, "info") };
 }
 
 test("deletes only from the authorized tenant and logs the canonical user identifier", async () => {
-  const deleteById = mock(async () => true);
+  const deleteById = mock(async () => ({ state: "deleted" as const }));
   const { logger, info } = loggingHarness();
   const service = new DeleteUserService({ deleteById }, logger);
 
   await service.execute(
     "550E8400-E29B-41D4-A716-446655440000",
+    versionPrecondition,
     context,
   );
 
   const userId = "550e8400-e29b-41d4-a716-446655440000";
-  expect(deleteById).toHaveBeenCalledWith("tenant-a", userId);
+  expect(deleteById).toHaveBeenCalledWith("tenant-a", userId, versionPrecondition);
   expect(info).toHaveBeenCalledTimes(1);
   expect(info).toHaveBeenCalledWith("user.deleted", {
     userId,
@@ -44,14 +47,49 @@ test("deletes only from the authorized tenant and logs the canonical user identi
   expect(JSON.stringify(info.mock.calls)).not.toContain("tenant-a");
 });
 
-test("returns tenant-local not found without an existence probe or business log", async () => {
-  const deleteById = mock(async () => false);
+test("requires If-Match after authorization and before repository access", async () => {
+  const deleteById = mock(async () => ({ state: "deleted" as const }));
   const { logger, info } = loggingHarness();
   const service = new DeleteUserService({ deleteById }, logger);
 
   await expect(
     service.execute(
       "550e8400-e29b-41d4-a716-446655440000",
+      undefined,
+      context,
+    ),
+  ).rejects.toMatchObject({ code: "PRECONDITION_REQUIRED", status: 428 });
+
+  expect(deleteById).not.toHaveBeenCalled();
+  expect(info).not.toHaveBeenCalled();
+});
+
+test("maps stale deletion to precondition failed without a business log", async () => {
+  const deleteById = mock(async () => ({ state: "precondition_failed" as const }));
+  const { logger, info } = loggingHarness();
+  const service = new DeleteUserService({ deleteById }, logger);
+
+  await expect(
+    service.execute(
+      "550e8400-e29b-41d4-a716-446655440000",
+      versionPrecondition,
+      context,
+    ),
+  ).rejects.toMatchObject({ code: "PRECONDITION_FAILED", status: 412 });
+
+  expect(deleteById).toHaveBeenCalledTimes(1);
+  expect(info).not.toHaveBeenCalled();
+});
+
+test("returns tenant-local not found without a successful business log", async () => {
+  const deleteById = mock(async () => ({ state: "not_found" as const }));
+  const { logger, info } = loggingHarness();
+  const service = new DeleteUserService({ deleteById }, logger);
+
+  await expect(
+    service.execute(
+      "550e8400-e29b-41d4-a716-446655440000",
+      versionPrecondition,
       context,
     ),
   ).rejects.toMatchObject({ code: "NOT_FOUND", status: 404 });
@@ -60,8 +98,8 @@ test("returns tenant-local not found without an existence probe or business log"
   expect(info).not.toHaveBeenCalled();
 });
 
-test("rejects missing write scope before repository access or business log", async () => {
-  const deleteById = mock(async () => true);
+test("rejects missing write scope before precondition and repository access", async () => {
+  const deleteById = mock(async () => ({ state: "deleted" as const }));
   const { logger, info } = loggingHarness();
   const service = new DeleteUserService({ deleteById }, logger);
   const readOnly: RequestContext = {
@@ -76,6 +114,7 @@ test("rejects missing write scope before repository access or business log", asy
   await expect(
     service.execute(
       "550e8400-e29b-41d4-a716-446655440000",
+      undefined,
       readOnly,
     ),
   ).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
