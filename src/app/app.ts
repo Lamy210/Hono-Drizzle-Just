@@ -18,6 +18,7 @@ import type { RemoteAddressResolver } from "../http/remote-address";
 import { createApiSecurityHeadersMiddleware } from "../http/middleware/security-headers.middleware";
 import { requestLoggerMiddleware } from "../http/middleware/request-logger.middleware";
 import type { CreateUserService } from "../modules/users/application/create-user.service";
+import type { DeleteUserService } from "../modules/users/application/delete-user.service";
 import type { GetUserService } from "../modules/users/application/get-user.service";
 import type { ListUsersService } from "../modules/users/application/list-users.service";
 import type { UpdateUserService } from "../modules/users/application/update-user.service";
@@ -29,6 +30,7 @@ export interface AppDependencies {
   readonly logger: Logger;
   readonly readinessChecker: ReadinessChecker;
   readonly createUserService: CreateUserService;
+  readonly deleteUserService: DeleteUserService;
   readonly getUserService: GetUserService;
   readonly listUsersService: ListUsersService;
   readonly updateUserService: UpdateUserService;
