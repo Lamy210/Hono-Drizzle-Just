@@ -147,7 +147,7 @@ The service listens on `http://localhost:3000` by default.
 - `GET /health` — compatibility liveness endpoint
 - `GET /health/live` — process/HTTP liveness; does not query PostgreSQL
 - `GET /health/ready` — readiness; returns 503 when a critical dependency is unavailable
-- `POST /users` - protected; requires an authenticated tenant principal with `users:write`; optional `Idempotency-Key` enables tenant-scoped replay
+- `POST /users` - protected; requires an authenticated tenant principal with `users:write`; optional `Idempotency-Key` enables tenant-scoped replay; successful 201 responses include `Location: /users/{id}` and a strong ETag
 - `GET /users` - protected tenant-scoped listing; requires `users:read`; supports `page` (1-10,000, default 1) and `perPage` (1-100, default 20); Hono also serves metadata-only `HEAD /users`
 - `GET /users/{id}` - protected; requires `users:read`; returns a strong ETag, `Cache-Control: private, no-cache`, and accepts `If-None-Match` for 304 cache revalidation; Hono automatically provides the equivalent bodyless `HEAD /users/{id}` response
 - `PATCH /users/{id}` - protected tenant-scoped partial update; requires `users:write`; accepts at least one of `email` or `name`
@@ -219,7 +219,7 @@ Static bearer values are validated without echoing the credential into configura
 
 ## Idempotent user creation
 
-`POST /users` accepts an optional `Idempotency-Key` header. When omitted, user creation keeps the ordinary tenant-local behavior. When present, the key is scoped to the authorized tenant: the same tenant/key with the same normalized `email` and `name` replays the original user with HTTP `201` and the same user ID, while reusing an active tenant/key for a different normalized payload returns HTTP `422` with `IDEMPOTENCY_KEY_REUSED`. The same raw key may be used independently by another tenant.
+`POST /users` accepts an optional `Idempotency-Key` header. When omitted, user creation keeps the ordinary tenant-local behavior. When present, the key is scoped to the authorized tenant: the same tenant/key with the same normalized `email` and `name` replays the original user with HTTP `201` and the same user ID, while reusing an active tenant/key for a different normalized payload returns HTTP `422` with `IDEMPOTENCY_KEY_REUSED`. Fresh creates and successful replays both return `Location: /users/{id}`, so clients can resolve the primary user resource without reconstructing its URI from response-body conventions. The same raw key may be used independently by another tenant.
 
 Clients should generate high-entropy unique keys such as UUIDs. The service hashes the raw key and canonical normalized request fingerprint with SHA-256 before persistence; raw keys, hashes, fingerprints, tenant IDs, prior payloads, and replay user IDs are not added to logs, telemetry attributes, or error payloads.
 
