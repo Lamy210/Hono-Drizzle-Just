@@ -116,11 +116,11 @@ async function withTenantServer<T>(
       AUTH_DEV_STATIC_SCOPES: config.scopes.join(" "),
     },
     stdin: "ignore",
-    stdout: "inherit",
-    stderr: "inherit",
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  const stdoutPromise = Promise.resolve("");
-  const stderrPromise = Promise.resolve("");
+  const stdoutPromise = new Response(child.stdout).text();
+  const stderrPromise = new Response(child.stderr).text();
   const baseUrl = `http://127.0.0.1:${port}`;
   let gracefulShutdownVerified = false;
 
@@ -283,11 +283,6 @@ test(
             tenantId: "tenant-B",
           }),
         });
-        if (updateResponse.status !== 200) {
-          process.stderr.write(
-            `E2E_DIAG update-status=${updateResponse.status} body=${await updateResponse.clone().text()}\n`,
-          );
-        }
         expect(updateResponse.status).toBe(200);
         const updatedEtag = updateResponse.headers.get("etag");
         expect(updatedEtag).toBe('"v2"');
