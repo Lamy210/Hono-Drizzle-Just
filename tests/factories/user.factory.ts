@@ -15,6 +15,7 @@ function userDefaults({ sequence }: FactoryContext): User {
     tenantId: "tenant-test",
     email: `user-${sequence}-${crypto.randomUUID()}@example.com`,
     name: `User ${sequence}`,
+    version: 1,
     createdAt: new Date("2026-09-13T00:00:00.000Z"),
   };
 }
