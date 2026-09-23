@@ -332,6 +332,13 @@
             },
             "description": "Tenant-scoped paginated users",
             "headers": {
+              "Cache-Control": {
+                "description": "Tenant-scoped user lists are private and must not be stored by caches",
+                "schema": {
+                  "example": "private, no-store",
+                  "type": "string"
+                }
+              },
               "RateLimit": {
                 "description": "Provisional current quota field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
                 "schema": {
