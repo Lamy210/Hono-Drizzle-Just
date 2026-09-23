@@ -189,7 +189,8 @@ test("successful conditional update records one UPDATE span without tenant, id, 
   expect(telemetry).not.toContain(tenantId);
   expect(telemetry).not.toContain(seeded.id);
   expect(telemetry).not.toContain("Updated");
-  expect(telemetry).not.toContain(String(seeded.version));
+  expect(tracer.spans[0]?.options.attributes).not.toHaveProperty("version");
+  expect(meter.records[0]?.attributes).not.toHaveProperty("version");
 });
 
 test("stale conditional update records bounded UPDATE then existence SELECT telemetry", async () => {
