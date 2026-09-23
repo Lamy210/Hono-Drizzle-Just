@@ -50,7 +50,7 @@ test("pagination index matches tenant filtering and descending list order", asyn
 
   expect(definition.rows).toHaveLength(1);
   expect(definition.rows[0]?.indexdef).toContain(
-    '("tenant_id", "created_at" DESC, "id" DESC)',
+    "USING btree (tenant_id, created_at DESC, id DESC)",
   );
   expect(definition.rows[0]?.indexdef).not.toContain("NULLS LAST");
 
