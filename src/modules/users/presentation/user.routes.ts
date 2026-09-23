@@ -1,5 +1,6 @@
 import { createRoute, type OpenAPIHono } from "@hono/zod-openapi";
 import { ErrorResponseSchema } from "../../../contracts/common/errors";
+import { IfMatchHeadersSchema } from "../../../contracts/common/conditional";
 import { IdempotencyKeyHeadersSchema } from "../../../contracts/common/idempotency";
 import { PaginationQuerySchema } from "../../../contracts/common/pagination";
 import { CanonicalUuidSchema } from "../../../contracts/common/primitives";
@@ -16,6 +17,7 @@ import type { DeleteUserService } from "../application/delete-user.service";
 import type { GetUserService } from "../application/get-user.service";
 import type { ListUsersService } from "../application/list-users.service";
 import type { UpdateUserService } from "../application/update-user.service";
+import { formatUserEntityTag, parseUserIfMatch } from "./user-etag";
 import { toUserResponse } from "./user.presenter";
 
 export interface UserRouteDependencies {
@@ -25,6 +27,13 @@ export interface UserRouteDependencies {
   readonly listUsersService: ListUsersService;
   readonly updateUserService: UpdateUserService;
 }
+
+const EntityTagResponseHeader = {
+  ETag: {
+    description: "Strong validator for the returned user representation",
+    schema: { type: "string", example: '"v1"' },
+  },
+} as const;
 
 const RateLimitResponseHeaders = {
   "RateLimit-Policy": {
@@ -72,7 +81,7 @@ const createUserRoute = createRoute({
   responses: {
     201: {
       description: "User created or idempotently replayed",
-      headers: RateLimitResponseHeaders,
+      headers: { ...RateLimitResponseHeaders, ...EntityTagResponseHeader },
       content: { "application/json": { schema: UserResponseSchema } },
     },
     400: {
@@ -145,6 +154,7 @@ const updateUserRoute = createRoute({
   path: "/users/{id}",
   tags: ["Users"],
   request: {
+    headers: IfMatchHeadersSchema,
     params: UserPathParamsSchema,
     body: {
       required: true,
@@ -154,7 +164,7 @@ const updateUserRoute = createRoute({
   responses: {
     200: {
       description: "Updated user",
-      headers: RateLimitResponseHeaders,
+      headers: { ...RateLimitResponseHeaders, ...EntityTagResponseHeader },
       content: { "application/json": { schema: UserResponseSchema } },
     },
     400: {
@@ -179,6 +189,14 @@ const updateUserRoute = createRoute({
     },
     413: {
       description: "Request body too large",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    412: {
+      description: "If-Match did not match the current user representation",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    428: {
+      description: "If-Match is required to prevent lost updates",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     429: {
@@ -233,7 +251,7 @@ const getUserRoute = createRoute({
   responses: {
     200: {
       description: "User",
-      headers: RateLimitResponseHeaders,
+      headers: { ...RateLimitResponseHeaders, ...EntityTagResponseHeader },
       content: { "application/json": { schema: UserResponseSchema } },
     },
     400: {
@@ -271,6 +289,7 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
       idempotencyKey === undefined ? {} : { idempotencyKey },
     );
     const response = UserResponseSchema.parse(toUserResponse(user));
+    c.header("ETag", formatUserEntityTag(user.version));
     return c.json(response, 201);
   });
 
@@ -287,13 +306,16 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
   app.openapi(updateUserRoute, async (c) => {
     const { id } = c.req.valid("param");
     const input = c.req.valid("json");
+    const { "if-match": ifMatch } = c.req.valid("header");
     const canonicalId = CanonicalUuidSchema.parse(id);
     const user = await dependencies.updateUserService.execute(
       canonicalId,
       input,
+      ifMatch === undefined ? undefined : parseUserIfMatch(ifMatch),
       c.get("requestContext"),
     );
     const response = UserResponseSchema.parse(toUserResponse(user));
+    c.header("ETag", formatUserEntityTag(user.version));
     return c.json(response, 200);
   });
 
@@ -312,6 +334,7 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
     const canonicalId = CanonicalUuidSchema.parse(id);
     const user = await dependencies.getUserService.execute(canonicalId, c.get("requestContext"));
     const response = UserResponseSchema.parse(toUserResponse(user));
+    c.header("ETag", formatUserEntityTag(user.version));
     return c.json(response, 200);
   });
 }

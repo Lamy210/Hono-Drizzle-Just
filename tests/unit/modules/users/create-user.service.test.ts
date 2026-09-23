@@ -87,6 +87,7 @@ function deniedRepository() {
     tenantId: input.tenantId ?? "tenant-a",
     email: input.email,
     name: input.name,
+    version: 1,
     createdAt: new Date("2026-09-13T00:00:00.000Z"),
   }));
   const repository: UserRepository = { findById, findByEmail, create };
@@ -99,6 +100,7 @@ function testUser(overrides: Partial<User> = {}): User {
     tenantId: "tenant-a",
     email: "lamy@example.com",
     name: "Lamy",
+    version: 1,
     createdAt: new Date("2026-09-13T00:00:00.000Z"),
     ...overrides,
   };
@@ -112,6 +114,7 @@ test("no-key path preserves existing transaction behavior without touching idemp
     tenantId: input.tenantId ?? "tenant-a",
     email: input.email,
     name: input.name,
+    version: 1,
     createdAt,
   }));
   const repository: UserRepository = {

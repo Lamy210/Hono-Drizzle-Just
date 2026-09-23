@@ -20,13 +20,14 @@ function buildContractApp() {
     tenantId: "tenant-contract",
     email: "contract@example.com",
     name: "Contract User",
+    version: 1,
     createdAt: new Date("2026-09-16T00:00:00.000Z"),
   };
   const repository: UserRepository & UserListRepository & UserUpdateRepository = {
     findById: async () => user,
     findByEmail: async () => null,
     listPage: async () => ({ users: [user], total: 1 }),
-    update: async (_tenantId, _id, fields) => ({ ...user, ...fields }),
+    update: async (_tenantId, _id, fields) => ({ state: "updated" as const, user: { ...user, ...fields, version: user.version + 1 } }),
     create: async (input) => ({ ...user, ...input }),
   };
   const idempotency: UserCreationIdempotencyRepository = {

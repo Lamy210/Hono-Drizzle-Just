@@ -24,6 +24,7 @@ test("lists only the authorized tenant page and derives pagination metadata", as
     tenantId: "tenant-a",
     email: "lamy@example.com",
     name: "Lamy",
+    version: 1,
     createdAt: new Date("2026-09-21T00:00:00.000Z"),
   };
   const listPage = mock(async () => ({ users: [user], total: 41 }));

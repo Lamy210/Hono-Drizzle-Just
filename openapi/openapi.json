@@ -467,6 +467,13 @@
             },
             "description": "User created or idempotently replayed",
             "headers": {
+              "ETag": {
+                "description": "Strong validator for the returned user representation",
+                "schema": {
+                  "example": "\"v1\"",
+                  "type": "string"
+                }
+              },
               "RateLimit": {
                 "description": "Provisional current quota field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
                 "schema": {
@@ -750,6 +757,13 @@
             },
             "description": "User",
             "headers": {
+              "ETag": {
+                "description": "Strong validator for the returned user representation",
+                "schema": {
+                  "example": "\"v1\"",
+                  "type": "string"
+                }
+              },
               "RateLimit": {
                 "description": "Provisional current quota field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
                 "schema": {
@@ -871,6 +885,19 @@
               "format": "uuid",
               "type": "string"
             }
+          },
+          {
+            "description": "RFC 9110 If-Match entity-tag precondition.",
+            "in": "header",
+            "name": "if-match",
+            "required": false,
+            "schema": {
+              "description": "RFC 9110 If-Match entity-tag precondition.",
+              "example": "\"v1\"",
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -894,6 +921,13 @@
             },
             "description": "Updated user",
             "headers": {
+              "ETag": {
+                "description": "Strong validator for the returned user representation",
+                "schema": {
+                  "example": "\"v1\"",
+                  "type": "string"
+                }
+              },
               "RateLimit": {
                 "description": "Provisional current quota field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
                 "schema": {
@@ -958,6 +992,16 @@
             },
             "description": "Email already exists within the tenant"
           },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "If-Match did not match the current user representation"
+          },
           "413": {
             "content": {
               "application/json": {
@@ -967,6 +1011,16 @@
               }
             },
             "description": "Request body too large"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "If-Match is required to prevent lost updates"
           },
           "429": {
             "content": {

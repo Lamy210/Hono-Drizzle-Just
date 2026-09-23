@@ -206,6 +206,8 @@ test(
           }),
         });
         expect(createdResponse.status).toBe(201);
+        const createdEtag = createdResponse.headers.get("etag");
+        expect(createdEtag).toBe('"v1"');
         const created = (await createdResponse.json()) as UserResponse;
         expect(created.email).toBe(email);
         expect(created.name).toBe("Tenant A User");
@@ -219,6 +221,7 @@ test(
           headers: { authorization },
         });
         expect(fetchedResponse.status).toBe(200);
+        expect(fetchedResponse.headers.get("etag")).toBe(createdEtag);
         expect((await fetchedResponse.json()) as UserResponse).toEqual(created);
 
         const listResponse = await boundedFetch(`${baseUrl}/users?page=1&perPage=20`, {
@@ -231,16 +234,34 @@ test(
 
         const updateResponse = await boundedFetch(`${baseUrl}/users/${created.id}`, {
           method: "PATCH",
-          headers: authenticatedHeaders(authorization),
+          headers: {
+            ...authenticatedHeaders(authorization),
+            "if-match": createdEtag ?? "",
+          },
           body: JSON.stringify({
             name: "Tenant A Updated",
             tenantId: "tenant-B",
           }),
         });
         expect(updateResponse.status).toBe(200);
+        const updatedEtag = updateResponse.headers.get("etag");
+        expect(updatedEtag).toBe('"v2"');
         const updated = (await updateResponse.json()) as UserResponse;
         expect(updated).toEqual({ ...created, name: "Tenant A Updated" });
         expect("tenantId" in updated).toBe(false);
+
+        const staleUpdateResponse = await boundedFetch(`${baseUrl}/users/${created.id}`, {
+          method: "PATCH",
+          headers: {
+            ...authenticatedHeaders(authorization),
+            "if-match": createdEtag ?? "",
+          },
+          body: JSON.stringify({ name: "Stale overwrite" }),
+        });
+        expect(staleUpdateResponse.status).toBe(412);
+        expect(await staleUpdateResponse.json()).toMatchObject({
+          error: { code: "PRECONDITION_FAILED" },
+        });
 
         const idempotencyKey = crypto.randomUUID();
         const idempotentEmail = `e2e-idempotent-${crypto.randomUUID()}@example.com`;
@@ -275,7 +296,10 @@ test(
 
         const updateConflictResponse = await boundedFetch(`${baseUrl}/users/${created.id}`, {
           method: "PATCH",
-          headers: authenticatedHeaders(authorization),
+          headers: {
+            ...authenticatedHeaders(authorization),
+            "if-match": updatedEtag ?? "",
+          },
           body: JSON.stringify({ email: idempotentEmail }),
         });
         expect(updateConflictResponse.status).toBe(409);
@@ -340,7 +364,10 @@ test(
 
         const crossTenantUpdate = await boundedFetch(`${baseUrl}/users/${tenantAUser.id}`, {
           method: "PATCH",
-          headers: authenticatedHeaders(authorization),
+          headers: {
+            ...authenticatedHeaders(authorization),
+            "if-match": "*",
+          },
           body: JSON.stringify({ name: "Cross tenant update" }),
         });
         expect(crossTenantUpdate.status).toBe(404);

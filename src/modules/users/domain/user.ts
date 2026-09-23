@@ -3,6 +3,7 @@ export interface User {
   readonly tenantId: string;
   readonly email: string;
   readonly name: string;
+  readonly version: number;
   readonly createdAt: Date;
 }
 

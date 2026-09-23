@@ -1,4 +1,4 @@
-import { index, pgTable, timestamp, unique, uuid, varchar } from "drizzle-orm/pg-core";
+import { index, integer, pgTable, timestamp, unique, uuid, varchar } from "drizzle-orm/pg-core";
 
 export const users = pgTable(
   "users",
@@ -7,6 +7,7 @@ export const users = pgTable(
     tenantId: varchar("tenant_id", { length: 128 }).notNull(),
     email: varchar("email", { length: 320 }).notNull(),
     name: varchar("name", { length: 100 }).notNull(),
+    version: integer("version").default(1).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow().notNull(),
   },
   (table) => [

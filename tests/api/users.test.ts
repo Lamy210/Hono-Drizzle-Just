@@ -39,6 +39,7 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
     tenantId: "tenant-a",
     email: "lamy@example.com",
     name: "Lamy",
+    version: 1,
     createdAt: new Date("2026-09-13T00:00:00.000Z"),
   };
   const findById = mock(async (tenantId: string) => (tenantId === user.tenantId ? user : null));
@@ -54,7 +55,24 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
       tenantId: string,
       id: string,
       fields: { readonly email?: string; readonly name?: string },
-    ) => (tenantId === user.tenantId && id === user.id ? { ...user, ...fields } : null),
+      precondition:
+        | { readonly kind: "any-current" }
+        | { readonly kind: "versions"; readonly versions: readonly number[] },
+    ) => {
+      if (tenantId !== user.tenantId || id !== user.id) {
+        return { state: "not_found" as const };
+      }
+      if (
+        precondition.kind === "versions" &&
+        !precondition.versions.includes(user.version)
+      ) {
+        return { state: "precondition_failed" as const };
+      }
+      return {
+        state: "updated" as const,
+        user: { ...user, ...fields, version: user.version + 1 },
+      };
+    },
   );
   const deleteById = mock(async (tenantId: string, id: string) =>
     tenantId === user.tenantId && id === user.id
@@ -110,6 +128,7 @@ function createIdempotencyHarness() {
     const user: User = {
       id: crypto.randomUUID(),
       ...input,
+      version: 1,
       createdAt: new Date("2026-09-18T00:00:00.000Z"),
     };
     usersById.set(user.id, user);
@@ -170,7 +189,10 @@ function createIdempotencyHarness() {
       deleteUserService: new DeleteUserService({ deleteById: mock(async () => false) }, logger),
       getUserService: new GetUserService(repository),
       listUsersService: new ListUsersService({ listPage }),
-      updateUserService: new UpdateUserService({ update: mock(async () => null) }, logger),
+      updateUserService: new UpdateUserService(
+        { update: mock(async () => ({ state: "not_found" as const })) },
+        logger,
+      ),
       principalResolver: principalResolver(tenantId, ["users:read", "users:write"]),
     });
 
@@ -254,6 +276,7 @@ test("uppercase UUID path input is accepted and normalized after tenant authoriz
   const body = await response.json();
   expect(body.id).toBe("550e8400-e29b-41d4-a716-446655440000");
   expect(body.tenantId).toBeUndefined();
+  expect(response.headers.get("etag")).toBe('"v1"');
 });
 
 test("authorized user listing applies pagination defaults and hides tenant metadata", async () => {
@@ -316,7 +339,7 @@ test("authorized PATCH updates only the principal tenant with normalized fields"
   const { app, update } = buildApp(principalResolver("tenant-a", ["users:write"]));
   const response = await app.request("/users/550E8400-E29B-41D4-A716-446655440000", {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "if-match": '"v1"' },
     body: JSON.stringify({
       email: "UPDATED@Example.com",
       name: " Updated ",
@@ -329,13 +352,82 @@ test("authorized PATCH updates only the principal tenant with normalized fields"
     "tenant-a",
     "550e8400-e29b-41d4-a716-446655440000",
     { email: "updated@example.com", name: "Updated" },
+    { kind: "versions", versions: [1] },
   );
+  expect(response.headers.get("etag")).toBe('"v2"');
   expect(await response.json()).toEqual({
     id: "550e8400-e29b-41d4-a716-446655440000",
     email: "updated@example.com",
     name: "Updated",
     createdAt: "2026-09-13T00:00:00.000Z",
   });
+});
+
+test("anonymous PATCH remains 401 even when If-Match is omitted", async () => {
+  const { app, update } = buildApp();
+  const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Updated" }),
+  });
+
+  expect(response.status).toBe(401);
+  expect(await response.json()).toMatchObject({
+    error: { code: "UNAUTHORIZED" },
+  });
+  expect(update).not.toHaveBeenCalled();
+});
+
+test("weak If-Match never satisfies the strong user validator", async () => {
+  const { app, update } = buildApp(principalResolver("tenant-a", ["users:write"]));
+  const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", "if-match": 'W/"v1"' },
+    body: JSON.stringify({ name: "Weak" }),
+  });
+
+  expect(response.status).toBe(412);
+  expect(update).toHaveBeenCalledWith(
+    "tenant-a",
+    "550e8400-e29b-41d4-a716-446655440000",
+    { name: "Weak" },
+    { kind: "versions", versions: [] },
+  );
+});
+
+test("PATCH requires If-Match to prevent lost updates", async () => {
+  const { app, update } = buildApp(principalResolver("tenant-a", ["users:write"]));
+  const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Updated" }),
+  });
+
+  expect(response.status).toBe(428);
+  expect(await response.json()).toMatchObject({
+    error: { code: "PRECONDITION_REQUIRED" },
+  });
+  expect(update).not.toHaveBeenCalled();
+});
+
+test("stale If-Match returns 412 without updating the user", async () => {
+  const { app, update } = buildApp(principalResolver("tenant-a", ["users:write"]));
+  const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", "if-match": '"v99"' },
+    body: JSON.stringify({ name: "Stale" }),
+  });
+
+  expect(response.status).toBe(412);
+  expect(await response.json()).toMatchObject({
+    error: { code: "PRECONDITION_FAILED" },
+  });
+  expect(update).toHaveBeenCalledWith(
+    "tenant-a",
+    "550e8400-e29b-41d4-a716-446655440000",
+    { name: "Stale" },
+    { kind: "versions", versions: [99] },
+  );
 });
 
 test("empty PATCH is rejected before repository work", async () => {
@@ -355,7 +447,7 @@ test("PATCH requires users:write before repository work", async () => {
   const { app, update } = buildApp(principalResolver("tenant-a", ["users:read"]));
   const response = await app.request("/users/550e8400-e29b-41D4-A716-446655440000", {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "if-match": '"v1"' },
     body: JSON.stringify({ name: "Updated" }),
   });
 
@@ -367,7 +459,7 @@ test("cross-tenant PATCH is indistinguishable from a missing user", async () => 
   const { app, update } = buildApp(principalResolver("tenant-b", ["users:write"]));
   const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "if-match": '"v1"' },
     body: JSON.stringify({ name: "Updated" }),
   });
 
@@ -377,6 +469,7 @@ test("cross-tenant PATCH is indistinguishable from a missing user", async () => 
     "tenant-b",
     "550e8400-e29b-41d4-a716-446655440000",
     { name: "Updated" },
+    { kind: "versions", versions: [1] },
   );
 });
 
@@ -447,6 +540,7 @@ test("authorized create derives tenant from principal and ignores client tenant 
   });
 
   expect(response.status).toBe(201);
+  expect(response.headers.get("etag")).toBe('"v1"');
   expect(repository.findByEmail).toHaveBeenCalledWith("tenant-a", "new@example.com");
   expect(repository.create).toHaveBeenCalledWith({
     tenantId: "tenant-a",
