@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   formatUserEntityTag,
   parseUserIfMatch,
+  userIfNoneMatchMatches,
 } from "../../../../src/modules/users/presentation/user-etag";
 
 test("formats positive user versions as strong entity tags", () => {
@@ -39,6 +40,29 @@ test("multiple entity tags preserve recognized user versions and ignore unrelate
 test("malformed If-Match syntax is rejected as request validation", () => {
   for (const value of ["", ',"v1"', '"v1",', '"unterminated', '*,"v1"', '"a"b"']) {
     expect(() => parseUserIfMatch(value)).toThrow(
+      expect.objectContaining({ code: "VALIDATION_ERROR", status: 400 }),
+    );
+  }
+});
+
+test("If-None-Match uses weak comparison for the current user version", () => {
+  expect(userIfNoneMatchMatches('"v7"', 7)).toBe(true);
+  expect(userIfNoneMatchMatches('W/"v7"', 7)).toBe(true);
+  expect(userIfNoneMatchMatches('"v6", W/"v7"', 7)).toBe(true);
+  expect(userIfNoneMatchMatches('"v6"', 7)).toBe(false);
+});
+
+test("If-None-Match wildcard matches any existing user representation", () => {
+  expect(userIfNoneMatchMatches("*", 7)).toBe(true);
+});
+
+test("unrelated entity tags do not match the user validator", () => {
+  expect(userIfNoneMatchMatches('"opaque", W/"other"', 7)).toBe(false);
+});
+
+test("malformed If-None-Match syntax is rejected as request validation", () => {
+  for (const value of ["", ',"v1"', '"v1",', '"unterminated', '*,"v1"', '"a"b"']) {
+    expect(() => userIfNoneMatchMatches(value, 1)).toThrow(
       expect.objectContaining({ code: "VALIDATION_ERROR", status: 400 }),
     );
   }
