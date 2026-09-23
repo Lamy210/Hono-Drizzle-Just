@@ -46,7 +46,10 @@ function buildContractApp() {
   return createApp({
     logger,
     readinessChecker: new ReadinessChecker([]),
-    deleteUserService: new DeleteUserService({ deleteById: async () => false }, logger),
+    deleteUserService: new DeleteUserService(
+      { deleteById: async () => ({ state: "not_found" as const }) },
+      logger,
+    ),
     createUserService: new CreateUserService(
       transactions,
       logger,
