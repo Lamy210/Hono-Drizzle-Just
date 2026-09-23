@@ -222,6 +222,7 @@ test(
         });
         expect(fetchedResponse.status).toBe(200);
         expect(fetchedResponse.headers.get("etag")).toBe(createdEtag);
+        expect(fetchedResponse.headers.get("cache-control")).toBe("private, no-cache");
         expect((await fetchedResponse.json()) as UserResponse).toEqual(created);
 
         const notModifiedResponse = await boundedFetch(`${baseUrl}/users/${created.id}`, {
@@ -232,6 +233,7 @@ test(
         });
         expect(notModifiedResponse.status).toBe(304);
         expect(notModifiedResponse.headers.get("etag")).toBe(createdEtag);
+        expect(notModifiedResponse.headers.get("cache-control")).toBe("private, no-cache");
         expect(await notModifiedResponse.text()).toBe("");
 
         const listResponse = await boundedFetch(`${baseUrl}/users?page=1&perPage=20`, {
@@ -268,6 +270,7 @@ test(
         });
         expect(revalidatedWithOldTag.status).toBe(200);
         expect(revalidatedWithOldTag.headers.get("etag")).toBe(updatedEtag);
+        expect(revalidatedWithOldTag.headers.get("cache-control")).toBe("private, no-cache");
         expect((await revalidatedWithOldTag.json()) as UserResponse).toEqual(updated);
 
         const weakCurrentTag = updatedEtag ? `W/${updatedEtag}` : "";
@@ -282,6 +285,9 @@ test(
         );
         expect(revalidatedWithWeakCurrentTag.status).toBe(304);
         expect(revalidatedWithWeakCurrentTag.headers.get("etag")).toBe(updatedEtag);
+        expect(revalidatedWithWeakCurrentTag.headers.get("cache-control")).toBe(
+          "private, no-cache",
+        );
 
         const staleUpdateResponse = await boundedFetch(`${baseUrl}/users/${created.id}`, {
           method: "PATCH",
