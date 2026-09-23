@@ -1,6 +1,6 @@
 import { createRoute, type OpenAPIHono } from "@hono/zod-openapi";
 import { ErrorResponseSchema } from "../../../contracts/common/errors";
-import { IfMatchHeadersSchema } from "../../../contracts/common/conditional";
+import { IfMatchHeadersSchema, IfNoneMatchHeadersSchema } from "../../../contracts/common/conditional";
 import { IdempotencyKeyHeadersSchema } from "../../../contracts/common/idempotency";
 import { PaginationQuerySchema } from "../../../contracts/common/pagination";
 import { CanonicalUuidSchema } from "../../../contracts/common/primitives";
@@ -17,7 +17,7 @@ import type { DeleteUserService } from "../application/delete-user.service";
 import type { GetUserService } from "../application/get-user.service";
 import type { ListUsersService } from "../application/list-users.service";
 import type { UpdateUserService } from "../application/update-user.service";
-import { formatUserEntityTag, parseUserIfMatch } from "./user-etag";
+import { formatUserEntityTag, parseUserIfMatch, userIfNoneMatchMatches } from "./user-etag";
 import { toUserResponse } from "./user.presenter";
 
 export interface UserRouteDependencies {
@@ -258,12 +258,19 @@ const getUserRoute = createRoute({
   method: "get",
   path: "/users/{id}",
   tags: ["Users"],
-  request: { params: UserPathParamsSchema },
+  request: {
+    headers: IfNoneMatchHeadersSchema,
+    params: UserPathParamsSchema,
+  },
   responses: {
     200: {
       description: "User",
       headers: { ...RateLimitResponseHeaders, ...EntityTagResponseHeader },
       content: { "application/json": { schema: UserResponseSchema } },
+    },
+    304: {
+      description: "User representation has not changed",
+      headers: { ...RateLimitResponseHeaders, ...EntityTagResponseHeader },
     },
     400: {
       description: "Validation error",
@@ -344,10 +351,14 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
 
   app.openapi(getUserRoute, async (c) => {
     const { id } = c.req.valid("param");
+    const { "if-none-match": ifNoneMatch } = c.req.valid("header");
     const canonicalId = CanonicalUuidSchema.parse(id);
     const user = await dependencies.getUserService.execute(canonicalId, c.get("requestContext"));
-    const response = UserResponseSchema.parse(toUserResponse(user));
     c.header("ETag", formatUserEntityTag(user.version));
+    if (ifNoneMatch !== undefined && userIfNoneMatchMatches(ifNoneMatch, user.version)) {
+      return c.body(null, 304);
+    }
+    const response = UserResponseSchema.parse(toUserResponse(user));
     return c.json(response, 200);
   });
 }
