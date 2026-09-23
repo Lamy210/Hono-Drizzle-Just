@@ -32,13 +32,14 @@ function buildContractApp() {
     tenantId: "tenant-contract",
     email: "contract@example.com",
     name: "Contract User",
+    version: 1,
     createdAt: new Date("2026-09-16T00:00:00.000Z"),
   };
   const repository: UserRepository & UserListRepository & UserUpdateRepository = {
     findById: mock(async () => user),
     findByEmail: mock(async () => null),
     listPage: mock(async () => ({ users: [user], total: 1 })),
-    update: mock(async (_tenantId, _id, fields) => ({ ...user, ...fields })),
+    update: mock(async (_tenantId, _id, fields) => ({ state: "updated" as const, user: { ...user, ...fields, version: user.version + 1 } })),
     create: mock(async (input) => ({ ...user, ...input })),
   };
   const transactions: TransactionManager<UserUnitOfWork> = {
