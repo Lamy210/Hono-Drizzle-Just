@@ -193,6 +193,27 @@ test("successful conditional update records one UPDATE span without tenant, id, 
   expect(meter.records[0]?.attributes).not.toHaveProperty("version");
 });
 
+test("a precondition with no matching strong user tags performs only the existence SELECT", async () => {
+  const tenantId = "tenant-observed-weak-update";
+  const seeded = await userFactory.create({
+    tenantId,
+    email: `weak-update-observed-${crypto.randomUUID()}@example.com`,
+  });
+  tracer.spans.length = 0;
+  meter.records.length = 0;
+
+  const result = await repository.update(
+    tenantId,
+    seeded.id,
+    { name: "Never written" },
+    { kind: "versions", versions: [] },
+  );
+
+  expect(result).toEqual({ state: "precondition_failed" });
+  expect(tracer.spans.map((entry) => entry.name)).toEqual(["SELECT users"]);
+  expect(meter.records).toHaveLength(1);
+});
+
 test("stale conditional update records bounded UPDATE then existence SELECT telemetry", async () => {
   const tenantId = "tenant-observed-stale-update";
   const seeded = await userFactory.create({
