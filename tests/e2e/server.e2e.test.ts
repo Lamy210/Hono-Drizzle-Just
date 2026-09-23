@@ -116,11 +116,11 @@ async function withTenantServer<T>(
       AUTH_DEV_STATIC_SCOPES: config.scopes.join(" "),
     },
     stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
+    stdout: "inherit",
+    stderr: "inherit",
   });
-  const stdoutPromise = new Response(child.stdout).text();
-  const stderrPromise = new Response(child.stderr).text();
+  const stdoutPromise = Promise.resolve("");
+  const stderrPromise = Promise.resolve("");
   const baseUrl = `http://127.0.0.1:${port}`;
   let gracefulShutdownVerified = false;
 
