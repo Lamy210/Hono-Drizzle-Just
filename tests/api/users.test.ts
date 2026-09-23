@@ -401,6 +401,7 @@ test("authorized user listing applies pagination defaults and hides tenant metad
   const response = await app.request("/users");
 
   expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
   expect(listPage).toHaveBeenCalledWith("tenant-a", { offset: 0, limit: 20 });
   expect(await response.json()).toEqual({
     data: [
@@ -413,6 +414,17 @@ test("authorized user listing applies pagination defaults and hides tenant metad
     ],
     meta: { page: 1, perPage: 20, total: 1, totalPages: 1 },
   });
+});
+
+test("HEAD user listing keeps the private no-store policy without a body", async () => {
+  const { app, listPage } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request("/users", { method: "HEAD" });
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(await response.text()).toBe("");
+  expect(listPage).toHaveBeenCalledWith("tenant-a", { offset: 0, limit: 20 });
 });
 
 test("user listing coerces bounded query pagination and derives the repository offset", async () => {

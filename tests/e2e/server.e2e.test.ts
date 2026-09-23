@@ -268,6 +268,7 @@ test(
           headers: { authorization },
         });
         expect(listResponse.status).toBe(200);
+        expect(listResponse.headers.get("cache-control")).toBe("private, no-store");
         const listed = (await listResponse.json()) as UserListResponse;
         expect(listed.data.some((user) => user.id === created.id)).toBe(true);
         expect(listed.meta).toMatchObject({ page: 1, perPage: 20, total: 1, totalPages: 1 });

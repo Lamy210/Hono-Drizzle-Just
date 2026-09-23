@@ -53,6 +53,14 @@ const UserRevalidationCacheResponseHeader = {
   },
 } as const;
 
+const UserListCacheResponseHeader = {
+  "Cache-Control": {
+    description:
+      "Tenant-scoped user lists are private and must not be stored by caches",
+    schema: { type: "string", example: "private, no-store" },
+  },
+} as const;
+
 const RateLimitResponseHeaders = {
   "RateLimit-Policy": {
     description:
@@ -147,7 +155,10 @@ const listUsersRoute = createRoute({
   responses: {
     200: {
       description: "Tenant-scoped paginated users",
-      headers: RateLimitResponseHeaders,
+      headers: {
+        ...RateLimitResponseHeaders,
+        ...UserListCacheResponseHeader,
+      },
       content: { "application/json": { schema: UserListResponseSchema } },
     },
     400: {
@@ -349,6 +360,7 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
       data: result.users.map(toUserResponse),
       meta: result.meta,
     });
+    c.header("Cache-Control", "private, no-store");
     return c.json(response, 200);
   });
 
