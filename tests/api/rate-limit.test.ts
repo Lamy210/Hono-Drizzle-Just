@@ -34,7 +34,7 @@ function buildApp(rateLimiter?: RateLimiter, remoteAddress?: string) {
     {
       logger,
       readinessChecker: new ReadinessChecker([]),
-      deleteUserService: new DeleteUserService({ deleteById: mock(async () => false) }),
+      deleteUserService: new DeleteUserService({ deleteById: mock(async () => false) }, logger),
       createUserService: new CreateUserService(
         transactions(repository),
         logger,
@@ -44,9 +44,10 @@ function buildApp(rateLimiter?: RateLimiter, remoteAddress?: string) {
       listUsersService: new ListUsersService({
         listPage: mock(async () => ({ users: [], total: 0 })),
       }),
-      updateUserService: new UpdateUserService({
-        update: mock(async () => null),
-      }),
+      updateUserService: new UpdateUserService(
+        { update: mock(async () => null) },
+        logger,
+      ),
       ...(rateLimiter === undefined ? {} : { rateLimiter }),
     },
     remoteAddress === undefined ? {} : { remoteAddressResolver: () => remoteAddress },
