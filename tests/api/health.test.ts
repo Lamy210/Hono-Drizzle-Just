@@ -25,6 +25,7 @@ function buildApp(healthCheck: HealthCheck) {
     create: mock(async (input) => ({
       id: crypto.randomUUID(),
       ...input,
+      version: 1,
       createdAt: new Date(),
     })),
   };
@@ -43,7 +44,7 @@ function buildApp(healthCheck: HealthCheck) {
       listPage: mock(async () => ({ users: [], total: 0 })),
     }),
     updateUserService: new UpdateUserService(
-      { update: mock(async () => null) },
+      { update: mock(async () => ({ state: "not_found" as const })) },
       logger,
     ),
   });
