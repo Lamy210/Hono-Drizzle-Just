@@ -35,7 +35,10 @@ function buildApp(rateLimiter?: RateLimiter, remoteAddress?: string) {
     {
       logger,
       readinessChecker: new ReadinessChecker([]),
-      deleteUserService: new DeleteUserService({ deleteById: mock(async () => false) }, logger),
+      deleteUserService: new DeleteUserService(
+        { deleteById: mock(async () => ({ state: "not_found" as const })) },
+        logger,
+      ),
       createUserService: new CreateUserService(
         transactions(repository),
         logger,
