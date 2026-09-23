@@ -18,6 +18,8 @@ const context: RequestContext = {
   },
 };
 
+const versionPrecondition = { kind: "versions" as const, versions: [1] };
+
 function loggingHarness() {
   const logger = new JsonConsoleLogger({}, () => undefined);
   return { logger, info: spyOn(logger, "info") };
@@ -29,15 +31,17 @@ test("normalizes partial updates, scopes them to the tenant, and logs only stabl
     tenantId: "tenant-a",
     email: "updated@example.com",
     name: "Updated",
+    version: 2,
     createdAt: new Date("2026-09-22T00:00:00.000Z"),
   };
-  const update = mock(async () => updated);
+  const update = mock(async () => ({ state: "updated" as const, user: updated }));
   const { logger, info } = loggingHarness();
   const service = new UpdateUserService({ update }, logger);
 
   const result = await service.execute(
     "550E8400-E29B-41D4-A716-446655440000",
     { email: " UPDATED@Example.com ", name: " Updated " },
+    versionPrecondition,
     context,
   );
 
@@ -45,6 +49,7 @@ test("normalizes partial updates, scopes them to the tenant, and logs only stabl
     "tenant-a",
     "550e8400-e29b-41d4-a716-446655440000",
     { email: "updated@example.com", name: "Updated" },
+    versionPrecondition,
   );
   expect(result).toEqual(updated);
   expect(info).toHaveBeenCalledTimes(1);
@@ -59,8 +64,8 @@ test("normalizes partial updates, scopes them to the tenant, and logs only stabl
   expect(serialized).not.toContain(updated.tenantId);
 });
 
-test("returns tenant-local not found without a second existence probe or business log", async () => {
-  const update = mock(async () => null);
+test("maps a stale version to precondition failed without a business log", async () => {
+  const update = mock(async () => ({ state: "precondition_failed" as const }));
   const { logger, info } = loggingHarness();
   const service = new UpdateUserService({ update }, logger);
 
@@ -68,6 +73,25 @@ test("returns tenant-local not found without a second existence probe or busines
     service.execute(
       "550e8400-e29b-41d4-a716-446655440000",
       { name: "Updated" },
+      versionPrecondition,
+      context,
+    ),
+  ).rejects.toMatchObject({ code: "PRECONDITION_FAILED", status: 412 });
+
+  expect(update).toHaveBeenCalledTimes(1);
+  expect(info).not.toHaveBeenCalled();
+});
+
+test("returns tenant-local not found without a successful business log", async () => {
+  const update = mock(async () => ({ state: "not_found" as const }));
+  const { logger, info } = loggingHarness();
+  const service = new UpdateUserService({ update }, logger);
+
+  await expect(
+    service.execute(
+      "550e8400-e29b-41d4-a716-446655440000",
+      { name: "Updated" },
+      versionPrecondition,
       context,
     ),
   ).rejects.toMatchObject({ code: "NOT_FOUND", status: 404 });
@@ -77,7 +101,7 @@ test("returns tenant-local not found without a second existence probe or busines
 });
 
 test("rejects an empty direct service update before repository access or business log", async () => {
-  const update = mock(async () => null);
+  const update = mock(async () => ({ state: "not_found" as const }));
   const { logger, info } = loggingHarness();
   const service = new UpdateUserService({ update }, logger);
 
@@ -85,6 +109,7 @@ test("rejects an empty direct service update before repository access or busines
     service.execute(
       "550e8400-e29b-41d4-a716-446655440000",
       {},
+      versionPrecondition,
       context,
     ),
   ).rejects.toMatchObject({ code: "VALIDATION_ERROR", status: 400 });
@@ -93,7 +118,7 @@ test("rejects an empty direct service update before repository access or busines
 });
 
 test("rejects missing write scope before repository access or business log", async () => {
-  const update = mock(async () => null);
+  const update = mock(async () => ({ state: "not_found" as const }));
   const { logger, info } = loggingHarness();
   const service = new UpdateUserService({ update }, logger);
   const readOnly: RequestContext = {
@@ -109,6 +134,7 @@ test("rejects missing write scope before repository access or business log", asy
     service.execute(
       "550e8400-e29b-41d4-a716-446655440000",
       { name: "Updated" },
+      versionPrecondition,
       readOnly,
     ),
   ).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
