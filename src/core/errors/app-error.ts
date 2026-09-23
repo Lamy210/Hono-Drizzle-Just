@@ -5,6 +5,8 @@ export type AppErrorCode =
   | "NOT_FOUND"
   | "METHOD_NOT_ALLOWED"
   | "CONFLICT"
+  | "PRECONDITION_FAILED"
+  | "PRECONDITION_REQUIRED"
   | "IDEMPOTENCY_KEY_REUSED"
   | "REQUEST_BODY_TOO_LARGE"
   | "RATE_LIMITED"
@@ -17,7 +19,7 @@ export type AppErrorCode =
   | "DATABASE_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
-export type AppErrorStatus = 400 | 401 | 403 | 404 | 405 | 409 | 413 | 422 | 429 | 500 | 502 | 503 | 504;
+export type AppErrorStatus = 400 | 401 | 403 | 404 | 405 | 409 | 412 | 413 | 422 | 428 | 429 | 500 | 502 | 503 | 504;
 
 export class AppError extends Error {
   readonly name = "AppError";
