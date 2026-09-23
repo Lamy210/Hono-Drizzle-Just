@@ -213,7 +213,10 @@ async function waitForBlockedAtomicUserMutation(): Promise<void> {
            from pg_stat_activity
           where pid <> pg_backend_pid()
             and wait_event_type = 'Lock'
-            and query ilike '%with current as materialized%'
+            and (
+              query ilike '%with updated as%'
+              or query ilike '%with deleted as%'
+            )
        ) as blocked`,
     );
     if (result.rows[0]?.blocked) {
