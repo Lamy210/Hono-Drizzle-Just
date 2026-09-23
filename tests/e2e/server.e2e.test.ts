@@ -284,7 +284,9 @@ test(
           }),
         });
         expect(updateResponse.status).toBe(200);
+        process.stderr.write("E2E_DIAG before-update-etag\n");
         const updatedEtag = updateResponse.headers.get("etag");
+        process.stderr.write("E2E_DIAG after-update-etag\n");
         expect(updatedEtag).toBe('"v2"');
         const updated = (await withTimeout(
           updateResponse.json() as Promise<UserResponse>,
