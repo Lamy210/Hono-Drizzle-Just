@@ -53,6 +53,8 @@ The initial migration establishes the current template schema from an empty data
 
 Tenant ownership is introduced by a later migration rather than by rewriting the baseline. It adds `users.tenant_id`, backfills existing rows to reserved `__legacy__:<user-id>` identifiers before making the column `NOT NULL`, drops global email uniqueness, and adds `UNIQUE(tenant_id, email)`. Normal tenant validation rejects the reserved legacy prefix, so migrated historical rows cannot accidentally become visible to an ordinary tenant principal.
 
+The user-create presentation contract returns HTTP 201 with both a strong ETag and a relative `Location: /users/{id}` header naming the primary resource. Idempotent replay preserves that same resource URI instead of inventing a replay-specific endpoint or redirect; the response therefore remains navigable through the ordinary tenant-scoped GET route.
+
 User-create idempotency is introduced by a subsequent forward migration, again without rewriting earlier history. `user_creation_idempotency` is keyed by `(tenant_id, key_hash)`, stores the SHA-256 request fingerprint and the completed `user_id`, and uses database timestamps for expiry. The user reference is completed inside the same transaction as the user insert, while expired claims are reclaimed lazily on reuse rather than by a required background worker.
 
 Rate-limit persistence is introduced by a later forward migration. `rate_limit_buckets` is keyed by `(scope, identity_hash)`, stores only the hashed identity plus the active fixed-window timestamps/count, and reuses the same row when a window expires.
