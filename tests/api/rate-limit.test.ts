@@ -106,12 +106,16 @@ test("user routes select stable read and write scopes without path identifiers",
   });
   const listResponse = await app.request("/users");
   const readResponse = await app.request(`/users/${userId}`);
+  const headListResponse = await app.request("/users", { method: "HEAD" });
+  const headReadResponse = await app.request(`/users/${userId}`, { method: "HEAD" });
 
   expect(writeResponse.status).toBe(401);
   expect(patchResponse.status).toBe(401);
   expect(deleteResponse.status).toBe(401);
   expect(listResponse.status).toBe(401);
   expect(readResponse.status).toBe(401);
+  expect(headListResponse.status).toBe(401);
+  expect(headReadResponse.status).toBe(401);
   expect(consume).toHaveBeenNthCalledWith(1, {
     scope: "http.users.write",
     identity: "203.0.113.10",
@@ -129,6 +133,14 @@ test("user routes select stable read and write scopes without path identifiers",
     identity: "203.0.113.10",
   });
   expect(consume).toHaveBeenNthCalledWith(5, {
+    scope: "http.users.read",
+    identity: "203.0.113.10",
+  });
+  expect(consume).toHaveBeenNthCalledWith(6, {
+    scope: "http.users.read",
+    identity: "203.0.113.10",
+  });
+  expect(consume).toHaveBeenNthCalledWith(7, {
     scope: "http.users.read",
     identity: "203.0.113.10",
   });

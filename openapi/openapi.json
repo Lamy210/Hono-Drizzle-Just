@@ -803,6 +803,13 @@
             },
             "description": "User",
             "headers": {
+              "Cache-Control": {
+                "description": "Private-cache revalidation policy for the tenant-scoped user representation",
+                "schema": {
+                  "example": "private, no-cache",
+                  "type": "string"
+                }
+              },
               "ETag": {
                 "description": "Strong validator for the returned user representation",
                 "schema": {
@@ -827,6 +834,13 @@
           "304": {
             "description": "User representation has not changed",
             "headers": {
+              "Cache-Control": {
+                "description": "Private-cache revalidation policy for the tenant-scoped user representation",
+                "schema": {
+                  "example": "private, no-cache",
+                  "type": "string"
+                }
+              },
               "ETag": {
                 "description": "Strong validator for the returned user representation",
                 "schema": {

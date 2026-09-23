@@ -297,6 +297,43 @@ test("uppercase UUID path input is accepted and normalized after tenant authoriz
   expect(body.id).toBe("550e8400-e29b-41d4-a716-446655440000");
   expect(body.tenantId).toBeUndefined();
   expect(response.headers.get("etag")).toBe('"v1"');
+  expect(response.headers.get("cache-control")).toBe("private, no-cache");
+});
+
+test("HEAD reuses the tenant-scoped GET metadata without a response body", async () => {
+  const { app, repository } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request(
+    "/users/550e8400-e29b-41d4-a716-446655440000",
+    { method: "HEAD" },
+  );
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("etag")).toBe('"v1"');
+  expect(response.headers.get("cache-control")).toBe("private, no-cache");
+  expect(await response.text()).toBe("");
+  expect(repository.findById).toHaveBeenCalledWith(
+    "tenant-a",
+    "550e8400-e29b-41d4-a716-446655440000",
+  );
+});
+
+test("conditional HEAD preserves the GET validator semantics without a body", async () => {
+  const { app, repository } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request(
+    "/users/550e8400-e29b-41d4-a716-446655440000",
+    {
+      method: "HEAD",
+      headers: { "if-none-match": 'W/"v1"' },
+    },
+  );
+
+  expect(response.status).toBe(304);
+  expect(response.headers.get("etag")).toBe('"v1"');
+  expect(response.headers.get("cache-control")).toBe("private, no-cache");
+  expect(await response.text()).toBe("");
+  expect(repository.findById).toHaveBeenCalledTimes(1);
 });
 
 test("anonymous conditional GET remains 401 before validator evaluation", async () => {
@@ -324,6 +361,7 @@ test("matching If-None-Match returns 304 with the current ETag and no body", asy
 
     expect(response.status).toBe(304);
     expect(response.headers.get("etag")).toBe('"v1"');
+    expect(response.headers.get("cache-control")).toBe("private, no-cache");
     expect(await response.text()).toBe("");
   }
 
@@ -339,6 +377,7 @@ test("stale If-None-Match returns the current 200 representation", async () => {
 
   expect(response.status).toBe(200);
   expect(response.headers.get("etag")).toBe('"v1"');
+  expect(response.headers.get("cache-control")).toBe("private, no-cache");
   expect(await response.json()).toMatchObject({
     id: "550e8400-e29b-41d4-a716-446655440000",
     email: "lamy@example.com",
