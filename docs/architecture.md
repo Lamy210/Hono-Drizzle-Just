@@ -57,6 +57,8 @@ The user-create presentation contract returns HTTP 201 with both a strong ETag a
 
 User-create idempotency is introduced by a subsequent forward migration, again without rewriting earlier history. `user_creation_idempotency` is keyed by `(tenant_id, key_hash)`, stores the SHA-256 request fingerprint and the completed `user_id`, and uses database timestamps for expiry. The user reference is completed inside the same transaction as the user insert, while expired claims are reclaimed lazily on reuse rather than by a required background worker.
 
+The ledger intentionally stores a resource pointer, not a serialized response snapshot. An active same-fingerprint replay therefore tenant-loads `user_id` through `UserRepository.findById(tenantId, userId)` and returns that resource's current representation/version. If a later PATCH has changed the user, the duplicate POST still resolves the original resource identity but returns the newer body and ETag. This keeps mutable user PII out of idempotency rows and avoids maintaining a second historical representation store. The application-owned contract is therefore resource-identity idempotency rather than byte-for-byte response replay; changing to historical response replay requires an explicit retention/privacy/versioning design rather than silently extending this ledger.
+
 Rate-limit persistence is introduced by a later forward migration. `rate_limit_buckets` is keyed by `(scope, identity_hash)`, stores only the hashed identity plus the active fixed-window timestamps/count, and reuses the same row when a window expires.
 
 
