@@ -32,7 +32,7 @@ function buildApp(healthCheck: HealthCheck) {
   return createApp({
     logger,
     readinessChecker: new ReadinessChecker([healthCheck]),
-    deleteUserService: new DeleteUserService({ deleteById: mock(async () => false) }),
+    deleteUserService: new DeleteUserService({ deleteById: mock(async () => false) }, logger),
     createUserService: new CreateUserService(
       transactions(repository),
       logger,
@@ -42,9 +42,10 @@ function buildApp(healthCheck: HealthCheck) {
     listUsersService: new ListUsersService({
       listPage: mock(async () => ({ users: [], total: 0 })),
     }),
-    updateUserService: new UpdateUserService({
-      update: mock(async () => null),
-    }),
+    updateUserService: new UpdateUserService(
+      { update: mock(async () => null) },
+      logger,
+    ),
   });
 }
 

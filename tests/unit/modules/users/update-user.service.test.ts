@@ -1,5 +1,6 @@
-import { expect, mock, test } from "bun:test";
+import { expect, mock, spyOn, test } from "bun:test";
 import type { RequestContext } from "../../../../src/core/context/request-context";
+import { JsonConsoleLogger } from "../../../../src/infrastructure/logging/json-console-logger";
 import { UpdateUserService } from "../../../../src/modules/users/application/update-user.service";
 
 const context: RequestContext = {
@@ -17,7 +18,12 @@ const context: RequestContext = {
   },
 };
 
-test("normalizes partial updates and scopes them to the authorized tenant", async () => {
+function loggingHarness() {
+  const logger = new JsonConsoleLogger({}, () => undefined);
+  return { logger, info: spyOn(logger, "info") };
+}
+
+test("normalizes partial updates, scopes them to the tenant, and logs only stable identifiers", async () => {
   const updated = {
     id: "550e8400-e29b-41d4-a716-446655440000",
     tenantId: "tenant-a",
@@ -26,7 +32,8 @@ test("normalizes partial updates and scopes them to the authorized tenant", asyn
     createdAt: new Date("2026-09-22T00:00:00.000Z"),
   };
   const update = mock(async () => updated);
-  const service = new UpdateUserService({ update });
+  const { logger, info } = loggingHarness();
+  const service = new UpdateUserService({ update }, logger);
 
   const result = await service.execute(
     "550E8400-E29B-41D4-A716-446655440000",
@@ -40,11 +47,22 @@ test("normalizes partial updates and scopes them to the authorized tenant", asyn
     { email: "updated@example.com", name: "Updated" },
   );
   expect(result).toEqual(updated);
+  expect(info).toHaveBeenCalledTimes(1);
+  expect(info).toHaveBeenCalledWith("user.updated", {
+    userId: updated.id,
+    requestId: context.requestId,
+    traceId: context.trace.traceId,
+  });
+  const serialized = JSON.stringify(info.mock.calls);
+  expect(serialized).not.toContain(updated.email);
+  expect(serialized).not.toContain(updated.name);
+  expect(serialized).not.toContain(updated.tenantId);
 });
 
-test("returns tenant-local not found without a second existence probe", async () => {
+test("returns tenant-local not found without a second existence probe or business log", async () => {
   const update = mock(async () => null);
-  const service = new UpdateUserService({ update });
+  const { logger, info } = loggingHarness();
+  const service = new UpdateUserService({ update }, logger);
 
   await expect(
     service.execute(
@@ -55,11 +73,13 @@ test("returns tenant-local not found without a second existence probe", async ()
   ).rejects.toMatchObject({ code: "NOT_FOUND", status: 404 });
 
   expect(update).toHaveBeenCalledTimes(1);
+  expect(info).not.toHaveBeenCalled();
 });
 
-test("rejects an empty direct service update before repository access", async () => {
+test("rejects an empty direct service update before repository access or business log", async () => {
   const update = mock(async () => null);
-  const service = new UpdateUserService({ update });
+  const { logger, info } = loggingHarness();
+  const service = new UpdateUserService({ update }, logger);
 
   await expect(
     service.execute(
@@ -69,11 +89,13 @@ test("rejects an empty direct service update before repository access", async ()
     ),
   ).rejects.toMatchObject({ code: "VALIDATION_ERROR", status: 400 });
   expect(update).not.toHaveBeenCalled();
+  expect(info).not.toHaveBeenCalled();
 });
 
-test("rejects missing write scope before repository access", async () => {
+test("rejects missing write scope before repository access or business log", async () => {
   const update = mock(async () => null);
-  const service = new UpdateUserService({ update });
+  const { logger, info } = loggingHarness();
+  const service = new UpdateUserService({ update }, logger);
   const readOnly: RequestContext = {
     ...context,
     principal: {
@@ -91,4 +113,5 @@ test("rejects missing write scope before repository access", async () => {
     ),
   ).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
   expect(update).not.toHaveBeenCalled();
+  expect(info).not.toHaveBeenCalled();
 });

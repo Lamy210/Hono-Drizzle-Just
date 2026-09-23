@@ -168,6 +168,8 @@ Transactions are a separate boundary. `DrizzleTransactionManager` optionally wra
 
 The JSON logger remains an application-owned logging path. OpenTelemetry Logs are not required by the template; trace/span IDs provide correlation between structured logs and exported traces.
 
+Business mutation events are emitted by application services only after the persistence operation has succeeded. The sample user module emits `user.created`, `user.updated`, and `user.deleted` with `userId`, `requestId`, and `traceId` only. It deliberately excludes email, name, tenant ID, request payloads, credentials, idempotency material, and database diagnostics. Unlike metric/trace attributes, logs may intentionally carry a request/resource identifier for audit correlation, but domain PII and secrets remain excluded. Failed mutations emit no successful business event; idempotent create replay emits no duplicate creation event.
+
 ## Authentication boundary
 
 `core/auth` owns two provider-neutral contracts:

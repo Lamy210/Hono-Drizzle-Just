@@ -49,11 +49,11 @@ function buildContractApp() {
   return createApp({
     logger,
     readinessChecker: new ReadinessChecker([]),
-    deleteUserService: new DeleteUserService({ deleteById: mock(async () => false) }),
+    deleteUserService: new DeleteUserService({ deleteById: mock(async () => false) }, logger),
     createUserService: new CreateUserService(transactions, logger, new Sha256StringDigester()),
     getUserService: new GetUserService(repository),
     listUsersService: new ListUsersService(repository),
-    updateUserService: new UpdateUserService(repository),
+    updateUserService: new UpdateUserService(repository, logger),
   });
 }
 

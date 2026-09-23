@@ -45,7 +45,7 @@ function buildContractApp() {
   return createApp({
     logger,
     readinessChecker: new ReadinessChecker([]),
-    deleteUserService: new DeleteUserService({ deleteById: async () => false }),
+    deleteUserService: new DeleteUserService({ deleteById: async () => false }, logger),
     createUserService: new CreateUserService(
       transactions,
       logger,
@@ -53,7 +53,7 @@ function buildContractApp() {
     ),
     getUserService: new GetUserService(repository),
     listUsersService: new ListUsersService(repository),
-    updateUserService: new UpdateUserService(repository),
+    updateUserService: new UpdateUserService(repository, logger),
   });
 }
 
