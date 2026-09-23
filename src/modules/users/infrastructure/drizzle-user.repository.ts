@@ -47,7 +47,7 @@ function versionPreconditionSql(precondition: UserVersionPrecondition): SQL {
   )})`;
 }
 
-interface AtomicUserUpdateRow {
+interface AtomicUserUpdateRow extends Record<string, unknown> {
   readonly state: "updated" | "not_found" | "precondition_failed";
   readonly id: string | null;
   readonly tenant_id: string | null;
@@ -57,7 +57,7 @@ interface AtomicUserUpdateRow {
   readonly created_at: Date | null;
 }
 
-interface AtomicUserDeleteRow {
+interface AtomicUserDeleteRow extends Record<string, unknown> {
   readonly state: "deleted" | "not_found" | "precondition_failed";
 }
 
