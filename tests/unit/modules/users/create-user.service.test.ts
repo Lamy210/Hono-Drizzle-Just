@@ -196,15 +196,16 @@ test("fresh idempotency claim hashes canonical input, creates once, and complete
   expect(JSON.stringify(claim.mock.calls)).not.toContain(rawKey);
 });
 
-test("same fingerprint replays the tenant-scoped user without a second create or business log", async () => {
+test("same fingerprint replays the current tenant-scoped user without a second create or business log", async () => {
   const rawKey = "Replay-Key-123";
   const canonical = "users:create:v1\nlamy@example.com\nLamy";
   const { digester, requestFingerprint } = digesterFor(rawKey, canonical);
-  const user = testUser();
+  const original = testUser();
+  const current = testUser({ name: "Updated after create", version: 2 });
   const findById = mock(async (tenantId: string, id: string) =>
-    tenantId === "tenant-a" && id === user.id ? user : null,
+    tenantId === "tenant-a" && id === original.id ? current : null,
   );
-  const create = mock(async () => user);
+  const create = mock(async () => original);
   const repository: UserRepository = {
     findById,
     findByEmail: mock(async () => null),
@@ -212,7 +213,7 @@ test("same fingerprint replays the tenant-scoped user without a second create or
   };
   const claim = mock(async () => ({
     state: "existing" as const,
-    record: { requestFingerprint, userId: user.id },
+    record: { requestFingerprint, userId: original.id },
   }));
   const complete = mock(async () => undefined);
   const logger = new JsonConsoleLogger({}, () => undefined);
@@ -225,8 +226,11 @@ test("same fingerprint replays the tenant-scoped user without a second create or
     { idempotencyKey: rawKey },
   );
 
-  expect(result).toEqual(user);
-  expect(findById).toHaveBeenCalledWith("tenant-a", user.id);
+  expect(result).toEqual(current);
+  expect(result.id).toBe(original.id);
+  expect(result.name).toBe("Updated after create");
+  expect(result.version).toBe(2);
+  expect(findById).toHaveBeenCalledWith("tenant-a", original.id);
   expect(repository.findByEmail).not.toHaveBeenCalled();
   expect(create).not.toHaveBeenCalled();
   expect(complete).not.toHaveBeenCalled();

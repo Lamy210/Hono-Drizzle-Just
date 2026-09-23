@@ -372,7 +372,47 @@ test(
         expect(replayResponse.headers.get("location")).toBe(
           `/users/${firstIdempotent.id}`,
         );
+        expect(replayResponse.headers.get("etag")).toBe(firstIdempotentEtag);
         expect(replay).toEqual(firstIdempotent);
+
+        const mutateIdempotentResponse = await boundedFetch(
+          `${baseUrl}/users/${firstIdempotent.id}`,
+          {
+            method: "PATCH",
+            headers: {
+              ...authenticatedHeaders(authorization),
+              "if-match": firstIdempotentEtag ?? "",
+            },
+            body: JSON.stringify({ name: "Updated Idempotent User" }),
+          },
+        );
+        expect(mutateIdempotentResponse.status).toBe(200);
+        const mutatedIdempotentEtag = mutateIdempotentResponse.headers.get("etag");
+        expect(mutatedIdempotentEtag).toBe('"v2"');
+        const mutatedIdempotent = (await mutateIdempotentResponse.json()) as UserResponse;
+        expect(mutatedIdempotent).toEqual({
+          ...firstIdempotent,
+          name: "Updated Idempotent User",
+        });
+
+        const replayAfterMutationResponse = await boundedFetch(`${baseUrl}/users`, {
+          method: "POST",
+          headers: idempotentHeaders,
+          body: JSON.stringify({
+            email: idempotentEmail,
+            name: "Idempotent User",
+          }),
+        });
+        expect(replayAfterMutationResponse.status).toBe(201);
+        expect(replayAfterMutationResponse.headers.get("location")).toBe(
+          `/users/${firstIdempotent.id}`,
+        );
+        expect(replayAfterMutationResponse.headers.get("etag")).toBe(
+          mutatedIdempotentEtag,
+        );
+        expect((await replayAfterMutationResponse.json()) as UserResponse).toEqual(
+          mutatedIdempotent,
+        );
 
         const updateConflictResponse = await boundedFetch(`${baseUrl}/users/${created.id}`, {
           method: "PATCH",
@@ -408,7 +448,7 @@ test(
             method: "DELETE",
             headers: {
               authorization,
-              "if-match": firstIdempotentEtag ?? "",
+              "if-match": mutatedIdempotentEtag ?? "",
             },
           },
         );
