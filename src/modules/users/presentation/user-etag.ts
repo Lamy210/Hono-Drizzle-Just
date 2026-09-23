@@ -43,23 +43,14 @@ function splitEntityTagList(value: string): readonly string[] {
   const members: string[] = [];
   let start = 0;
   let quoted = false;
-  let escaped = false;
 
   for (let index = 0; index < value.length; index += 1) {
     const character = value[index];
-    if (quoted) {
-      if (escaped) {
-        escaped = false;
-      } else if (character === "\\") {
-        escaped = true;
-      } else if (character === '"') {
-        quoted = false;
-      }
+    if (character === '"') {
+      quoted = !quoted;
       continue;
     }
-
-    if (character === '"') {
-      quoted = true;
+    if (quoted) {
       continue;
     }
     if (character === ",") {
@@ -72,7 +63,7 @@ function splitEntityTagList(value: string): readonly string[] {
     }
   }
 
-  if (quoted || escaped) {
+  if (quoted) {
     throw malformedIfMatch();
   }
 
@@ -83,7 +74,10 @@ function splitEntityTagList(value: string): readonly string[] {
   members.push(finalMember);
 
   for (const member of members) {
-    if (member === "*" || !/^(?:W\/)?".*"$/.test(member)) {
+    if (
+      member === "*" ||
+      !/^(?:W\/)?"[\x21\x23-\x7e\x80-\xff]*"$/.test(member)
+    ) {
       throw malformedIfMatch();
     }
   }
