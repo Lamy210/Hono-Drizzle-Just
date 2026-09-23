@@ -163,7 +163,7 @@ test("successful conditional delete records one DELETE span without tenant, id, 
   expect(telemetry).not.toContain(seeded.id);
 });
 
-test("stale conditional delete records DELETE then tenant-scoped existence SELECT", async () => {
+test("stale conditional delete is classified inside one DELETE observation", async () => {
   const tenantId = "tenant-observed-stale-delete";
   const seeded = await userFactory.create({
     tenantId,
@@ -180,13 +180,11 @@ test("stale conditional delete records DELETE then tenant-scoped existence SELEC
     ),
   ).toEqual({ state: "precondition_failed" });
 
-  expect(tracer.spans.map((entry) => entry.name)).toEqual([
-    "DELETE users",
-    "SELECT users",
-  ]);
+  expect(tracer.spans.map((entry) => entry.name)).toEqual(["DELETE users"]);
+  expect(meter.records).toHaveLength(1);
 });
 
-test("weak-only delete precondition performs only the existence SELECT", async () => {
+test("weak-only delete precondition is classified inside one DELETE observation", async () => {
   const tenantId = "tenant-observed-weak-delete";
   const seeded = await userFactory.create({
     tenantId,
@@ -203,7 +201,8 @@ test("weak-only delete precondition performs only the existence SELECT", async (
     ),
   ).toEqual({ state: "precondition_failed" });
 
-  expect(tracer.spans.map((entry) => entry.name)).toEqual(["SELECT users"]);
+  expect(tracer.spans.map((entry) => entry.name)).toEqual(["DELETE users"]);
+  expect(meter.records).toHaveLength(1);
 });
 
 test("successful conditional update records one UPDATE span without tenant, id, or version cardinality", async () => {
@@ -244,7 +243,7 @@ test("successful conditional update records one UPDATE span without tenant, id, 
   expect(meter.records[0]?.attributes).not.toHaveProperty("version");
 });
 
-test("a precondition with no matching strong user tags performs only the existence SELECT", async () => {
+test("a precondition with no matching strong user tags stays inside one UPDATE observation", async () => {
   const tenantId = "tenant-observed-weak-update";
   const seeded = await userFactory.create({
     tenantId,
@@ -261,11 +260,11 @@ test("a precondition with no matching strong user tags performs only the existen
   );
 
   expect(result).toEqual({ state: "precondition_failed" });
-  expect(tracer.spans.map((entry) => entry.name)).toEqual(["SELECT users"]);
+  expect(tracer.spans.map((entry) => entry.name)).toEqual(["UPDATE users"]);
   expect(meter.records).toHaveLength(1);
 });
 
-test("stale conditional update records bounded UPDATE then existence SELECT telemetry", async () => {
+test("stale conditional update is classified inside one UPDATE observation", async () => {
   const tenantId = "tenant-observed-stale-update";
   const seeded = await userFactory.create({
     tenantId,
@@ -282,10 +281,7 @@ test("stale conditional update records bounded UPDATE then existence SELECT tele
   );
 
   expect(result).toEqual({ state: "precondition_failed" });
-  expect(tracer.spans.map((entry) => entry.name)).toEqual([
-    "UPDATE users",
-    "SELECT users",
-  ]);
+  expect(tracer.spans.map((entry) => entry.name)).toEqual(["UPDATE users"]);
   const telemetry = JSON.stringify({
     spans: tracer.spans.map((entry) => entry.options.attributes),
     records: meter.records,
