@@ -224,6 +224,16 @@ test(
         expect(fetchedResponse.headers.get("etag")).toBe(createdEtag);
         expect((await fetchedResponse.json()) as UserResponse).toEqual(created);
 
+        const notModifiedResponse = await boundedFetch(`${baseUrl}/users/${created.id}`, {
+          headers: {
+            authorization,
+            "if-none-match": createdEtag ?? "",
+          },
+        });
+        expect(notModifiedResponse.status).toBe(304);
+        expect(notModifiedResponse.headers.get("etag")).toBe(createdEtag);
+        expect(await notModifiedResponse.text()).toBe("");
+
         const listResponse = await boundedFetch(`${baseUrl}/users?page=1&perPage=20`, {
           headers: { authorization },
         });
@@ -249,6 +259,29 @@ test(
         const updated = (await updateResponse.json()) as UserResponse;
         expect(updated).toEqual({ ...created, name: "Tenant A Updated" });
         expect("tenantId" in updated).toBe(false);
+
+        const revalidatedWithOldTag = await boundedFetch(`${baseUrl}/users/${created.id}`, {
+          headers: {
+            authorization,
+            "if-none-match": createdEtag ?? "",
+          },
+        });
+        expect(revalidatedWithOldTag.status).toBe(200);
+        expect(revalidatedWithOldTag.headers.get("etag")).toBe(updatedEtag);
+        expect((await revalidatedWithOldTag.json()) as UserResponse).toEqual(updated);
+
+        const weakCurrentTag = updatedEtag ? `W/${updatedEtag}` : "";
+        const revalidatedWithWeakCurrentTag = await boundedFetch(
+          `${baseUrl}/users/${created.id}`,
+          {
+            headers: {
+              authorization,
+              "if-none-match": weakCurrentTag,
+            },
+          },
+        );
+        expect(revalidatedWithWeakCurrentTag.status).toBe(304);
+        expect(revalidatedWithWeakCurrentTag.headers.get("etag")).toBe(updatedEtag);
 
         const staleUpdateResponse = await boundedFetch(`${baseUrl}/users/${created.id}`, {
           method: "PATCH",
