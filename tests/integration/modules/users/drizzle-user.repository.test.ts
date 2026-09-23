@@ -189,6 +189,10 @@ test("update is tenant-scoped, version-guarded, and increments version atomicall
       version: 2,
     },
   });
+  if (updated.state === "updated") {
+    expect(updated.user.createdAt).toBeInstanceOf(Date);
+    expect(updated.user.createdAt.toISOString()).toBe(created.createdAt.toISOString());
+  }
 
   expect(
     await repository.update(
