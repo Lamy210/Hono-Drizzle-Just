@@ -114,6 +114,7 @@ test("no-key path preserves existing transaction behavior without touching idemp
     tenantId: input.tenantId ?? "tenant-a",
     email: input.email,
     name: input.name,
+    version: 1,
     createdAt,
   }));
   const repository: UserRepository = {
