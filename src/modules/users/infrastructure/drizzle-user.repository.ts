@@ -125,10 +125,6 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
     precondition: UserVersionPrecondition,
   ): Promise<UserUpdateResult> {
     const executeUpdate = async (): Promise<User | undefined> => {
-      if (precondition.kind === "versions" && precondition.versions.length === 0) {
-        return undefined;
-      }
-
       const predicate =
         precondition.kind === "any-current"
           ? and(eq(users.tenantId, tenantId), eq(users.id, id))
@@ -150,11 +146,13 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
     };
 
     try {
-      const updated = this.observer
-        ? await this.observer.operation({ operation: "UPDATE", collection: "users" }, executeUpdate)
-        : await executeUpdate();
-      if (updated) {
-        return { state: "updated", user: updated };
+      if (precondition.kind !== "versions" || precondition.versions.length > 0) {
+        const updated = this.observer
+          ? await this.observer.operation({ operation: "UPDATE", collection: "users" }, executeUpdate)
+          : await executeUpdate();
+        if (updated) {
+          return { state: "updated", user: updated };
+        }
       }
     } catch (error) {
       if (isUniqueViolation(error)) {
