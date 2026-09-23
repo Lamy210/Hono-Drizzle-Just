@@ -283,7 +283,11 @@ test(
             tenantId: "tenant-B",
           }),
         });
-        process.stderr.write(`E2E_DIAG update-status=${updateResponse.status}\n`);
+        if (updateResponse.status !== 200) {
+          process.stderr.write(
+            `E2E_DIAG update-status=${updateResponse.status} body=${await updateResponse.clone().text()}\n`,
+          );
+        }
         expect(updateResponse.status).toBe(200);
         const updatedEtag = updateResponse.headers.get("etag");
         expect(updatedEtag).toBe('"v2"');
