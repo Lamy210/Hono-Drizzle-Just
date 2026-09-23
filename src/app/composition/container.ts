@@ -14,6 +14,7 @@ import { PostgresGcraRateLimiter } from "../../infrastructure/rate-limit/postgre
 import { RateLimitObserver } from "../../infrastructure/rate-limit/rate-limit-observer";
 import { createTelemetry } from "../../infrastructure/observability/telemetry";
 import { CreateUserService } from "../../modules/users/application/create-user.service";
+import { DeleteUserService } from "../../modules/users/application/delete-user.service";
 import { GetUserService } from "../../modules/users/application/get-user.service";
 import { ListUsersService } from "../../modules/users/application/list-users.service";
 import { UpdateUserService } from "../../modules/users/application/update-user.service";
@@ -124,6 +125,7 @@ export function createProductionContainer(config: AppConfig): {
     dependencies: {
       logger,
       readinessChecker,
+      deleteUserService: new DeleteUserService(userRepository),
       createUserService: new CreateUserService(userTransactions, logger, digester),
       getUserService: new GetUserService(userRepository),
       listUsersService: new ListUsersService(userRepository),
