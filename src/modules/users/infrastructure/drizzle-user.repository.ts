@@ -161,14 +161,7 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
   ): Promise<UserDeleteResult> {
     const execute = async (): Promise<UserDeleteResult> => {
       const result = await this.db.execute<AtomicUserDeleteRow>(sql`
-        with current as materialized (
-          select 1 as present
-          from ${users}
-          where
-            ${users.tenantId} = ${tenantId}
-            and ${users.id} = ${id}
-        ),
-        deleted as (
+        with deleted as (
           delete from ${users}
           where
             ${users.tenantId} = ${tenantId}
@@ -179,11 +172,16 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
         select
           case
             when deleted.id is not null then 'deleted'
-            when current.present is not null then 'precondition_failed'
+            when exists (
+              select 1
+              from ${users}
+              where
+                ${users.tenantId} = ${tenantId}
+                and ${users.id} = ${id}
+            ) then 'precondition_failed'
             else 'not_found'
           end as state
         from (select 1) as anchor
-        left join current on true
         left join deleted on true
         limit 1
       `);
@@ -217,14 +215,7 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
 
     const execute = async (): Promise<UserUpdateResult> => {
       const result = await this.db.execute<AtomicUserUpdateRow>(sql`
-        with current as materialized (
-          select 1 as present
-          from ${users}
-          where
-            ${users.tenantId} = ${tenantId}
-            and ${users.id} = ${id}
-        ),
-        updated as (
+        with updated as (
           update ${users}
           set ${sql.join(assignments, sql`, `)}
           where
@@ -242,7 +233,13 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
         select
           case
             when updated.id is not null then 'updated'
-            when current.present is not null then 'precondition_failed'
+            when exists (
+              select 1
+              from ${users}
+              where
+                ${users.tenantId} = ${tenantId}
+                and ${users.id} = ${id}
+            ) then 'precondition_failed'
             else 'not_found'
           end as state,
           updated.id,
@@ -252,7 +249,6 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
           updated.version,
           updated.created_at
         from (select 1) as anchor
-        left join current on true
         left join updated on true
         limit 1
       `);
