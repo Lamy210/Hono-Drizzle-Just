@@ -25,6 +25,7 @@ function buildApp(rateLimiter?: RateLimiter, remoteAddress?: string) {
     create: mock(async (input) => ({
       id: crypto.randomUUID(),
       ...input,
+      version: 1,
       createdAt: new Date(),
     })),
   };
@@ -45,7 +46,7 @@ function buildApp(rateLimiter?: RateLimiter, remoteAddress?: string) {
         listPage: mock(async () => ({ users: [], total: 0 })),
       }),
       updateUserService: new UpdateUserService(
-        { update: mock(async () => null) },
+        { update: mock(async () => ({ state: "not_found" as const })) },
         logger,
       ),
       ...(rateLimiter === undefined ? {} : { rateLimiter }),
