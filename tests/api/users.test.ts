@@ -493,11 +493,12 @@ test("cross-tenant PATCH is indistinguishable from a missing user", async () => 
   );
 });
 
-test("authorized DELETE removes only the principal tenant user and returns 204", async () => {
+test("authorized DELETE removes only the matching principal-tenant version and returns 204", async () => {
   const { app, deleteById } = buildApp(principalResolver("tenant-a", ["users:write"]));
 
   const response = await app.request("/users/550E8400-E29B-41D4-A716-446655440000", {
     method: "DELETE",
+    headers: { "if-match": '"v1"' },
   });
 
   expect(response.status).toBe(204);
@@ -505,6 +506,40 @@ test("authorized DELETE removes only the principal tenant user and returns 204",
   expect(deleteById).toHaveBeenCalledWith(
     "tenant-a",
     "550e8400-e29b-41d4-a716-446655440000",
+    { kind: "versions", versions: [1] },
+  );
+});
+
+test("DELETE requires If-Match after authorization", async () => {
+  const { app, deleteById } = buildApp(principalResolver("tenant-a", ["users:write"]));
+
+  const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
+    method: "DELETE",
+  });
+
+  expect(response.status).toBe(428);
+  expect(await response.json()).toMatchObject({
+    error: { code: "PRECONDITION_REQUIRED" },
+  });
+  expect(deleteById).not.toHaveBeenCalled();
+});
+
+test("stale DELETE If-Match returns 412 without deleting", async () => {
+  const { app, deleteById } = buildApp(principalResolver("tenant-a", ["users:write"]));
+
+  const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
+    method: "DELETE",
+    headers: { "if-match": '"v99"' },
+  });
+
+  expect(response.status).toBe(412);
+  expect(await response.json()).toMatchObject({
+    error: { code: "PRECONDITION_FAILED" },
+  });
+  expect(deleteById).toHaveBeenCalledWith(
+    "tenant-a",
+    "550e8400-e29b-41d4-a716-446655440000",
+    { kind: "versions", versions: [99] },
   );
 });
 
@@ -525,6 +560,7 @@ test("cross-tenant DELETE is indistinguishable from a missing user", async () =>
 
   const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
     method: "DELETE",
+    headers: { "if-match": "*" },
   });
 
   expect(response.status).toBe(404);
@@ -532,6 +568,7 @@ test("cross-tenant DELETE is indistinguishable from a missing user", async () =>
   expect(deleteById).toHaveBeenCalledWith(
     "tenant-b",
     "550e8400-e29b-41d4-a716-446655440000",
+    { kind: "any-current" },
   );
 });
 
