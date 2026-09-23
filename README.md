@@ -148,8 +148,8 @@ The service listens on `http://localhost:3000` by default.
 - `GET /health/live` — process/HTTP liveness; does not query PostgreSQL
 - `GET /health/ready` — readiness; returns 503 when a critical dependency is unavailable
 - `POST /users` - protected; requires an authenticated tenant principal with `users:write`; optional `Idempotency-Key` enables tenant-scoped replay
-- `GET /users` - protected tenant-scoped listing; requires `users:read`; supports `page` (1-10,000, default 1) and `perPage` (1-100, default 20)
-- `GET /users/{id}` - protected; requires `users:read`; returns a strong ETag and accepts `If-None-Match` for 304 cache revalidation
+- `GET /users` - protected tenant-scoped listing; requires `users:read`; supports `page` (1-10,000, default 1) and `perPage` (1-100, default 20); Hono also serves metadata-only `HEAD /users`
+- `GET /users/{id}` - protected; requires `users:read`; returns a strong ETag, `Cache-Control: private, no-cache`, and accepts `If-None-Match` for 304 cache revalidation; Hono automatically provides the equivalent bodyless `HEAD /users/{id}` response
 - `PATCH /users/{id}` - protected tenant-scoped partial update; requires `users:write`; accepts at least one of `email` or `name`
 - `DELETE /users/{id}` - protected tenant-scoped deletion; requires `users:write` and `If-Match`; returns 204, 412 for a stale validator, or 428 when the precondition is omitted
 - `GET /openapi.json`
@@ -184,7 +184,7 @@ Configuration is loaded once during startup. Application modules should not read
 | `HTTP_RATE_LIMIT_WINDOW_SECONDS` | `60` | Default policy window; fixed-window duration or GCRA averaging basis |
 | `HTTP_RATE_LIMIT_USERS_WRITE_REQUESTS` | `30` | Requests allowed for the `POST /users`, `PATCH /users/{id}`, and `DELETE /users/{id}` write policy |
 | `HTTP_RATE_LIMIT_USERS_WRITE_WINDOW_SECONDS` | `60` | Policy window for the users write scope |
-| `HTTP_RATE_LIMIT_USERS_READ_REQUESTS` | `120` | Requests allowed for the `GET /users` and `GET /users/{id}` read policy |
+| `HTTP_RATE_LIMIT_USERS_READ_REQUESTS` | `120` | Requests allowed for the `GET/HEAD /users` and `GET/HEAD /users/{id}` read policy |
 | `HTTP_RATE_LIMIT_USERS_READ_WINDOW_SECONDS` | `60` | Policy window for the users read scope |
 | `HEALTH_CHECK_TIMEOUT_MS` | `1500` | Critical dependency readiness deadline |
 | `SHUTDOWN_TIMEOUT_MS` | `10000` | Grace period for in-flight HTTP requests |
