@@ -91,6 +91,63 @@ test("concurrent creates with the same tenant and key create one user and replay
   infoSpy.mockRestore();
 });
 
+test("replay resolves the current tenant-scoped representation after the user changes", async () => {
+  const key = `current-${crypto.randomUUID()}`;
+  const input = {
+    email: `current-${crypto.randomUUID()}@example.com`,
+    name: "Original Name",
+  };
+  const first = await service.execute(input, context(crypto.randomUUID()), {
+    idempotencyKey: key,
+  });
+  expect(first.version).toBe(1);
+
+  const repository = new DrizzleUserRepository(database.db);
+  const update = await repository.update(
+    "tenant-idempotency-service",
+    first.id,
+    { name: "Updated Name" },
+    { kind: "versions", versions: [1] },
+  );
+  expect(update).toMatchObject({
+    state: "updated",
+    user: { id: first.id, name: "Updated Name", version: 2 },
+  });
+
+  const infoSpy = spyOn(logger, "info");
+  const replay = await service.execute(input, context(crypto.randomUUID()), {
+    idempotencyKey: key,
+  });
+
+  expect(replay).toMatchObject({
+    id: first.id,
+    email: input.email,
+    name: "Updated Name",
+    version: 2,
+  });
+  expect(infoSpy).not.toHaveBeenCalled();
+  infoSpy.mockRestore();
+
+  const persistedUsers = await database.db
+    .select()
+    .from(users)
+    .where(eq(users.id, first.id));
+  expect(persistedUsers).toHaveLength(1);
+  expect(persistedUsers[0]).toMatchObject({ name: "Updated Name", version: 2 });
+
+  const ledger = await database.db
+    .select()
+    .from(userCreationIdempotency)
+    .where(
+      and(
+        eq(userCreationIdempotency.tenantId, "tenant-idempotency-service"),
+        eq(userCreationIdempotency.keyHash, digester.sha256Hex(key)),
+      ),
+    );
+  expect(ledger).toHaveLength(1);
+  expect(ledger[0]?.userId).toBe(first.id);
+});
+
 test("a business conflict rolls back its idempotency claim so the key can be reused", async () => {
   const key = `rollback-${crypto.randomUUID()}`;
   const email = `existing-${crypto.randomUUID()}@example.com`;
