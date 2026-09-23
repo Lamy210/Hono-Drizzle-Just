@@ -13,8 +13,8 @@ export const users = pgTable(
     unique("users_tenant_id_email_unique").on(table.tenantId, table.email),
     index("users_tenant_created_id_idx").on(
       table.tenantId,
-      table.createdAt.desc(),
-      table.id.desc(),
+      table.createdAt.desc().nullsFirst(),
+      table.id.desc().nullsFirst(),
     ),
   ],
 );
