@@ -64,6 +64,41 @@ test("normalizes partial updates, scopes them to the tenant, and logs only stabl
   expect(serialized).not.toContain(updated.tenantId);
 });
 
+test("requires a precondition only after authorization and input validation", async () => {
+  const update = mock(async () => ({ state: "not_found" as const }));
+  const { logger, info } = loggingHarness();
+  const service = new UpdateUserService({ update }, logger);
+
+  await expect(
+    service.execute(
+      "550e8400-e29b-41d4-a716-446655440000",
+      { name: "Updated" },
+      undefined,
+      context,
+    ),
+  ).rejects.toMatchObject({ code: "PRECONDITION_REQUIRED", status: 428 });
+
+  expect(update).not.toHaveBeenCalled();
+  expect(info).not.toHaveBeenCalled();
+
+  const readOnly: RequestContext = {
+    ...context,
+    principal: {
+      subject: "user-123",
+      tenantId: "tenant-a",
+      scopes: ["users:read"],
+    },
+  };
+  await expect(
+    service.execute(
+      "550e8400-e29b-41d4-a716-446655440000",
+      { name: "Updated" },
+      undefined,
+      readOnly,
+    ),
+  ).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
+});
+
 test("maps a stale version to precondition failed without a business log", async () => {
   const update = mock(async () => ({ state: "precondition_failed" as const }));
   const { logger, info } = loggingHarness();
