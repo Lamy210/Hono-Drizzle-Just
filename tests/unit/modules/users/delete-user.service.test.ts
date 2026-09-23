@@ -1,5 +1,6 @@
-import { expect, mock, test } from "bun:test";
+import { expect, mock, spyOn, test } from "bun:test";
 import type { RequestContext } from "../../../../src/core/context/request-context";
+import { JsonConsoleLogger } from "../../../../src/infrastructure/logging/json-console-logger";
 import { DeleteUserService } from "../../../../src/modules/users/application/delete-user.service";
 
 const context: RequestContext = {
@@ -17,24 +18,36 @@ const context: RequestContext = {
   },
 };
 
-test("deletes only from the authorized tenant and canonicalizes the UUID", async () => {
+function loggingHarness() {
+  const logger = new JsonConsoleLogger({}, () => undefined);
+  return { logger, info: spyOn(logger, "info") };
+}
+
+test("deletes only from the authorized tenant and logs the canonical user identifier", async () => {
   const deleteById = mock(async () => true);
-  const service = new DeleteUserService({ deleteById });
+  const { logger, info } = loggingHarness();
+  const service = new DeleteUserService({ deleteById }, logger);
 
   await service.execute(
     "550E8400-E29B-41D4-A716-446655440000",
     context,
   );
 
-  expect(deleteById).toHaveBeenCalledWith(
-    "tenant-a",
-    "550e8400-e29b-41d4-a716-446655440000",
-  );
+  const userId = "550e8400-e29b-41d4-a716-446655440000";
+  expect(deleteById).toHaveBeenCalledWith("tenant-a", userId);
+  expect(info).toHaveBeenCalledTimes(1);
+  expect(info).toHaveBeenCalledWith("user.deleted", {
+    userId,
+    requestId: context.requestId,
+    traceId: context.trace.traceId,
+  });
+  expect(JSON.stringify(info.mock.calls)).not.toContain("tenant-a");
 });
 
-test("returns tenant-local not found without an existence probe", async () => {
+test("returns tenant-local not found without an existence probe or business log", async () => {
   const deleteById = mock(async () => false);
-  const service = new DeleteUserService({ deleteById });
+  const { logger, info } = loggingHarness();
+  const service = new DeleteUserService({ deleteById }, logger);
 
   await expect(
     service.execute(
@@ -44,11 +57,13 @@ test("returns tenant-local not found without an existence probe", async () => {
   ).rejects.toMatchObject({ code: "NOT_FOUND", status: 404 });
 
   expect(deleteById).toHaveBeenCalledTimes(1);
+  expect(info).not.toHaveBeenCalled();
 });
 
-test("rejects missing write scope before repository access", async () => {
+test("rejects missing write scope before repository access or business log", async () => {
   const deleteById = mock(async () => true);
-  const service = new DeleteUserService({ deleteById });
+  const { logger, info } = loggingHarness();
+  const service = new DeleteUserService({ deleteById }, logger);
   const readOnly: RequestContext = {
     ...context,
     principal: {
@@ -66,4 +81,5 @@ test("rejects missing write scope before repository access", async () => {
   ).rejects.toMatchObject({ code: "FORBIDDEN", status: 403 });
 
   expect(deleteById).not.toHaveBeenCalled();
+  expect(info).not.toHaveBeenCalled();
 });
