@@ -6,6 +6,7 @@ import type { TransactionManager } from "../../src/core/transaction/transaction-
 import { Sha256StringDigester } from "../../src/infrastructure/crypto/sha256-string-digester";
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
+import { DeleteUserService } from "../../src/modules/users/application/delete-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
 import { ListUsersService } from "../../src/modules/users/application/list-users.service";
 import { UpdateUserService } from "../../src/modules/users/application/update-user.service";
@@ -55,6 +56,9 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
       fields: { readonly email?: string; readonly name?: string },
     ) => (tenantId === user.tenantId && id === user.id ? { ...user, ...fields } : null),
   );
+  const deleteById = mock(async (tenantId: string, id: string) =>
+    tenantId === user.tenantId && id === user.id
+  );
   const create = mock(async (input: { tenantId: string; email: string; name: string }) => ({
     ...user,
     ...input,
@@ -71,6 +75,7 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
           logger,
           new Sha256StringDigester(),
         ),
+        deleteUserService: new DeleteUserService({ deleteById }),
         getUserService: new GetUserService(repository),
         listUsersService: new ListUsersService({ listPage }),
         updateUserService: new UpdateUserService({ update }),
@@ -83,6 +88,7 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
     findByEmail,
     listPage,
     update,
+    deleteById,
     create,
   };
 }
@@ -161,6 +167,7 @@ function createIdempotencyHarness() {
       logger,
       readinessChecker: new ReadinessChecker([]),
       createUserService: service,
+      deleteUserService: new DeleteUserService({ deleteById: mock(async () => false) }),
       getUserService: new GetUserService(repository),
       listUsersService: new ListUsersService({ listPage }),
       updateUserService: new UpdateUserService({ update: mock(async () => null) }),
