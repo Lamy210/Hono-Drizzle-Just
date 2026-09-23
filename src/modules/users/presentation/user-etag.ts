@@ -16,22 +16,14 @@ export function parseUserIfMatch(value: string): UserVersionPrecondition {
     return { kind: "any-current" };
   }
 
-  const members = splitEntityTagList(trimmed);
-  if (members.length === 0) {
-    throw malformedIfMatch();
-  }
-
+  const members = splitEntityTagList(trimmed, "If-Match");
   const versions = new Set<number>();
   for (const member of members) {
     if (member.startsWith("W/")) {
       continue;
     }
-    const match = USER_ETAG_PATTERN.exec(member);
-    if (!match) {
-      continue;
-    }
-    const version = Number(match[1]);
-    if (Number.isSafeInteger(version) && version >= 1) {
+    const version = userVersionFromEntityTag(member);
+    if (version !== undefined) {
       versions.add(version);
     }
   }
@@ -39,7 +31,29 @@ export function parseUserIfMatch(value: string): UserVersionPrecondition {
   return { kind: "versions", versions: [...versions] };
 }
 
-function splitEntityTagList(value: string): readonly string[] {
+export function userIfNoneMatchMatches(value: string, currentVersion: number): boolean {
+  const trimmed = value.trim();
+  if (trimmed === "*") {
+    return true;
+  }
+
+  const members = splitEntityTagList(trimmed, "If-None-Match");
+  return members.some((member) => {
+    const strongForm = member.startsWith("W/") ? member.slice(2) : member;
+    return userVersionFromEntityTag(strongForm) === currentVersion;
+  });
+}
+
+function userVersionFromEntityTag(value: string): number | undefined {
+  const match = USER_ETAG_PATTERN.exec(value);
+  if (!match) {
+    return undefined;
+  }
+  const version = Number(match[1]);
+  return Number.isSafeInteger(version) && version >= 1 ? version : undefined;
+}
+
+function splitEntityTagList(value: string, headerName: "If-Match" | "If-None-Match"): readonly string[] {
   const members: string[] = [];
   let start = 0;
   let quoted = false;
@@ -56,7 +70,7 @@ function splitEntityTagList(value: string): readonly string[] {
     if (character === ",") {
       const member = value.slice(start, index).trim();
       if (!member) {
-        throw malformedIfMatch();
+        throw malformedEntityTagHeader(headerName);
       }
       members.push(member);
       start = index + 1;
@@ -64,12 +78,12 @@ function splitEntityTagList(value: string): readonly string[] {
   }
 
   if (quoted) {
-    throw malformedIfMatch();
+    throw malformedEntityTagHeader(headerName);
   }
 
   const finalMember = value.slice(start).trim();
   if (!finalMember) {
-    throw malformedIfMatch();
+    throw malformedEntityTagHeader(headerName);
   }
   members.push(finalMember);
 
@@ -78,13 +92,13 @@ function splitEntityTagList(value: string): readonly string[] {
       member === "*" ||
       !/^(?:W\/)?"[\x21\x23-\x7e\x80-\xff]*"$/.test(member)
     ) {
-      throw malformedIfMatch();
+      throw malformedEntityTagHeader(headerName);
     }
   }
 
   return members;
 }
 
-function malformedIfMatch(): AppError {
-  return new AppError("VALIDATION_ERROR", "If-Match header is malformed", 400);
+function malformedEntityTagHeader(headerName: string): AppError {
+  return new AppError("VALIDATION_ERROR", `${headerName} header is malformed`, 400);
 }

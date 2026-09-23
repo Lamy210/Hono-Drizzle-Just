@@ -777,6 +777,19 @@
               "format": "uuid",
               "type": "string"
             }
+          },
+          {
+            "description": "RFC 9110 If-None-Match entity-tag cache validator.",
+            "in": "header",
+            "name": "if-none-match",
+            "required": false,
+            "schema": {
+              "description": "RFC 9110 If-None-Match entity-tag cache validator.",
+              "example": "\"v1\"",
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -789,6 +802,30 @@
               }
             },
             "description": "User",
+            "headers": {
+              "ETag": {
+                "description": "Strong validator for the returned user representation",
+                "schema": {
+                  "example": "\"v1\"",
+                  "type": "string"
+                }
+              },
+              "RateLimit": {
+                "description": "Provisional current quota field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "RateLimit-Policy": {
+                "description": "Provisional quota policy field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "User representation has not changed",
             "headers": {
               "ETag": {
                 "description": "Strong validator for the returned user representation",

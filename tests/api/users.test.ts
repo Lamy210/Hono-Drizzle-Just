@@ -299,6 +299,63 @@ test("uppercase UUID path input is accepted and normalized after tenant authoriz
   expect(response.headers.get("etag")).toBe('"v1"');
 });
 
+test("anonymous conditional GET remains 401 before validator evaluation", async () => {
+  const { app, repository } = buildApp();
+  const response = await app.request(
+    "/users/550e8400-e29b-41d4-a716-446655440000",
+    { headers: { "if-none-match": "*" } },
+  );
+
+  expect(response.status).toBe(401);
+  expect(await response.json()).toMatchObject({
+    error: { code: "UNAUTHORIZED" },
+  });
+  expect(repository.findById).not.toHaveBeenCalled();
+});
+
+test("matching If-None-Match returns 304 with the current ETag and no body", async () => {
+  const { app, repository } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  for (const ifNoneMatch of ['"v1"', 'W/"v1"', '*']) {
+    const response = await app.request(
+      "/users/550e8400-e29b-41d4-a716-446655440000",
+      { headers: { "if-none-match": ifNoneMatch } },
+    );
+
+    expect(response.status).toBe(304);
+    expect(response.headers.get("etag")).toBe('"v1"');
+    expect(await response.text()).toBe("");
+  }
+
+  expect(repository.findById).toHaveBeenCalledTimes(3);
+});
+
+test("stale If-None-Match returns the current 200 representation", async () => {
+  const { app } = buildApp(principalResolver("tenant-a", ["users:read"]));
+  const response = await app.request(
+    "/users/550e8400-e29b-41d4-a716-446655440000",
+    { headers: { "if-none-match": '"v2"' } },
+  );
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("etag")).toBe('"v1"');
+  expect(await response.json()).toMatchObject({
+    id: "550e8400-e29b-41d4-a716-446655440000",
+    email: "lamy@example.com",
+  });
+});
+
+test("cross-tenant conditional GET remains 404 before validator evaluation", async () => {
+  const { app } = buildApp(principalResolver("tenant-b", ["users:read"]));
+  const response = await app.request(
+    "/users/550e8400-e29b-41d4-a716-446655440000",
+    { headers: { "if-none-match": "*" } },
+  );
+
+  expect(response.status).toBe(404);
+  expect(await response.json()).toMatchObject({ error: { code: "NOT_FOUND" } });
+});
+
 test("authorized user listing applies pagination defaults and hides tenant metadata", async () => {
   const { app, listPage } = buildApp(principalResolver("tenant-a", ["users:read"]));
 
