@@ -6,6 +6,7 @@ import type { TransactionManager } from "../../src/core/transaction/transaction-
 import { Sha256StringDigester } from "../../src/infrastructure/crypto/sha256-string-digester";
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
+import { DeleteUserService } from "../../src/modules/users/application/delete-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
 import { ListUsersService } from "../../src/modules/users/application/list-users.service";
 import { UpdateUserService } from "../../src/modules/users/application/update-user.service";
@@ -31,6 +32,7 @@ function buildApp(healthCheck: HealthCheck) {
   return createApp({
     logger,
     readinessChecker: new ReadinessChecker([healthCheck]),
+    deleteUserService: new DeleteUserService({ deleteById: mock(async () => false) }),
     createUserService: new CreateUserService(
       transactions(repository),
       logger,
