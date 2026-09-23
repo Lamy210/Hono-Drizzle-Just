@@ -35,6 +35,14 @@ const EntityTagResponseHeader = {
   },
 } as const;
 
+const UserRevalidationCacheResponseHeader = {
+  "Cache-Control": {
+    description:
+      "Private-cache revalidation policy for the tenant-scoped user representation",
+    schema: { type: "string", example: "private, no-cache" },
+  },
+} as const;
+
 const RateLimitResponseHeaders = {
   "RateLimit-Policy": {
     description:
@@ -265,12 +273,20 @@ const getUserRoute = createRoute({
   responses: {
     200: {
       description: "User",
-      headers: { ...RateLimitResponseHeaders, ...EntityTagResponseHeader },
+      headers: {
+        ...RateLimitResponseHeaders,
+        ...EntityTagResponseHeader,
+        ...UserRevalidationCacheResponseHeader,
+      },
       content: { "application/json": { schema: UserResponseSchema } },
     },
     304: {
       description: "User representation has not changed",
-      headers: { ...RateLimitResponseHeaders, ...EntityTagResponseHeader },
+      headers: {
+        ...RateLimitResponseHeaders,
+        ...EntityTagResponseHeader,
+        ...UserRevalidationCacheResponseHeader,
+      },
     },
     400: {
       description: "Validation error",
@@ -354,6 +370,7 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
     const { "if-none-match": ifNoneMatch } = c.req.valid("header");
     const canonicalId = CanonicalUuidSchema.parse(id);
     const user = await dependencies.getUserService.execute(canonicalId, c.get("requestContext"));
+    c.header("Cache-Control", "private, no-cache");
     c.header("ETag", formatUserEntityTag(user.version));
     if (ifNoneMatch !== undefined && userIfNoneMatchMatches(ifNoneMatch, user.version)) {
       return c.body(null, 304);
