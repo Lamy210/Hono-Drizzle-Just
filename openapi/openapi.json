@@ -474,6 +474,13 @@
                   "type": "string"
                 }
               },
+              "Location": {
+                "description": "URI reference for the created user resource",
+                "schema": {
+                  "example": "/users/550e8400-e29b-41d4-a716-446655440000",
+                  "type": "string"
+                }
+              },
               "RateLimit": {
                 "description": "Provisional current quota field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
                 "schema": {
