@@ -363,6 +363,38 @@ test("authorized PATCH updates only the principal tenant with normalized fields"
   });
 });
 
+test("anonymous PATCH remains 401 even when If-Match is omitted", async () => {
+  const { app, update } = buildApp();
+  const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Updated" }),
+  });
+
+  expect(response.status).toBe(401);
+  expect(await response.json()).toMatchObject({
+    error: { code: "UNAUTHORIZED" },
+  });
+  expect(update).not.toHaveBeenCalled();
+});
+
+test("weak If-Match never satisfies the strong user validator", async () => {
+  const { app, update } = buildApp(principalResolver("tenant-a", ["users:write"]));
+  const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", "if-match": 'W/"v1"' },
+    body: JSON.stringify({ name: "Weak" }),
+  });
+
+  expect(response.status).toBe(412);
+  expect(update).toHaveBeenCalledWith(
+    "tenant-a",
+    "550e8400-e29b-41d4-a716-446655440000",
+    { name: "Weak" },
+    { kind: "versions", versions: [] },
+  );
+});
+
 test("PATCH requires If-Match to prevent lost updates", async () => {
   const { app, update } = buildApp(principalResolver("tenant-a", ["users:write"]));
   const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
