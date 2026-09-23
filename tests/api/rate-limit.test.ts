@@ -95,7 +95,7 @@ test("user routes select stable read and write scopes without path identifiers",
   });
   const patchResponse = await app.request(`/users/${userId}`, {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "if-match": '"v1"' },
     body: JSON.stringify({ name: "Updated" }),
   });
   const deleteResponse = await app.request(`/users/${userId}`, {
