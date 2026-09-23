@@ -125,11 +125,11 @@ export function createProductionContainer(config: AppConfig): {
     dependencies: {
       logger,
       readinessChecker,
-      deleteUserService: new DeleteUserService(userRepository),
+      deleteUserService: new DeleteUserService(userRepository, logger),
       createUserService: new CreateUserService(userTransactions, logger, digester),
       getUserService: new GetUserService(userRepository),
       listUsersService: new ListUsersService(userRepository),
-      updateUserService: new UpdateUserService(userRepository),
+      updateUserService: new UpdateUserService(userRepository, logger),
       ...(principalResolver === undefined ? {} : { principalResolver }),
       ...(rateLimiter === undefined ? {} : { rateLimiter }),
       tracer: telemetry.tracer,
