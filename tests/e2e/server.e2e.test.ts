@@ -381,7 +381,7 @@ test(
             method: "PATCH",
             headers: {
               ...authenticatedHeaders(authorization),
-              "if-match": mutatedIdempotentEtag ?? "",
+              "if-match": firstIdempotentEtag ?? "",
             },
             body: JSON.stringify({ name: "Updated Idempotent User" }),
           },
@@ -448,7 +448,7 @@ test(
             method: "DELETE",
             headers: {
               authorization,
-              "if-match": firstIdempotentEtag ?? "",
+              "if-match": mutatedIdempotentEtag ?? "",
             },
           },
         );
