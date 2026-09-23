@@ -39,6 +39,42 @@ test("repository scopes ID and email reads to the requested tenant", async () =>
   expect(await repository.findByEmail("tenant-b", email)).toBeNull();
 });
 
+test("pagination index matches tenant filtering and descending list order", async () => {
+  const definition = await database.pool.query<{ indexdef: string }>(
+    `select indexdef
+       from pg_indexes
+      where schemaname = current_schema()
+        and tablename = 'users'
+        and indexname = 'users_tenant_created_id_idx'`,
+  );
+
+  expect(definition.rows).toHaveLength(1);
+  expect(definition.rows[0]?.indexdef).toContain(
+    "USING btree (tenant_id, created_at DESC, id DESC)",
+  );
+  expect(definition.rows[0]?.indexdef).not.toContain("NULLS LAST");
+
+  const client = await database.pool.connect();
+  try {
+    await client.query("begin");
+    await client.query("set local enable_seqscan = off");
+    const explained = await client.query(
+      `explain (format json)
+       select id, tenant_id, email, name, created_at
+         from users
+        where tenant_id = 'tenant-plan'
+        order by created_at desc, id desc
+        limit 20`,
+    );
+    const plan = JSON.stringify(explained.rows[0]);
+    expect(plan).toContain("users_tenant_created_id_idx");
+    expect(plan).not.toContain('"Node Type":"Sort"');
+  } finally {
+    await client.query("rollback");
+    client.release();
+  }
+});
+
 test("paginated listing is tenant-scoped, deterministic, and preserves the tenant total", async () => {
   await database.db.insert(users).values([
     {
