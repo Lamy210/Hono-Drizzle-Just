@@ -115,19 +115,43 @@ test("paginated listing is tenant-scoped, deterministic, and preserves the tenan
   expect(beyondEnd).toEqual({ users: [], total: 3 });
 });
 
-test("delete is tenant-scoped and reports whether a row was removed", async () => {
+test("delete is tenant-scoped, version-guarded, and preserves stale rows", async () => {
   const created = await repository.create({
     tenantId: "tenant-a",
     email: `delete-${crypto.randomUUID()}@example.com`,
     name: "Delete",
   });
 
-  expect(await repository.deleteById("tenant-b", created.id)).toBe(false);
+  expect(
+    await repository.deleteById(
+      "tenant-b",
+      created.id,
+      { kind: "versions", versions: [created.version] },
+    ),
+  ).toEqual({ state: "not_found" });
   expect(await repository.findById("tenant-a", created.id)).toEqual(created);
 
-  expect(await repository.deleteById("tenant-a", created.id)).toBe(true);
+  expect(
+    await repository.deleteById(
+      "tenant-a",
+      created.id,
+      { kind: "versions", versions: [created.version + 1] },
+    ),
+  ).toEqual({ state: "precondition_failed" });
+  expect(await repository.findById("tenant-a", created.id)).toEqual(created);
+
+  expect(
+    await repository.deleteById(
+      "tenant-a",
+      created.id,
+      { kind: "versions", versions: [created.version] },
+    ),
+  ).toEqual({ state: "deleted" });
   expect(await repository.findById("tenant-a", created.id)).toBeNull();
-  expect(await repository.deleteById("tenant-a", created.id)).toBe(false);
+
+  expect(
+    await repository.deleteById("tenant-a", created.id, { kind: "any-current" }),
+  ).toEqual({ state: "not_found" });
 });
 
 test("update is tenant-scoped, version-guarded, and increments version atomically", async () => {
