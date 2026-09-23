@@ -4,6 +4,12 @@
 
 Approved design for implementing optional `Idempotency-Key` handling on `POST /users`.
 
+## Current implementation clarification (2026-09-24)
+
+The initial design below predates mutable users and optimistic-concurrency ETags. The implemented ledger stores only the request fingerprint and tenant-scoped `user_id`; it does **not** retain a historical response snapshot. After PATCH support was added, an active same-key/same-fingerprint replay therefore returns the same resource ID using the user's **current tenant-scoped representation and current ETag**. The earlier wording "same user representation" / "original user response" described the initial immutable phase, not a byte-for-byte replay guarantee after later mutations.
+
+This is an intentional data-minimization tradeoff: the idempotency table does not duplicate mutable email/name/representation data or create a second response-retention lifecycle. Exact historical-response replay would require a separate explicit storage, retention, privacy, and schema-versioning design.
+
 ## Context
 
 `POST /users` already has three important properties:
@@ -20,7 +26,7 @@ The template should demonstrate idempotency that remains correct across process 
 
 - Add optional `Idempotency-Key` support to `POST /users` without breaking clients that omit the header.
 - Guarantee that concurrent requests using the same tenant/key/payload create at most one user.
-- Replay the original user response for a repeated request using the same tenant/key/payload.
+- Resolve the original user resource for a repeated request using the same tenant/key/payload; if the resource has changed, return its current tenant-scoped representation.
 - Reject reuse of the same active tenant/key with a different normalized payload using HTTP 422.
 - Allow the same key to be reused independently by different tenants.
 - Keep raw idempotency keys out of PostgreSQL, logs, telemetry, error responses, and request context.
@@ -75,7 +81,7 @@ Without an idempotency key:
 With an idempotency key:
 
 - the first successful request returns 201 with the created user;
-- a later request in the same tenant using the same key and same normalized payload returns 201 with the same user representation and same user ID;
+- a later request in the same tenant using the same key and same normalized payload returns 201 for the same user ID and resolves that user's current tenant-scoped representation;
 - a later request in a different tenant may use the same raw key independently;
 - replay does not create a second user and does not emit a second `user.created` business log event.
 
