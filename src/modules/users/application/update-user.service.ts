@@ -6,8 +6,8 @@ import type { User } from "../domain/user";
 import type {
   UserUpdateFields,
   UserUpdateRepository,
-  UserVersionPrecondition,
 } from "./user-update.repository";
+import type { UserVersionPrecondition } from "./user-version-precondition";
 
 export class UpdateUserService {
   constructor(
