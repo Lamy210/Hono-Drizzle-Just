@@ -33,7 +33,10 @@ function buildApp(healthCheck: HealthCheck) {
   return createApp({
     logger,
     readinessChecker: new ReadinessChecker([healthCheck]),
-    deleteUserService: new DeleteUserService({ deleteById: mock(async () => false) }, logger),
+    deleteUserService: new DeleteUserService(
+      { deleteById: mock(async () => ({ state: "not_found" as const })) },
+      logger,
+    ),
     createUserService: new CreateUserService(
       transactions(repository),
       logger,

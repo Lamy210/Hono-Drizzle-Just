@@ -1,5 +1,5 @@
 import { AppError } from "../../../core/errors/app-error";
-import type { UserVersionPrecondition } from "../application/user-update.repository";
+import type { UserVersionPrecondition } from "../application/user-version-precondition";
 
 const USER_ETAG_PATTERN = /^"v([1-9][0-9]*)"$/;
 

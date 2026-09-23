@@ -50,7 +50,10 @@ function buildContractApp() {
   return createApp({
     logger,
     readinessChecker: new ReadinessChecker([]),
-    deleteUserService: new DeleteUserService({ deleteById: mock(async () => false) }, logger),
+    deleteUserService: new DeleteUserService(
+      { deleteById: mock(async () => ({ state: "not_found" as const })) },
+      logger,
+    ),
     createUserService: new CreateUserService(transactions, logger, new Sha256StringDigester()),
     getUserService: new GetUserService(repository),
     listUsersService: new ListUsersService(repository),

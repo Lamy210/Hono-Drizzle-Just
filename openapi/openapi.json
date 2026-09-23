@@ -617,6 +617,19 @@
               "format": "uuid",
               "type": "string"
             }
+          },
+          {
+            "description": "RFC 9110 If-Match entity-tag precondition.",
+            "in": "header",
+            "name": "if-match",
+            "required": false,
+            "schema": {
+              "description": "RFC 9110 If-Match entity-tag precondition.",
+              "example": "\"v1\"",
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -676,6 +689,26 @@
               }
             },
             "description": "User not found in the current tenant"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "If-Match did not match the current user representation"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "If-Match is required to prevent stale deletion"
           },
           "429": {
             "content": {

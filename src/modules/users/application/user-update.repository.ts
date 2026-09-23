@@ -1,13 +1,10 @@
 import type { User } from "../domain/user";
+import type { UserVersionPrecondition } from "./user-version-precondition";
 
 export interface UserUpdateFields {
   readonly email?: string | undefined;
   readonly name?: string | undefined;
 }
-
-export type UserVersionPrecondition =
-  | { readonly kind: "any-current" }
-  | { readonly kind: "versions"; readonly versions: readonly number[] };
 
 export type UserUpdateResult =
   | { readonly state: "updated"; readonly user: User }

@@ -212,7 +212,10 @@ const deleteUserRoute = createRoute({
   method: "delete",
   path: "/users/{id}",
   tags: ["Users"],
-  request: { params: UserPathParamsSchema },
+  request: {
+    headers: IfMatchHeadersSchema,
+    params: UserPathParamsSchema,
+  },
   responses: {
     204: {
       description: "User deleted",
@@ -232,6 +235,14 @@ const deleteUserRoute = createRoute({
     },
     404: {
       description: "User not found in the current tenant",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    412: {
+      description: "If-Match did not match the current user representation",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    428: {
+      description: "If-Match is required to prevent stale deletion",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     429: {
@@ -321,9 +332,11 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
 
   app.openapi(deleteUserRoute, async (c) => {
     const { id } = c.req.valid("param");
+    const { "if-match": ifMatch } = c.req.valid("header");
     const canonicalId = CanonicalUuidSchema.parse(id);
     await dependencies.deleteUserService.execute(
       canonicalId,
+      ifMatch === undefined ? undefined : parseUserIfMatch(ifMatch),
       c.get("requestContext"),
     );
     return c.body(null, 204);

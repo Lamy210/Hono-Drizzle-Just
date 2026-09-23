@@ -73,7 +73,13 @@ test("deleting a user cascades its completed idempotency ledger row", async () =
   });
   await repository.complete({ tenantId, keyHash, requestFingerprint, userId: user.id });
 
-  expect(await users.deleteById(tenantId, user.id)).toBe(true);
+  expect(
+    await users.deleteById(
+      tenantId,
+      user.id,
+      { kind: "versions", versions: [user.version] },
+    ),
+  ).toEqual({ state: "deleted" });
 
   const persisted = await database.pool.query<{ count: string }>(
     `select count(*)::text as count

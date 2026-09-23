@@ -3,14 +3,14 @@ import { AppError } from "../../../core/errors/app-error";
 import { users } from "../../../db/schema";
 import type { DatabaseSession } from "../../../infrastructure/database/database";
 import type { DatabaseObserver } from "../../../infrastructure/database/database-observer";
-import type { UserDeleteRepository } from "../application/user-delete.repository";
+import type { UserDeleteRepository, UserDeleteResult } from "../application/user-delete.repository";
 import type { UserListRepository } from "../application/user-list.repository";
 import type {
   UserUpdateFields,
   UserUpdateRepository,
   UserUpdateResult,
-  UserVersionPrecondition,
 } from "../application/user-update.repository";
+import type { UserVersionPrecondition } from "../application/user-version-precondition";
 import type { TenantScopedCreateUserInput, User } from "../domain/user";
 import type { UserRepository } from "../domain/user.repository";
 
@@ -104,18 +104,50 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
     return { users: page, total };
   }
 
-  async deleteById(tenantId: string, id: string): Promise<boolean> {
-    const execute = async (): Promise<boolean> => {
+  async deleteById(
+    tenantId: string,
+    id: string,
+    precondition: UserVersionPrecondition,
+  ): Promise<UserDeleteResult> {
+    const executeDelete = async (): Promise<boolean> => {
+      const predicate =
+        precondition.kind === "any-current"
+          ? and(eq(users.tenantId, tenantId), eq(users.id, id))
+          : and(
+              eq(users.tenantId, tenantId),
+              eq(users.id, id),
+              inArray(users.version, [...precondition.versions]),
+            );
+
       const [row] = await this.db
         .delete(users)
-        .where(and(eq(users.tenantId, tenantId), eq(users.id, id)))
+        .where(predicate)
         .returning({ id: users.id });
       return row !== undefined;
     };
 
-    return this.observer
-      ? this.observer.operation({ operation: "DELETE", collection: "users" }, execute)
-      : execute();
+    if (precondition.kind !== "versions" || precondition.versions.length > 0) {
+      const deleted = this.observer
+        ? await this.observer.operation({ operation: "DELETE", collection: "users" }, executeDelete)
+        : await executeDelete();
+      if (deleted) {
+        return { state: "deleted" };
+      }
+    }
+
+    const checkExists = async (): Promise<boolean> => {
+      const [row] = await this.db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.tenantId, tenantId), eq(users.id, id)))
+        .limit(1);
+      return row !== undefined;
+    };
+    const exists = this.observer
+      ? await this.observer.operation({ operation: "SELECT", collection: "users" }, checkExists)
+      : await checkExists();
+
+    return exists ? { state: "precondition_failed" } : { state: "not_found" };
   }
 
   async update(

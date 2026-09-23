@@ -263,6 +263,18 @@ test(
           error: { code: "PRECONDITION_FAILED" },
         });
 
+        const staleDeleteResponse = await boundedFetch(`${baseUrl}/users/${created.id}`, {
+          method: "DELETE",
+          headers: {
+            authorization,
+            "if-match": createdEtag ?? "",
+          },
+        });
+        expect(staleDeleteResponse.status).toBe(412);
+        expect(await staleDeleteResponse.json()).toMatchObject({
+          error: { code: "PRECONDITION_FAILED" },
+        });
+
         const idempotencyKey = crypto.randomUUID();
         const idempotentEmail = `e2e-idempotent-${crypto.randomUUID()}@example.com`;
         const idempotentHeaders = {
@@ -279,6 +291,8 @@ test(
           }),
         });
         expect(firstIdempotentResponse.status).toBe(201);
+        const firstIdempotentEtag = firstIdempotentResponse.headers.get("etag");
+        expect(firstIdempotentEtag).toBe('"v1"');
         const firstIdempotent = (await firstIdempotentResponse.json()) as UserResponse;
 
         const replayResponse = await boundedFetch(`${baseUrl}/users`, {
@@ -326,7 +340,10 @@ test(
           `${baseUrl}/users/${firstIdempotent.id}`,
           {
             method: "DELETE",
-            headers: { authorization },
+            headers: {
+              authorization,
+              "if-match": firstIdempotentEtag ?? "",
+            },
           },
         );
         expect(deleteIdempotentResponse.status).toBe(204);
@@ -379,7 +396,10 @@ test(
           `${baseUrl}/users/${tenantAUser.id}`,
           {
             method: "DELETE",
-            headers: { authorization },
+            headers: {
+              authorization,
+              "if-match": "*",
+            },
           },
         );
         expect(crossTenantDelete.status).toBe(404);
