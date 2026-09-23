@@ -12,6 +12,7 @@ import {
 } from "../../../contracts/users/user.contracts";
 import type { AppEnv } from "../../../http/env";
 import type { CreateUserService } from "../application/create-user.service";
+import type { DeleteUserService } from "../application/delete-user.service";
 import type { GetUserService } from "../application/get-user.service";
 import type { ListUsersService } from "../application/list-users.service";
 import type { UpdateUserService } from "../application/update-user.service";
@@ -19,6 +20,7 @@ import { toUserResponse } from "./user.presenter";
 
 export interface UserRouteDependencies {
   readonly createUserService: CreateUserService;
+  readonly deleteUserService: DeleteUserService;
   readonly getUserService: GetUserService;
   readonly listUsersService: ListUsersService;
   readonly updateUserService: UpdateUserService;
@@ -188,6 +190,41 @@ const updateUserRoute = createRoute({
   },
 });
 
+const deleteUserRoute = createRoute({
+  method: "delete",
+  path: "/users/{id}",
+  tags: ["Users"],
+  request: { params: UserPathParamsSchema },
+  responses: {
+    204: {
+      description: "User deleted",
+      headers: RateLimitResponseHeaders,
+    },
+    400: {
+      description: "Validation error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Authentication required or credentials invalid",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    403: {
+      description: "Authenticated principal lacks tenant access or the required scope",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: "User not found in the current tenant",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    429: {
+      description: "Rate limit exceeded",
+      headers: RateLimitExceededResponseHeaders,
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    ...DatabaseFailureResponses,
+  },
+});
+
 const getUserRoute = createRoute({
   method: "get",
   path: "/users/{id}",
@@ -258,6 +295,16 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
     );
     const response = UserResponseSchema.parse(toUserResponse(user));
     return c.json(response, 200);
+  });
+
+  app.openapi(deleteUserRoute, async (c) => {
+    const { id } = c.req.valid("param");
+    const canonicalId = CanonicalUuidSchema.parse(id);
+    await dependencies.deleteUserService.execute(
+      canonicalId,
+      c.get("requestContext"),
+    );
+    return c.body(null, 204);
   });
 
   app.openapi(getUserRoute, async (c) => {
