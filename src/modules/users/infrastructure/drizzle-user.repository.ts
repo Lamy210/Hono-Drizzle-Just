@@ -208,12 +208,12 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
   ): Promise<UserUpdateResult> {
     const assignments: SQL[] = [];
     if (fields.email !== undefined) {
-      assignments.push(sql`${users.email} = ${fields.email}`);
+      assignments.push(sql`"email" = ${fields.email}`);
     }
     if (fields.name !== undefined) {
-      assignments.push(sql`${users.name} = ${fields.name}`);
+      assignments.push(sql`"name" = ${fields.name}`);
     }
-    assignments.push(sql`${users.version} = ${users.version} + 1`);
+    assignments.push(sql`"version" = ${users.version} + 1`);
 
     const execute = async (): Promise<UserUpdateResult> => {
       const result = await this.db.execute<AtomicUserUpdateRow>(sql`
