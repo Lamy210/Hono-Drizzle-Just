@@ -298,6 +298,28 @@ test(
         });
         expect(JSON.stringify(mismatchBody)).not.toContain(idempotencyKey);
 
+        const deleteIdempotentResponse = await boundedFetch(
+          `${baseUrl}/users/${firstIdempotent.id}`,
+          {
+            method: "DELETE",
+            headers: { authorization },
+          },
+        );
+        expect(deleteIdempotentResponse.status).toBe(204);
+        expect(await deleteIdempotentResponse.text()).toBe("");
+
+        const recreateResponse = await boundedFetch(`${baseUrl}/users`, {
+          method: "POST",
+          headers: idempotentHeaders,
+          body: JSON.stringify({
+            email: idempotentEmail,
+            name: "Idempotent User",
+          }),
+        });
+        expect(recreateResponse.status).toBe(201);
+        const recreated = (await recreateResponse.json()) as UserResponse;
+        expect(recreated.id).not.toBe(firstIdempotent.id);
+
         return updated;
       },
     );
@@ -323,6 +345,18 @@ test(
         });
         expect(crossTenantUpdate.status).toBe(404);
         expect(await crossTenantUpdate.json()).toMatchObject({
+          error: { code: "NOT_FOUND" },
+        });
+
+        const crossTenantDelete = await boundedFetch(
+          `${baseUrl}/users/${tenantAUser.id}`,
+          {
+            method: "DELETE",
+            headers: { authorization },
+          },
+        );
+        expect(crossTenantDelete.status).toBe(404);
+        expect(await crossTenantDelete.json()).toMatchObject({
           error: { code: "NOT_FOUND" },
         });
 
