@@ -694,6 +694,9 @@ test("authorized create derives tenant from principal and ignores client tenant 
 
   expect(response.status).toBe(201);
   expect(response.headers.get("etag")).toBe('"v1"');
+  expect(response.headers.get("location")).toBe(
+    "/users/550e8400-e29b-41d4-a716-446655440000",
+  );
   expect(repository.findByEmail).toHaveBeenCalledWith("tenant-a", "new@example.com");
   expect(repository.create).toHaveBeenCalledWith({
     tenantId: "tenant-a",
@@ -755,6 +758,8 @@ test("same Idempotency-Key and normalized payload replay 201 with the same user 
   const firstBody = await first.json();
   const secondBody = await second.json();
   expect(secondBody.id).toBe(firstBody.id);
+  expect(first.headers.get("location")).toBe(`/users/${firstBody.id}`);
+  expect(second.headers.get("location")).toBe(`/users/${firstBody.id}`);
   expect(claim).toHaveBeenCalledTimes(2);
   expect(complete).toHaveBeenCalledTimes(1);
 });
