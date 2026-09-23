@@ -206,11 +206,13 @@ test(
           }),
         });
         expect(createdResponse.status).toBe(201);
+        const createdLocation = createdResponse.headers.get("location");
         const createdEtag = createdResponse.headers.get("etag");
         expect(createdEtag).toBe('"v1"');
         const created = (await createdResponse.json()) as UserResponse;
         expect(created.email).toBe(email);
         expect(created.name).toBe("Tenant A User");
+        expect(createdLocation).toBe(`/users/${created.id}`);
         expect(created.id).toMatch(
           /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
         );
@@ -367,6 +369,9 @@ test(
         expect(replayResponse.status).toBe(201);
         const replay = (await replayResponse.json()) as UserResponse;
         expect(replay.id).toBe(firstIdempotent.id);
+        expect(replayResponse.headers.get("location")).toBe(
+          `/users/${firstIdempotent.id}`,
+        );
         expect(replay).toEqual(firstIdempotent);
 
         const updateConflictResponse = await boundedFetch(`${baseUrl}/users/${created.id}`, {
