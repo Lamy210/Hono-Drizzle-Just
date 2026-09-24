@@ -176,7 +176,7 @@ test("resets an expired bucket atomically instead of growing one row per window"
     expect(denied.retryAfterSeconds).toBeLessThanOrEqual(60);
   }
 
-  const identityHash = digester.sha256Hex("http.global\0" + request.identity);
+  const identityHash = digester.sha256Hex(`http.global\0${request.identity}`);
   await database.db
     .update(rateLimitBuckets)
     .set({ expiresAt: new Date(0) })
