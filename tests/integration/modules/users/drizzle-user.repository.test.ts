@@ -110,9 +110,14 @@ test("paginated listing is tenant-scoped, deterministic, and preserves the tenan
   const page = await repository.listPage("tenant-a", { offset: 1, limit: 1 });
   expect(page.total).toBe(3);
   expect(page.users.map((user) => user.email)).toEqual(["middle@example.com"]);
+  expect(page.users[0]?.createdAt).toBeInstanceOf(Date);
+  expect(page.users[0]?.version).toBe(1);
 
   const beyondEnd = await repository.listPage("tenant-a", { offset: 10, limit: 2 });
   expect(beyondEnd).toEqual({ users: [], total: 3 });
+
+  const emptyTenant = await repository.listPage("tenant-c", { offset: 0, limit: 20 });
+  expect(emptyTenant).toEqual({ users: [], total: 0 });
 });
 
 test("delete is tenant-scoped, version-guarded, and preserves stale rows", async () => {
