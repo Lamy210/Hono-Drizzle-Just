@@ -6,7 +6,6 @@ export const HTTP_RATE_LIMIT_SCOPES = {
 
 const BYPASS_PATHS = new Set(["/health", "/health/live", "/health/ready"]);
 const USER_READ_COLLECTION_PATHS = new Set(["/users", "/users/cursor"]);
-const USER_READ_COLLECTION_PATHS = new Set(["/users", "/users/cursor"]);
 
 export interface HttpRateLimitPolicyInput {
   readonly method: string;
