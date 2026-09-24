@@ -4,6 +4,7 @@ import type { RequestContext } from "../../../core/context/request-context";
 import { AppError } from "../../../core/errors/app-error";
 import type { Logger } from "../../../core/logging/logger";
 import type { CreateUserInput, User } from "../domain/user";
+import type { UserCreationIdempotencyMaintenance } from "./user-creation-idempotency-maintenance";
 import type { UserTransactionManager } from "./user-unit-of-work";
 
 const IDEMPOTENCY_TTL_SECONDS = 86_400;
@@ -18,6 +19,7 @@ export class CreateUserService {
     private readonly transactions: UserTransactionManager,
     private readonly logger: Logger,
     private readonly digester: StringDigester,
+    private readonly idempotencyMaintenance?: UserCreationIdempotencyMaintenance,
   ) {}
 
   async execute(
@@ -62,6 +64,8 @@ export class CreateUserService {
     tenantId: string,
     normalized: { readonly email: string; readonly name: string },
   ): Promise<CreateUserResult> {
+    await this.idempotencyMaintenance?.cleanupIfDue();
+
     const keyHash = this.digester.sha256Hex(idempotencyKey);
     const requestFingerprint = this.digester.sha256Hex(
       `users:create:v1\n${normalized.email}\n${normalized.name}`,

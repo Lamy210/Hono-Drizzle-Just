@@ -1,4 +1,5 @@
 import type { UserUnitOfWork } from "../../modules/users/application/user-unit-of-work";
+import { DrizzleUserCreationIdempotencyMaintenance } from "../../modules/users/infrastructure/drizzle-user-creation-idempotency-maintenance";
 import { DrizzleUserCreationIdempotencyRepository } from "../../modules/users/infrastructure/drizzle-user-creation-idempotency.repository";
 import { UserCreationIdempotencyCleanupGate } from "../../modules/users/infrastructure/user-creation-idempotency-cleanup-gate";
 import type { UserCreationIdempotencyObserver } from "../../modules/users/infrastructure/user-creation-idempotency-observer";
@@ -18,6 +19,12 @@ export function createDatabaseAccess(
 ) {
   const userRepository = new DrizzleUserRepository(database, observer);
   const idempotencyCleanupGate = new UserCreationIdempotencyCleanupGate();
+  const userCreationIdempotencyMaintenance = new DrizzleUserCreationIdempotencyMaintenance(
+    database,
+    idempotencyCleanupGate,
+    observer,
+    idempotencyObserver,
+  );
   const userTransactions = new DrizzleTransactionManager<UserUnitOfWork>(
     database,
     (session) => ({
@@ -25,13 +32,11 @@ export function createDatabaseAccess(
       userCreationIdempotency: new DrizzleUserCreationIdempotencyRepository(
         session,
         observer,
-        idempotencyCleanupGate,
-        idempotencyObserver,
       ),
     }),
     observer,
     transactionOptions,
   );
 
-  return { userRepository, userTransactions };
+  return { userRepository, userTransactions, userCreationIdempotencyMaintenance };
 }

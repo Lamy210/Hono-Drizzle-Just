@@ -3,16 +3,12 @@ import { AppError } from "../../../core/errors/app-error";
 import { userCreationIdempotency } from "../../../db/schema";
 import type { DatabaseSession } from "../../../infrastructure/database/database";
 import type { DatabaseObserver } from "../../../infrastructure/database/database-observer";
-import type { UserCreationIdempotencyCleanupGate } from "./user-creation-idempotency-cleanup-gate";
-import type { UserCreationIdempotencyObserver } from "./user-creation-idempotency-observer";
 import type {
   UserCreationIdempotencyClaim,
   UserCreationIdempotencyRepository,
 } from "../application/user-creation-idempotency.repository";
 
-type DatabaseOperation = "DELETE" | "SELECT" | "INSERT" | "UPDATE";
-
-const CLEANUP_BATCH_SIZE = 1_000;
+type DatabaseOperation = "SELECT" | "INSERT" | "UPDATE";
 
 export class DrizzleUserCreationIdempotencyRepository
   implements UserCreationIdempotencyRepository
@@ -20,8 +16,6 @@ export class DrizzleUserCreationIdempotencyRepository
   constructor(
     private readonly db: DatabaseSession,
     private readonly observer?: DatabaseObserver,
-    private readonly cleanupGate?: UserCreationIdempotencyCleanupGate,
-    private readonly maintenanceObserver?: UserCreationIdempotencyObserver,
   ) {}
 
   async claim(input: {
@@ -30,7 +24,6 @@ export class DrizzleUserCreationIdempotencyRepository
     readonly requestFingerprint: string;
     readonly ttlSeconds: number;
   }): Promise<UserCreationIdempotencyClaim> {
-    await this.cleanupExpiredIfDue();
     const expiresAt = sql`now() + make_interval(secs => ${input.ttlSeconds})`;
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -125,58 +118,6 @@ export class DrizzleUserCreationIdempotencyRepository
     if (updated.length !== 1) {
       throw new AppError("INTERNAL_ERROR", "Idempotency state is inconsistent", 500);
     }
-  }
-
-  private async cleanupExpiredIfDue(): Promise<void> {
-    if (!this.cleanupGate?.acquireIfDue()) {
-      return;
-    }
-
-    const cleanup = async (): Promise<number> => {
-      const result = await this.observe("DELETE", () =>
-        this.db.execute<{ deleted_count: string }>(sql`
-          with expired as (
-            select
-              ${userCreationIdempotency.tenantId},
-              ${userCreationIdempotency.keyHash}
-            from ${userCreationIdempotency}
-            where ${userCreationIdempotency.expiresAt} <= now()
-            order by
-              ${userCreationIdempotency.expiresAt},
-              ${userCreationIdempotency.tenantId},
-              ${userCreationIdempotency.keyHash}
-            limit ${CLEANUP_BATCH_SIZE}
-            for update skip locked
-          ),
-          deleted as (
-            delete from ${userCreationIdempotency}
-            using expired
-            where
-              ${userCreationIdempotency.tenantId} = expired.tenant_id
-              and ${userCreationIdempotency.keyHash} = expired.key_hash
-              and ${userCreationIdempotency.expiresAt} <= now()
-            returning 1
-          )
-          select count(*)::text as deleted_count
-          from deleted
-        `),
-      );
-      const deletedCount = result.rows[0]?.deleted_count;
-      if (deletedCount === undefined || !/^[0-9]+$/.test(deletedCount)) {
-        throw new Error("Idempotency cleanup returned an invalid deleted row count");
-      }
-      const parsed = Number(deletedCount);
-      if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > CLEANUP_BATCH_SIZE) {
-        throw new Error("Idempotency cleanup returned an invalid deleted row count");
-      }
-      return parsed;
-    };
-
-    if (this.maintenanceObserver) {
-      await this.maintenanceObserver.cleanup(cleanup);
-      return;
-    }
-    await cleanup();
   }
 
   private observe<T>(operation: DatabaseOperation, execute: () => Promise<T>): Promise<T> {
