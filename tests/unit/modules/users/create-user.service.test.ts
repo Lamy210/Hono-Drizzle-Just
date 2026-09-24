@@ -4,6 +4,7 @@ import type { RequestContext } from "../../../../src/core/context/request-contex
 import type { TransactionManager } from "../../../../src/core/transaction/transaction-manager";
 import { JsonConsoleLogger } from "../../../../src/infrastructure/logging/json-console-logger";
 import { CreateUserService } from "../../../../src/modules/users/application/create-user.service";
+import type { UserCreationIdempotencyMaintenance } from "../../../../src/modules/users/application/user-creation-idempotency-maintenance";
 import type { UserCreationIdempotencyRepository } from "../../../../src/modules/users/application/user-creation-idempotency.repository";
 import type { UserUnitOfWork } from "../../../../src/modules/users/application/user-unit-of-work";
 import type { CreateUserInput, User } from "../../../../src/modules/users/domain/user";
@@ -37,6 +38,7 @@ type IdempotentCreateUserServiceConstructor = new (
   transactions: TransactionManager<UserUnitOfWork>,
   logger: JsonConsoleLogger,
   digester: StringDigester,
+  maintenance?: UserCreationIdempotencyMaintenance,
 ) => IdempotentCreateUserService;
 
 function transactionManager(
@@ -54,9 +56,10 @@ function createService(
   transactions: TransactionManager<UserUnitOfWork>,
   logger: JsonConsoleLogger,
   digester: StringDigester,
+  maintenance?: UserCreationIdempotencyMaintenance,
 ): IdempotentCreateUserService {
   const Constructor = CreateUserService as unknown as IdempotentCreateUserServiceConstructor;
-  return new Constructor(transactions, logger, digester);
+  return new Constructor(transactions, logger, digester, maintenance);
 }
 
 function digesterFor(rawKey: string, canonical: string) {
@@ -128,7 +131,8 @@ test("no-key path preserves existing transaction behavior without touching idemp
   const logger = new JsonConsoleLogger({}, () => undefined);
   const infoSpy = spyOn(logger, "info");
   const digester = noDigest();
-  const service = createService(transactions, logger, digester);
+  const cleanupIfDue = mock(async () => undefined);
+  const service = createService(transactions, logger, digester, { cleanupIfDue });
 
   const user = await service.execute({ email: " LAMY@example.com ", name: " Lamy " }, context);
 
@@ -143,6 +147,7 @@ test("no-key path preserves existing transaction behavior without touching idemp
   expect(claim).not.toHaveBeenCalled();
   expect(complete).not.toHaveBeenCalled();
   expect(digester.sha256Hex).not.toHaveBeenCalled();
+  expect(cleanupIfDue).not.toHaveBeenCalled();
   expect(user.email).toBe("lamy@example.com");
   expect(infoSpy).toHaveBeenCalledTimes(1);
 });
@@ -164,7 +169,8 @@ test("fresh idempotency claim hashes canonical input, creates once, and complete
   const logger = new JsonConsoleLogger({}, () => undefined);
   const infoSpy = spyOn(logger, "info");
   const transactions = transactionManager(repository, { claim, complete });
-  const service = createService(transactions, logger, digester);
+  const cleanupIfDue = mock(async () => undefined);
+  const service = createService(transactions, logger, digester, { cleanupIfDue });
 
   const result = await service.execute(
     { email: " LAMY@example.com ", name: " Lamy " },
@@ -172,6 +178,7 @@ test("fresh idempotency claim hashes canonical input, creates once, and complete
     { idempotencyKey: rawKey },
   );
 
+  expect(cleanupIfDue).toHaveBeenCalledTimes(1);
   expect(sha256Hex).toHaveBeenCalledWith(rawKey);
   expect(sha256Hex).toHaveBeenCalledWith(canonical);
   expect(transactions.run).toHaveBeenCalledTimes(1);
