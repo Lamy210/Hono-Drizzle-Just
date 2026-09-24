@@ -233,6 +233,7 @@ Liveness and readiness have different failure domains:
 - `/health/ready` runs critical `HealthCheck` implementations. The default production composition includes PostgreSQL. Its adapter coalesces concurrent calls onto one in-flight `select 1` until that query settles; each caller keeps its own readiness timeout, preventing a slow dependency from causing probe-driven duplicate database work.
 - A readiness check exception is converted into `down`; internal exception messages are not returned to clients.
 - `/health` remains a compatibility liveness alias.
+- All liveness/readiness GET and Hono-generated HEAD responses set `Cache-Control: no-store`. Health state is point-in-time operational data, so browsers, reverse proxies, and intermediary caches must not reuse a previous 200 or 503 response.
 
 A dependency outage can therefore remove the instance from traffic without causing an unnecessary process restart loop.
 
