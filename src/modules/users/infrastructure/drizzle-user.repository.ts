@@ -1,4 +1,4 @@
-import { and, count, desc, eq, sql, type SQL } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import { AppError } from "../../../core/errors/app-error";
 import { users } from "../../../db/schema";
 import type { DatabaseSession } from "../../../infrastructure/database/database";
@@ -47,14 +47,21 @@ function versionPreconditionSql(precondition: UserVersionPrecondition): SQL {
   )})`;
 }
 
-interface AtomicUserUpdateRow extends Record<string, unknown> {
-  readonly state: "updated" | "not_found" | "precondition_failed";
+interface DatabaseUserRow extends Record<string, unknown> {
   readonly id: string | null;
   readonly tenant_id: string | null;
   readonly email: string | null;
   readonly name: string | null;
   readonly version: number | null;
   readonly created_at: unknown;
+}
+
+interface AtomicUserUpdateRow extends DatabaseUserRow {
+  readonly state: "updated" | "not_found" | "precondition_failed";
+}
+
+interface AtomicUserListRow extends DatabaseUserRow {
+  readonly total: unknown;
 }
 
 interface AtomicUserDeleteRow extends Record<string, unknown> {
@@ -73,7 +80,7 @@ function databaseDate(value: unknown): Date | undefined {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
-function updatedUserFromRow(row: AtomicUserUpdateRow): User {
+function userFromDatabaseRow(row: DatabaseUserRow, errorMessage: string): User {
   const createdAt = databaseDate(row.created_at);
   if (
     row.id === null ||
@@ -83,7 +90,7 @@ function updatedUserFromRow(row: AtomicUserUpdateRow): User {
     row.version === null ||
     createdAt === undefined
   ) {
-    throw new Error("Atomic user update returned an incomplete row");
+    throw new Error(errorMessage);
   }
 
   return {
@@ -94,6 +101,23 @@ function updatedUserFromRow(row: AtomicUserUpdateRow): User {
     version: row.version,
     createdAt,
   };
+}
+
+function databaseCount(value: unknown): number {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    return value;
+  }
+  if (typeof value === "string" && /^[0-9]+$/.test(value)) {
+    const parsed = BigInt(value);
+    if (parsed <= BigInt(Number.MAX_SAFE_INTEGER)) {
+      return Number(parsed);
+    }
+  }
+  throw new Error("Atomic user list returned an invalid total");
+}
+
+function updatedUserFromRow(row: AtomicUserUpdateRow): User {
+  return userFromDatabaseRow(row, "Atomic user update returned an incomplete row");
 }
 
 export class DrizzleUserRepository implements UserRepository, UserListRepository, UserUpdateRepository, UserDeleteRepository {
@@ -136,35 +160,59 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
     tenantId: string,
     input: { readonly offset: number; readonly limit: number },
   ): Promise<{ readonly users: readonly User[]; readonly total: number }> {
-    const countPage = async (): Promise<number> => {
-      const [row] = await this.db
-        .select({ total: count() })
-        .from(users)
-        .where(eq(users.tenantId, tenantId));
-      return row?.total ?? 0;
+    const execute = async (): Promise<{
+      readonly users: readonly User[];
+      readonly total: number;
+    }> => {
+      const result = await this.db.execute<AtomicUserListRow>(sql`
+        with total as (
+          select count(*)::text as total
+          from ${users}
+          where ${users.tenantId} = ${tenantId}
+        ),
+        page as (
+          select
+            ${users.id} as id,
+            ${users.tenantId} as tenant_id,
+            ${users.email} as email,
+            ${users.name} as name,
+            ${users.version} as version,
+            ${users.createdAt} as created_at
+          from ${users}
+          where ${users.tenantId} = ${tenantId}
+          order by ${users.createdAt} desc, ${users.id} desc
+          limit ${input.limit}
+          offset ${input.offset}
+        )
+        select
+          page.id,
+          page.tenant_id,
+          page.email,
+          page.name,
+          page.version,
+          page.created_at,
+          total.total
+        from total
+        left join page on true
+        order by page.created_at desc nulls last, page.id desc nulls last
+      `);
+
+      const first = result.rows[0];
+      if (!first) {
+        throw new Error("Atomic user list returned no total row");
+      }
+
+      const total = databaseCount(first.total);
+      const page = result.rows
+        .filter((row) => row.id !== null)
+        .map((row) => userFromDatabaseRow(row, "Atomic user list returned an incomplete row"));
+
+      return { users: page, total };
     };
-    const total = this.observer
-      ? await this.observer.operation({ operation: "SELECT", collection: "users" }, countPage)
-      : await countPage();
 
-    if (input.offset >= total) {
-      return { users: [], total };
-    }
-
-    const selectPage = async (): Promise<readonly User[]> => {
-      return this.db
-        .select()
-        .from(users)
-        .where(eq(users.tenantId, tenantId))
-        .orderBy(desc(users.createdAt), desc(users.id))
-        .limit(input.limit)
-        .offset(input.offset);
-    };
-    const page = this.observer
-      ? await this.observer.operation({ operation: "SELECT", collection: "users" }, selectPage)
-      : await selectPage();
-
-    return { users: page, total };
+    return this.observer
+      ? this.observer.operation({ operation: "SELECT", collection: "users" }, execute)
+      : execute();
   }
 
   async deleteById(
