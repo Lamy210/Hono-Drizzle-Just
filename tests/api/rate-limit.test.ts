@@ -8,6 +8,7 @@ import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
 import { DeleteUserService } from "../../src/modules/users/application/delete-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
+import { ListUsersCursorService } from "../../src/modules/users/application/list-users-cursor.service";
 import { ListUsersService } from "../../src/modules/users/application/list-users.service";
 import { UpdateUserService } from "../../src/modules/users/application/update-user.service";
 import type { UserUnitOfWork } from "../../src/modules/users/application/user-unit-of-work";
@@ -45,6 +46,9 @@ function buildApp(rateLimiter?: RateLimiter, remoteAddress?: string) {
         new Sha256StringDigester(),
       ),
       getUserService: new GetUserService(repository),
+      listUsersCursorService: new ListUsersCursorService({
+        listAfter: mock(async () => ({ users: [], hasMore: false })),
+      }),
       listUsersService: new ListUsersService({
         listPage: mock(async () => ({ users: [], total: 0 })),
       }),
