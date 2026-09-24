@@ -21,6 +21,7 @@ afterAll(async () => {
 });
 
 test("atomically enforces one shared fixed-window limit under concurrency", async () => {
+  const identity = "203.0.113.10";
   const limiter = new PostgresFixedWindowRateLimiter(database.db, digester, {
     limit: 5,
     windowSeconds: 60,
@@ -28,7 +29,7 @@ test("atomically enforces one shared fixed-window limit under concurrency", asyn
 
   const decisions = await Promise.all(
     Array.from({ length: 20 }, () =>
-      limiter.consume({ scope: "http.global", identity: "203.0.113.10" }),
+      limiter.consume({ scope: "http.global", identity }),
     ),
   );
 
@@ -50,7 +51,7 @@ test("atomically enforces one shared fixed-window limit under concurrency", asyn
   const [bucket] = await database.db.select().from(rateLimitBuckets);
   expect(bucket?.requestCount).toBe(20);
   expect(bucket?.identityHash).toBe(digester.sha256Hex("http.global\0" + "203.0.113.10"));
-  expect(JSON.stringify(bucket)).not.toContain("203.0.113.10");
+  expect(JSON.stringify(bucket)).not.toContain(identity);
 });
 
 test("keeps scopes and client identities isolated", async () => {
