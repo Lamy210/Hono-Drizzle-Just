@@ -18,6 +18,7 @@ import { DeleteUserService } from "../../modules/users/application/delete-user.s
 import { GetUserService } from "../../modules/users/application/get-user.service";
 import { ListUsersService } from "../../modules/users/application/list-users.service";
 import { UpdateUserService } from "../../modules/users/application/update-user.service";
+import { UserCreationIdempotencyObserver } from "../../modules/users/infrastructure/user-creation-idempotency-observer";
 import type { AppDependencies } from "../app";
 import { createDatabaseAccess } from "./database-access";
 
@@ -71,11 +72,17 @@ export function createProductionContainer(config: AppConfig): {
   lifecycle.register("database-pool-observability", stopDatabasePoolObservation);
   lifecycle.register("database", database.close);
 
-  const { userRepository, userTransactions } = createDatabaseAccess(database.db, databaseObserver, {
-    maxAttempts: config.databaseTransactionRetryMaxAttempts,
-    baseDelayMs: config.databaseTransactionRetryBaseDelayMs,
-    maxDelayMs: config.databaseTransactionRetryMaxDelayMs,
-  });
+  const idempotencyObserver = new UserCreationIdempotencyObserver(telemetry.meter);
+  const { userRepository, userTransactions } = createDatabaseAccess(
+    database.db,
+    databaseObserver,
+    {
+      maxAttempts: config.databaseTransactionRetryMaxAttempts,
+      baseDelayMs: config.databaseTransactionRetryBaseDelayMs,
+      maxDelayMs: config.databaseTransactionRetryMaxDelayMs,
+    },
+    idempotencyObserver,
+  );
   const readinessChecker = new ReadinessChecker([
     new DatabaseHealthCheck(database.pool, config.healthCheckTimeoutMs),
   ]);
