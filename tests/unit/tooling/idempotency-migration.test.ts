@@ -31,3 +31,22 @@ test("idempotency ledger is introduced by a forward migration after tenant owner
   expect(baseline?.content).not.toContain("user_creation_idempotency");
   expect(tenant?.content).not.toContain("user_creation_idempotency");
 });
+
+test("idempotency expiry cleanup has a forward index migration", async () => {
+  const files = (await readdir(drizzleDir)).filter((name) => /^\d{4}_.+\.sql$/.test(name)).sort();
+  const migrations = await Promise.all(
+    files.map(async (name) => ({ name, content: await Bun.file(join(drizzleDir, name)).text() })),
+  );
+  const migration = migrations.find(({ content }) =>
+    content.includes('CREATE INDEX "user_creation_idempotency_expires_cleanup_idx"'),
+  );
+
+  expect(migration).toBeDefined();
+  if (!migration) return;
+
+  expect(migration.name).toMatch(/^0008_/);
+  expect(migration.content).toContain(
+    'ON "user_creation_idempotency" USING btree ("expires_at","tenant_id","key_hash")',
+  );
+});
+
