@@ -5,6 +5,7 @@ export const HTTP_RATE_LIMIT_SCOPES = {
 } as const;
 
 const BYPASS_PATHS = new Set(["/health", "/health/live", "/health/ready"]);
+const USER_READ_COLLECTION_PATHS = new Set(["/users", "/users/cursor"]);
 
 export interface HttpRateLimitPolicyInput {
   readonly method: string;
@@ -16,7 +17,11 @@ function isSingleUserResourcePath(path: string): boolean {
     return false;
   }
   const resourceId = path.slice("/users/".length);
-  return resourceId.length > 0 && !resourceId.includes("/");
+  return (
+    resourceId.length > 0 &&
+    !resourceId.includes("/") &&
+    resourceId !== "cursor"
+  );
 }
 
 export function resolveHttpRateLimitScope(input: HttpRateLimitPolicyInput): string | undefined {
@@ -32,7 +37,7 @@ export function resolveHttpRateLimitScope(input: HttpRateLimitPolicyInput): stri
   }
   if (
     (input.method === "GET" || input.method === "HEAD") &&
-    (input.path === "/users" || isSingleUserResourcePath(input.path))
+    (USER_READ_COLLECTION_PATHS.has(input.path) || isSingleUserResourcePath(input.path))
   ) {
     return HTTP_RATE_LIMIT_SCOPES.usersRead;
   }
