@@ -144,9 +144,9 @@ Verification commands have five stable layers:
 
 The service listens on `http://localhost:3000` by default.
 
-- `GET /health` — compatibility liveness endpoint
-- `GET /health/live` — process/HTTP liveness; does not query PostgreSQL
-- `GET /health/ready` — readiness; returns 503 when a critical dependency is unavailable
+- `GET /health` — compatibility liveness endpoint; returns `Cache-Control: no-store`
+- `GET /health/live` — process/HTTP liveness; does not query PostgreSQL; returns `Cache-Control: no-store`
+- `GET /health/ready` — readiness; returns 503 when a critical dependency is unavailable; both ready/not-ready responses use `Cache-Control: no-store`
 - `POST /users` - protected; requires an authenticated tenant principal with `users:write`; optional `Idempotency-Key` enables tenant-scoped replay; successful 201 responses include `Location: /users/{id}` and a strong ETag
 - `GET /users` - protected tenant-scoped listing; requires `users:read`; supports `page` (1-10,000, default 1) and `perPage` (1-100, default 20); returns `Cache-Control: private, no-store`; Hono also serves metadata-only `HEAD /users` with the same cache policy
 - `GET /users/{id}` - protected; requires `users:read`; returns a strong ETag, `Cache-Control: private, no-cache`, and accepts `If-None-Match` for 304 cache revalidation; Hono automatically provides the equivalent bodyless `HEAD /users/{id}` response
