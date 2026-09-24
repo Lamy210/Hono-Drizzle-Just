@@ -117,8 +117,8 @@ test("listPage records bounded SELECT telemetry without tenant or pagination car
 
   expect(result.total).toBe(1);
   expect(result.users[0]?.email).toBe(email);
-  expect(tracer.spans.map((entry) => entry.name)).toEqual(["SELECT users", "SELECT users"]);
-  expect(meter.records).toHaveLength(2);
+  expect(tracer.spans.map((entry) => entry.name)).toEqual(["SELECT users"]);
+  expect(meter.records).toHaveLength(1);
   const telemetry = JSON.stringify({
     spans: tracer.spans.map((entry) => entry.options.attributes),
     records: meter.records,
