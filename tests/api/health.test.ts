@@ -117,6 +117,21 @@ test("unsupported methods use the common correlated 405 response with Allow", as
   });
 });
 
+test("health GET and HEAD responses are never cacheable", async () => {
+  const app = buildApp({ name: "database", check: async () => undefined });
+
+  for (const path of ["/health", "/health/live", "/health/ready"]) {
+    for (const method of ["GET", "HEAD"] as const) {
+      const response = await app.request(path, { method });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      if (method === "HEAD") {
+        expect(await response.text()).toBe("");
+      }
+    }
+  }
+});
+
 test("liveness stays healthy even when a critical dependency is down", async () => {
   const app = buildApp({
     name: "database",
@@ -154,6 +169,7 @@ test("readiness returns 503 instead of 500 when a critical dependency is down", 
   const body = await response.json();
 
   expect(response.status).toBe(503);
+  expect(response.headers.get("cache-control")).toBe("no-store");
   expect(body.status).toBe("not_ready");
   expect(body.checks.database.status).toBe("down");
   expect(JSON.stringify(body)).not.toContain("database unavailable");
