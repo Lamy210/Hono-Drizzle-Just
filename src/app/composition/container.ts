@@ -73,7 +73,11 @@ export function createProductionContainer(config: AppConfig): {
   lifecycle.register("database", database.close);
 
   const idempotencyObserver = new UserCreationIdempotencyObserver(telemetry.meter);
-  const { userRepository, userTransactions } = createDatabaseAccess(
+  const {
+    userRepository,
+    userTransactions,
+    userCreationIdempotencyMaintenance,
+  } = createDatabaseAccess(
     database.db,
     databaseObserver,
     {
@@ -133,7 +137,12 @@ export function createProductionContainer(config: AppConfig): {
       logger,
       readinessChecker,
       deleteUserService: new DeleteUserService(userRepository, logger),
-      createUserService: new CreateUserService(userTransactions, logger, digester),
+      createUserService: new CreateUserService(
+        userTransactions,
+        logger,
+        digester,
+        userCreationIdempotencyMaintenance,
+      ),
       getUserService: new GetUserService(userRepository),
       listUsersService: new ListUsersService(userRepository),
       updateUserService: new UpdateUserService(userRepository, logger),
