@@ -2,11 +2,12 @@ import { createRoute, type OpenAPIHono } from "@hono/zod-openapi";
 import { ErrorResponseSchema } from "../../../contracts/common/errors";
 import { IfMatchHeadersSchema, IfNoneMatchHeadersSchema } from "../../../contracts/common/conditional";
 import { IdempotencyKeyHeadersSchema } from "../../../contracts/common/idempotency";
-import { PaginationQuerySchema } from "../../../contracts/common/pagination";
+import { CursorPaginationQuerySchema, PaginationQuerySchema } from "../../../contracts/common/pagination";
 import { CanonicalUuidSchema } from "../../../contracts/common/primitives";
 import {
   CreateUserRequestSchema,
   UpdateUserRequestSchema,
+  UserCursorListResponseSchema,
   UserListResponseSchema,
   UserPathParamsSchema,
   UserResponseSchema,
@@ -15,15 +16,18 @@ import type { AppEnv } from "../../../http/env";
 import type { CreateUserService } from "../application/create-user.service";
 import type { DeleteUserService } from "../application/delete-user.service";
 import type { GetUserService } from "../application/get-user.service";
+import type { ListUsersCursorService } from "../application/list-users-cursor.service";
 import type { ListUsersService } from "../application/list-users.service";
 import type { UpdateUserService } from "../application/update-user.service";
 import { formatUserEntityTag, parseUserIfMatch, userIfNoneMatchMatches } from "./user-etag";
+import { decodeUserListCursor, encodeUserListCursor } from "./user-list-cursor";
 import { toUserResponse } from "./user.presenter";
 
 export interface UserRouteDependencies {
   readonly createUserService: CreateUserService;
   readonly deleteUserService: DeleteUserService;
   readonly getUserService: GetUserService;
+  readonly listUsersCursorService: ListUsersCursorService;
   readonly listUsersService: ListUsersService;
   readonly updateUserService: UpdateUserService;
 }
@@ -160,6 +164,41 @@ const listUsersRoute = createRoute({
         ...UserListCacheResponseHeader,
       },
       content: { "application/json": { schema: UserListResponseSchema } },
+    },
+    400: {
+      description: "Validation error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Authentication required or credentials invalid",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    403: {
+      description: "Authenticated principal lacks tenant access or the required scope",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    429: {
+      description: "Rate limit exceeded",
+      headers: RateLimitExceededResponseHeaders,
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    ...DatabaseFailureResponses,
+  },
+});
+
+const listUsersCursorRoute = createRoute({
+  method: "get",
+  path: "/users/cursor",
+  tags: ["Users"],
+  request: { query: CursorPaginationQuerySchema },
+  responses: {
+    200: {
+      description: "Tenant-scoped cursor-paginated users",
+      headers: {
+        ...RateLimitResponseHeaders,
+        ...UserListCacheResponseHeader,
+      },
+      content: { "application/json": { schema: UserCursorListResponseSchema } },
     },
     400: {
       description: "Validation error",
@@ -359,6 +398,29 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
     const response = UserListResponseSchema.parse({
       data: result.users.map(toUserResponse),
       meta: result.meta,
+    });
+    c.header("Cache-Control", "private, no-store");
+    return c.json(response, 200);
+  });
+
+  app.openapi(listUsersCursorRoute, async (c) => {
+    const { cursor, limit } = c.req.valid("query");
+    const result = await dependencies.listUsersCursorService.execute(
+      {
+        ...(cursor === undefined ? {} : { after: decodeUserListCursor(cursor) }),
+        limit,
+      },
+      c.get("requestContext"),
+    );
+    const response = UserCursorListResponseSchema.parse({
+      data: result.users.map(toUserResponse),
+      meta: {
+        limit: result.meta.limit,
+        nextCursor:
+          result.meta.next === undefined
+            ? null
+            : encodeUserListCursor(result.meta.next),
+      },
     });
     c.header("Cache-Control", "private, no-store");
     return c.json(response, 200);
