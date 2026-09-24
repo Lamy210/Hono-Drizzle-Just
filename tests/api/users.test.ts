@@ -129,8 +129,7 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
         deleteUserService: new DeleteUserService({ deleteById }, logger),
         getUserService: new GetUserService(repository),
         listUsersCursorService: new ListUsersCursorService({ listAfter }),
-        listUsersCursorService: new ListUsersCursorService({ listAfter }),
-      listUsersService: new ListUsersService({ listPage }),
+        listUsersService: new ListUsersService({ listPage }),
         updateUserService: new UpdateUserService({ update }, logger),
         ...(resolver === undefined ? {} : { principalResolver: resolver }),
       },
@@ -256,6 +255,7 @@ function createIdempotencyHarness() {
         logger,
       ),
       getUserService: new GetUserService(repository),
+      listUsersCursorService: new ListUsersCursorService({ listAfter }),
       listUsersService: new ListUsersService({ listPage }),
       updateUserService: new UpdateUserService(
         { update: mock(async () => ({ state: "not_found" as const })) },
