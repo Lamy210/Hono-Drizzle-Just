@@ -64,6 +64,29 @@ afterAll(async () => {
   await database.close();
 });
 
+test("idempotency maintenance is observed outside the business transaction", async () => {
+  const localTracer = new RecordingTracer();
+  const localMeter = new RecordingMeter();
+  const localObserver = new DatabaseObserver({ tracer: localTracer, meter: localMeter });
+  const localAccess = createDatabaseAccess(database.db, localObserver);
+  const tenantId = `tenant-maintenance-composition-${crypto.randomUUID()}`;
+
+  await localAccess.userCreationIdempotencyMaintenance.cleanupIfDue();
+  await localAccess.userTransactions.run((unitOfWork) =>
+    unitOfWork.users.create({
+      tenantId,
+      email: `${crypto.randomUUID()}@example.com`,
+      name: "Maintenance Isolation",
+    }),
+  );
+
+  expect(localTracer.spans.map((entry) => entry.name)).toEqual([
+    "DELETE user_creation_idempotency",
+    "db.transaction",
+    "INSERT users",
+  ]);
+});
+
 test("database access composition shares one observer across tenant-scoped transactions and repositories", async () => {
   const email = `composition-observed-${crypto.randomUUID()}@example.com`;
   const tenantId = "tenant-composition";
