@@ -3,12 +3,15 @@ import { AppError } from "../../../core/errors/app-error";
 import { userCreationIdempotency } from "../../../db/schema";
 import type { DatabaseSession } from "../../../infrastructure/database/database";
 import type { DatabaseObserver } from "../../../infrastructure/database/database-observer";
+import type { UserCreationIdempotencyCleanupGate } from "./user-creation-idempotency-cleanup-gate";
 import type {
   UserCreationIdempotencyClaim,
   UserCreationIdempotencyRepository,
 } from "../application/user-creation-idempotency.repository";
 
-type DatabaseOperation = "SELECT" | "INSERT" | "UPDATE";
+type DatabaseOperation = "DELETE" | "SELECT" | "INSERT" | "UPDATE";
+
+const CLEANUP_BATCH_SIZE = 1_000;
 
 export class DrizzleUserCreationIdempotencyRepository
   implements UserCreationIdempotencyRepository
@@ -16,6 +19,7 @@ export class DrizzleUserCreationIdempotencyRepository
   constructor(
     private readonly db: DatabaseSession,
     private readonly observer?: DatabaseObserver,
+    private readonly cleanupGate?: UserCreationIdempotencyCleanupGate,
   ) {}
 
   async claim(input: {
@@ -24,6 +28,7 @@ export class DrizzleUserCreationIdempotencyRepository
     readonly requestFingerprint: string;
     readonly ttlSeconds: number;
   }): Promise<UserCreationIdempotencyClaim> {
+    await this.cleanupExpiredIfDue();
     const expiresAt = sql`now() + make_interval(secs => ${input.ttlSeconds})`;
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -118,6 +123,36 @@ export class DrizzleUserCreationIdempotencyRepository
     if (updated.length !== 1) {
       throw new AppError("INTERNAL_ERROR", "Idempotency state is inconsistent", 500);
     }
+  }
+
+  private async cleanupExpiredIfDue(): Promise<void> {
+    if (!this.cleanupGate?.acquireIfDue()) {
+      return;
+    }
+
+    await this.observe("DELETE", () =>
+      this.db.execute(sql`
+        with expired as (
+          select
+            ${userCreationIdempotency.tenantId},
+            ${userCreationIdempotency.keyHash}
+          from ${userCreationIdempotency}
+          where ${userCreationIdempotency.expiresAt} <= now()
+          order by
+            ${userCreationIdempotency.expiresAt},
+            ${userCreationIdempotency.tenantId},
+            ${userCreationIdempotency.keyHash}
+          limit ${CLEANUP_BATCH_SIZE}
+          for update skip locked
+        )
+        delete from ${userCreationIdempotency}
+        using expired
+        where
+          ${userCreationIdempotency.tenantId} = expired.tenant_id
+          and ${userCreationIdempotency.keyHash} = expired.key_hash
+          and ${userCreationIdempotency.expiresAt} <= now()
+      `),
+    );
   }
 
   private observe<T>(operation: DatabaseOperation, execute: () => Promise<T>): Promise<T> {
