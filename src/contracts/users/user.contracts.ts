@@ -1,5 +1,5 @@
 import { z } from "@hono/zod-openapi";
-import { PaginationMetaSchema } from "../common/pagination";
+import { CursorPaginationMetaSchema, PaginationMetaSchema } from "../common/pagination";
 import { DateTimeSchema, EmailSchema, UuidSchema } from "../common/primitives";
 
 const UserNameSchema = z.string().trim().min(1).max(100).openapi({ example: "Lamy" });
@@ -39,6 +39,13 @@ export const UserListResponseSchema = z
     meta: PaginationMetaSchema,
   })
   .openapi("UserListResponse");
+
+export const UserCursorListResponseSchema = z
+  .object({
+    data: z.array(UserResponseSchema),
+    meta: CursorPaginationMetaSchema,
+  })
+  .openapi("UserCursorListResponse");
 
 export const UserPathParamsSchema = z.object({
   id: z.uuid().openapi({
