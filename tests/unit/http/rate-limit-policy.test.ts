@@ -45,6 +45,14 @@ test("user writes remain on the write quota and unrelated HEAD requests stay glo
   expect(resolveHttpRateLimitScope({ method: "POST", path: "/users/cursor" })).toBe(
     HTTP_RATE_LIMIT_SCOPES.global,
   );
+  for (const method of ["PATCH", "DELETE"]) {
+    expect(resolveHttpRateLimitScope({ method, path: "/users/cursor" })).toBe(
+      HTTP_RATE_LIMIT_SCOPES.global,
+    );
+  }
+  expect(resolveHttpRateLimitScope({ method: "POST", path: "/users/cursor" })).toBe(
+    HTTP_RATE_LIMIT_SCOPES.global,
+  );
   expect(resolveHttpRateLimitScope({ method: "HEAD", path: "/openapi.json" })).toBe(
     HTTP_RATE_LIMIT_SCOPES.global,
   );
