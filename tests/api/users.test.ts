@@ -8,6 +8,7 @@ import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
 import { DeleteUserService } from "../../src/modules/users/application/delete-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
+import { ListUsersCursorService } from "../../src/modules/users/application/list-users-cursor.service";
 import { ListUsersService } from "../../src/modules/users/application/list-users.service";
 import { UpdateUserService } from "../../src/modules/users/application/update-user.service";
 import type { UserCreationIdempotencyRepository } from "../../src/modules/users/application/user-creation-idempotency.repository";
@@ -48,6 +49,18 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
     async (tenantId: string, input: { readonly offset: number; readonly limit: number }) => ({
       users: tenantId === user.tenantId && input.offset === 0 ? [user] : [],
       total: tenantId === user.tenantId ? 1 : 0,
+    }),
+  );
+  const listAfter = mock(
+    async (
+      tenantId: string,
+      _input: {
+        readonly after?: { readonly createdAt: Date; readonly id: string };
+        readonly limit: number;
+      },
+    ) => ({
+      users: tenantId === user.tenantId ? [user] : [],
+      hasMore: false,
     }),
   );
   const update = mock(
@@ -112,7 +125,9 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
         ),
         deleteUserService: new DeleteUserService({ deleteById }, logger),
         getUserService: new GetUserService(repository),
-        listUsersService: new ListUsersService({ listPage }),
+        listUsersCursorService: new ListUsersCursorService({ listAfter }),
+        listUsersCursorService: new ListUsersCursorService({ listAfter }),
+      listUsersService: new ListUsersService({ listPage }),
         updateUserService: new UpdateUserService({ update }, logger),
         ...(resolver === undefined ? {} : { principalResolver: resolver }),
       },
@@ -121,6 +136,7 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
     repository,
     findById,
     findByEmail,
+    listAfter,
     listPage,
     update,
     deleteById,
@@ -161,6 +177,35 @@ function createIdempotencyHarness() {
       return {
         users: tenantUsers.slice(input.offset, input.offset + input.limit),
         total: tenantUsers.length,
+      };
+    },
+  );
+  const listAfter = mock(
+    async (
+      tenantId: string,
+      input: {
+        readonly after?: { readonly createdAt: Date; readonly id: string };
+        readonly limit: number;
+      },
+    ) => {
+      const ordered = [...usersById.values()]
+        .filter((user) => user.tenantId === tenantId)
+        .sort((left, right) => {
+          const byCreatedAt = right.createdAt.getTime() - left.createdAt.getTime();
+          return byCreatedAt !== 0 ? byCreatedAt : right.id.localeCompare(left.id);
+        })
+        .filter((user) => {
+          if (!input.after) return true;
+          const createdAt = user.createdAt.getTime();
+          const afterCreatedAt = input.after.createdAt.getTime();
+          return (
+            createdAt < afterCreatedAt ||
+            (createdAt === afterCreatedAt && user.id < input.after.id)
+          );
+        });
+      return {
+        users: ordered.slice(0, input.limit),
+        hasMore: ordered.length > input.limit,
       };
     },
   );
