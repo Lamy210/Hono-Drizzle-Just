@@ -129,6 +129,36 @@ test("listPage records bounded SELECT telemetry without tenant or pagination car
   expect(telemetry).not.toContain('"limit"');
 });
 
+test("listAfter records one bounded SELECT without cursor cardinality", async () => {
+  const tenantId = "tenant-observed-cursor";
+  const seeded = await userFactory.create({
+    tenantId,
+    email: `cursor-observed-${crypto.randomUUID()}@example.com`,
+  });
+  tracer.spans.length = 0;
+  meter.records.length = 0;
+
+  const result = await repository.listAfter(tenantId, {
+    after: {
+      createdAt: new Date(seeded.createdAt.getTime() + 1_000),
+      id: "ffffffff-ffff-4fff-bfff-ffffffffffff",
+    },
+    limit: 20,
+  });
+
+  expect(result.users.some((user) => user.id === seeded.id)).toBe(true);
+  expect(tracer.spans.map((entry) => entry.name)).toEqual(["SELECT users"]);
+  expect(meter.records).toHaveLength(1);
+  const telemetry = JSON.stringify({
+    spans: tracer.spans.map((entry) => entry.options.attributes),
+    records: meter.records,
+  });
+  expect(telemetry).not.toContain(tenantId);
+  expect(telemetry).not.toContain(seeded.id);
+  expect(telemetry).not.toContain('"limit"');
+  expect(telemetry).not.toContain('"cursor"');
+});
+
 test("successful conditional delete records one DELETE span without tenant, id, or version cardinality", async () => {
   const tenantId = "tenant-observed-delete";
   const seeded = await userFactory.create({
