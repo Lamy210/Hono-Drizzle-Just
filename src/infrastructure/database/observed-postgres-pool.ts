@@ -33,7 +33,7 @@ export class ObservedPostgresPool extends Pool {
 
   override connect(): Promise<PoolClient>;
   override connect(callback: ConnectCallback): void;
-  override connect(callback?: ConnectCallback): Promise<PoolClient> | void {
+  override connect(callback?: ConnectCallback): Promise<PoolClient> | undefined {
     const startedAt = this.now();
     const creatingNewConnection = this.idleCount === 0 && this.totalCount < this.options.max;
 
@@ -54,7 +54,7 @@ export class ObservedPostgresPool extends Pool {
         );
         callback(undefined, client, release);
       });
-      return;
+      return undefined;
     }
 
     return super.connect().then(
