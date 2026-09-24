@@ -7,6 +7,7 @@ import type {
   Tracer,
 } from "../../../../src/core/observability/tracer";
 import { DatabaseObserver } from "../../../../src/infrastructure/database/database-observer";
+import { UserCreationIdempotencyCleanupGate } from "../../../../src/modules/users/infrastructure/user-creation-idempotency-cleanup-gate";
 import { DrizzleUserRepository } from "../../../../src/modules/users/infrastructure/drizzle-user.repository";
 import { createTestDatabase } from "../../../helpers/database";
 
@@ -54,6 +55,48 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await database.close();
+});
+
+test("expired-row cleanup is observed as low-cardinality DELETE metadata", async () => {
+  const module = await import(repositoryModulePath).catch(() => undefined);
+  expect(module).toBeDefined();
+  if (!module) return;
+
+  const tracer = new RecordingTracer();
+  const meter = new RecordingMeter();
+  const observer = new DatabaseObserver({ tracer, meter });
+  const gate = new UserCreationIdempotencyCleanupGate(60_000, () => 1_000);
+  const tenantId = `tenant-observed-cleanup-${crypto.randomUUID()}`;
+  const expiredKey = "6".repeat(64);
+  const newKey = "7".repeat(64);
+  const requestFingerprint = "5".repeat(64);
+
+  await database.pool.query(
+    `insert into user_creation_idempotency
+      (tenant_id, key_hash, request_fingerprint, user_id, claimed_at, expires_at)
+     values ($1, $2, $3, null, now() - interval '2 days', now() - interval '1 hour')`,
+    [tenantId, expiredKey, requestFingerprint],
+  );
+
+  const repository = new module.DrizzleUserCreationIdempotencyRepository(
+    database.db,
+    observer,
+    gate,
+  );
+  await repository.claim({
+    tenantId,
+    keyHash: newKey,
+    requestFingerprint,
+    ttlSeconds: 86_400,
+  });
+
+  expect(tracer.spans.some(({ name }) => name === "DELETE user_creation_idempotency")).toBe(true);
+  for (const { options } of tracer.spans) {
+    const serialized = JSON.stringify(options.attributes);
+    for (const prohibited of [tenantId, expiredKey, newKey, requestFingerprint]) {
+      expect(serialized).not.toContain(prohibited);
+    }
+  }
 });
 
 test("ledger operations expose only low-cardinality database metadata", async () => {

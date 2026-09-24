@@ -1,4 +1,4 @@
-import { char, pgTable, primaryKey, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
+import { char, index, pgTable, primaryKey, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
 import { users } from "./users";
 
 export const userCreationIdempotency = pgTable(
@@ -11,5 +11,12 @@ export const userCreationIdempotency = pgTable(
     claimedAt: timestamp("claimed_at", { withTimezone: true, mode: "date" }).defaultNow().notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
   },
-  (table) => [primaryKey({ columns: [table.tenantId, table.keyHash] })],
+  (table) => [
+    primaryKey({ columns: [table.tenantId, table.keyHash] }),
+    index("user_creation_idempotency_expires_cleanup_idx").on(
+      table.expiresAt,
+      table.tenantId,
+      table.keyHash,
+    ),
+  ],
 );
