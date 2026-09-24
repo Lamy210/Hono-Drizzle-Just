@@ -8,6 +8,7 @@ import type {
 } from "../../../../src/core/observability/tracer";
 import { DatabaseObserver } from "../../../../src/infrastructure/database/database-observer";
 import { UserCreationIdempotencyCleanupGate } from "../../../../src/modules/users/infrastructure/user-creation-idempotency-cleanup-gate";
+import { UserCreationIdempotencyObserver } from "../../../../src/modules/users/infrastructure/user-creation-idempotency-observer";
 import { DrizzleUserRepository } from "../../../../src/modules/users/infrastructure/drizzle-user.repository";
 import { createTestDatabase } from "../../../helpers/database";
 
@@ -37,8 +38,13 @@ class RecordingTracer implements Tracer {
 }
 
 class RecordingMeter implements Meter {
+  readonly counters: Array<{ name: string; value: number; attributes?: TelemetryAttributes }> = [];
   readonly records: Array<{ name: string; value: number; attributes?: TelemetryAttributes }> = [];
-  increment(): void {}
+
+  increment(name: string, value = 1, attributes?: TelemetryAttributes): void {
+    this.counters.push({ name, value, ...(attributes ? { attributes } : {}) });
+  }
+
   record(name: string, value: number, attributes?: TelemetryAttributes): void {
     this.records.push({ name, value, ...(attributes ? { attributes } : {}) });
   }
@@ -65,6 +71,7 @@ test("expired-row cleanup is observed as low-cardinality DELETE metadata", async
   const tracer = new RecordingTracer();
   const meter = new RecordingMeter();
   const observer = new DatabaseObserver({ tracer, meter });
+  const maintenanceObserver = new UserCreationIdempotencyObserver(meter);
   const gate = new UserCreationIdempotencyCleanupGate(60_000, () => 1_000);
   const tenantId = `tenant-observed-cleanup-${crypto.randomUUID()}`;
   const expiredKey = "6".repeat(64);
@@ -82,6 +89,7 @@ test("expired-row cleanup is observed as low-cardinality DELETE metadata", async
     database.db,
     observer,
     gate,
+    maintenanceObserver,
   );
   await repository.claim({
     tenantId,
@@ -91,11 +99,33 @@ test("expired-row cleanup is observed as low-cardinality DELETE metadata", async
   });
 
   expect(tracer.spans.some(({ name }) => name === "DELETE user_creation_idempotency")).toBe(true);
+  expect(meter.counters).toContainEqual({
+    name: "idempotency.cleanup.rows",
+    value: 1,
+    attributes: {
+      "idempotency.backend": "postgresql",
+      "idempotency.operation": "users.create",
+    },
+  });
+  expect(meter.counters).toContainEqual({
+    name: "idempotency.cleanup.runs",
+    value: 1,
+    attributes: {
+      "idempotency.backend": "postgresql",
+      "idempotency.operation": "users.create",
+      "idempotency.cleanup.result": "success",
+    },
+  });
+
   for (const { options } of tracer.spans) {
     const serialized = JSON.stringify(options.attributes);
     for (const prohibited of [tenantId, expiredKey, newKey, requestFingerprint]) {
       expect(serialized).not.toContain(prohibited);
     }
+  }
+  const maintenanceTelemetry = JSON.stringify(meter.counters);
+  for (const prohibited of [tenantId, expiredKey, newKey, requestFingerprint]) {
+    expect(maintenanceTelemetry).not.toContain(prohibited);
   }
 });
 
