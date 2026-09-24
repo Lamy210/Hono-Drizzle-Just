@@ -27,11 +27,12 @@ test("package scripts expose fast, quality, and full CI verification layers", as
 
 test("just exposes the same three verification layers", async () => {
   const justfile = await readText("justfile");
+  const dollarSign = "$";
 
   expect(justfile).toContain("check-fast:\n  bun run check:fast\n");
   expect(justfile).toContain("check:\n  bun run check\n");
   expect(justfile).toContain(
-    "ci:\n  DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/app} bun run ci\n",
+    `ci:\n  DATABASE_URL=${dollarSign}{DATABASE_URL:-postgres://postgres:postgres@localhost:5432/app} bun run ci\n`,
   );
 });
 
