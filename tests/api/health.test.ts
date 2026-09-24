@@ -44,6 +44,9 @@ function buildApp(healthCheck: HealthCheck) {
       new Sha256StringDigester(),
     ),
     getUserService: new GetUserService(repository),
+    listUsersCursorService: new ListUsersCursorService({
+      listAfter: mock(async () => ({ users: [], hasMore: false })),
+    }),
     listUsersService: new ListUsersService({
       listPage: mock(async () => ({ users: [], total: 0 })),
     }),
