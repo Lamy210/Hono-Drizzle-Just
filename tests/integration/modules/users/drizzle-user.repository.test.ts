@@ -176,10 +176,16 @@ test("cursor listing uses keyset order, UUID tie-breaks, and tenant isolation", 
     "550e8400-e29b-41d4-a716-446655440002",
   ]);
 
+  const cursorBoundary = first.users[1];
+  expect(cursorBoundary).toBeDefined();
+  if (cursorBoundary === undefined) {
+    throw new Error("Expected a second user for the cursor boundary");
+  }
+
   const second = await repository.listAfter("tenant-a", {
     after: {
-      createdAt: first.users[1]!.createdAt,
-      id: first.users[1]!.id,
+      createdAt: cursorBoundary.createdAt,
+      id: cursorBoundary.id,
     },
     limit: 2,
   });
