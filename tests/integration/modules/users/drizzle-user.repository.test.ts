@@ -69,6 +69,22 @@ test("pagination index matches tenant filtering and descending list order", asyn
     const plan = JSON.stringify(explained.rows[0]);
     expect(plan).toContain("users_tenant_created_id_idx");
     expect(plan).not.toContain('"Node Type":"Sort"');
+
+    const cursorExplained = await client.query(
+      `explain (format json)
+       select id, tenant_id, email, name, created_at
+         from users
+        where tenant_id = 'tenant-plan'
+          and (created_at, id) < (
+            timestamptz '2026-09-24T00:00:00.000Z',
+            'ffffffff-ffff-4fff-bfff-ffffffffffff'::uuid
+          )
+        order by created_at desc, id desc
+        limit 21`,
+    );
+    const cursorPlan = JSON.stringify(cursorExplained.rows[0]);
+    expect(cursorPlan).toContain("users_tenant_created_id_idx");
+    expect(cursorPlan).not.toContain('"Node Type":"Sort"');
   } finally {
     await client.query("rollback");
     client.release();
