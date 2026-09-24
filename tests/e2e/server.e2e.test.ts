@@ -187,10 +187,12 @@ test(
       async ({ baseUrl, authorization }) => {
         const live = await boundedFetch(`${baseUrl}/health/live`);
         expect(live.status).toBe(200);
+        expect(live.headers.get("cache-control")).toBe("no-store");
         expect(await live.json()).toEqual({ status: "ok" });
 
         const ready = await boundedFetch(`${baseUrl}/health/ready`);
         expect(ready.status).toBe(200);
+        expect(ready.headers.get("cache-control")).toBe("no-store");
         expect((await ready.json() as { status: string }).status).toBe("ready");
 
         const anonymous = await boundedFetch(`${baseUrl}/users/${crypto.randomUUID()}`);

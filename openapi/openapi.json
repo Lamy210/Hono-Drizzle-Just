@@ -252,7 +252,16 @@
                 }
               }
             },
-            "description": "Process liveness"
+            "description": "Process liveness",
+            "headers": {
+              "Cache-Control": {
+                "description": "Health responses must not be stored or reused by caches",
+                "schema": {
+                  "example": "no-store",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -271,7 +280,16 @@
                 }
               }
             },
-            "description": "Service is ready for traffic"
+            "description": "Service is ready for traffic",
+            "headers": {
+              "Cache-Control": {
+                "description": "Health responses must not be stored or reused by caches",
+                "schema": {
+                  "example": "no-store",
+                  "type": "string"
+                }
+              }
+            }
           },
           "503": {
             "content": {
@@ -281,7 +299,16 @@
                 }
               }
             },
-            "description": "A critical dependency is unavailable"
+            "description": "A critical dependency is unavailable",
+            "headers": {
+              "Cache-Control": {
+                "description": "Health responses must not be stored or reused by caches",
+                "schema": {
+                  "example": "no-store",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "tags": [
