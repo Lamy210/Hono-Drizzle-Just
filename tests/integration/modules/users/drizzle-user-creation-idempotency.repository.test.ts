@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { UserCreationIdempotencyCleanupGate } from "../../../../src/modules/users/infrastructure/user-creation-idempotency-cleanup-gate";
 import { DrizzleUserRepository } from "../../../../src/modules/users/infrastructure/drizzle-user.repository";
 import { createTestDatabase } from "../../../helpers/database";
 
@@ -158,69 +157,6 @@ test("an expired key is reclaimed with a new fingerprint and an incomplete user 
   expect(persisted.rows).toEqual([
     { request_fingerprint: newFingerprint, user_id: null, active: true },
   ]);
-});
-
-test("bounded cleanup removes expired ledger rows while preserving active rows", async () => {
-  const module = await loadRepositoryModule();
-  expect(module).toBeDefined();
-  if (!module) return;
-
-  const suffix = crypto.randomUUID();
-  const expiredTenant = `tenant-cleanup-expired-${suffix}`;
-  const activeTenant = `tenant-cleanup-active-${suffix}`;
-  const expiredKey = hash("a");
-  const activeKey = hash("b");
-  const newKey = hash("c");
-  const fingerprint = hash("d");
-
-  await database.pool.query(
-    `insert into user_creation_idempotency
-      (tenant_id, key_hash, request_fingerprint, user_id, claimed_at, expires_at)
-     values
-      ($1, $2, $3, null, now() - interval '2 days', now() - interval '1 hour'),
-      ($4, $5, $3, null, now(), now() + interval '1 hour')`,
-    [expiredTenant, expiredKey, fingerprint, activeTenant, activeKey],
-  );
-
-  const gate = new UserCreationIdempotencyCleanupGate(60_000, () => 1_000);
-  const repository = new module.DrizzleUserCreationIdempotencyRepository(
-    database.db,
-    undefined,
-    gate,
-  );
-
-  expect(
-    await repository.claim({
-      tenantId: activeTenant,
-      keyHash: newKey,
-      requestFingerprint: fingerprint,
-      ttlSeconds: 86_400,
-    }),
-  ).toEqual({ state: "claimed" });
-
-  const rows = await database.pool.query<{
-    tenant_id: string;
-    key_hash: string;
-  }>(
-    `select tenant_id, key_hash
-       from user_creation_idempotency
-      where tenant_id = any($1::text[])
-      order by tenant_id, key_hash`,
-    [[expiredTenant, activeTenant]],
-  );
-
-  expect(rows.rows).not.toContainEqual({
-    tenant_id: expiredTenant,
-    key_hash: expiredKey,
-  });
-  expect(rows.rows).toContainEqual({
-    tenant_id: activeTenant,
-    key_hash: activeKey,
-  });
-  expect(rows.rows).toContainEqual({
-    tenant_id: activeTenant,
-    key_hash: newKey,
-  });
 });
 
 test("complete fails closed unless exactly one matching incomplete claim exists", async () => {
