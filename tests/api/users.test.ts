@@ -54,13 +54,16 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
   const listAfter = mock(
     async (
       tenantId: string,
-      _input: {
+      input: {
         readonly after?: { readonly createdAt: Date; readonly id: string };
         readonly limit: number;
       },
     ) => ({
-      users: tenantId === user.tenantId ? [user] : [],
-      hasMore: false,
+      users:
+        tenantId === user.tenantId && input.after === undefined
+          ? [user]
+          : [],
+      hasMore: tenantId === user.tenantId && input.after === undefined,
     }),
   );
   const update = mock(
@@ -470,6 +473,67 @@ test("HEAD user listing keeps the private no-store policy without a body", async
   expect(response.headers.get("cache-control")).toBe("private, no-store");
   expect(await response.text()).toBe("");
   expect(listPage).toHaveBeenCalledWith("tenant-a", { offset: 0, limit: 20 });
+});
+
+test("cursor user listing returns an opaque next cursor and resumes after it", async () => {
+  const { app, listAfter } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const first = await app.request("/users/cursor?limit=1");
+  expect(first.status).toBe(200);
+  expect(first.headers.get("cache-control")).toBe("private, no-store");
+  const firstBody = await first.json();
+  expect(firstBody.data).toHaveLength(1);
+  expect(firstBody.meta.limit).toBe(1);
+  expect(typeof firstBody.meta.nextCursor).toBe("string");
+  expect(listAfter).toHaveBeenCalledWith("tenant-a", { limit: 1 });
+
+  const second = await app.request(
+    `/users/cursor?limit=1&cursor=${encodeURIComponent(firstBody.meta.nextCursor)}`,
+  );
+  expect(second.status).toBe(200);
+  expect(await second.json()).toEqual({
+    data: [],
+    meta: { limit: 1, nextCursor: null },
+  });
+  expect(listAfter).toHaveBeenLastCalledWith("tenant-a", {
+    after: {
+      createdAt: new Date("2026-09-13T00:00:00.000Z"),
+      id: "550e8400-e29b-41d4-a716-446655440000",
+    },
+    limit: 1,
+  });
+});
+
+test("invalid cursor fails validation before cursor repository access", async () => {
+  const { app, listAfter } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request("/users/cursor?cursor=not-json");
+
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({
+    error: { code: "VALIDATION_ERROR", message: "Invalid cursor" },
+  });
+  expect(listAfter).not.toHaveBeenCalled();
+});
+
+test("HEAD cursor user listing keeps the private no-store policy without a body", async () => {
+  const { app, listAfter } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request("/users/cursor?limit=1", { method: "HEAD" });
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(await response.text()).toBe("");
+  expect(listAfter).toHaveBeenCalledWith("tenant-a", { limit: 1 });
+});
+
+test("cursor listing enforces bounded limits before repository work", async () => {
+  const { app, listAfter } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request("/users/cursor?limit=101");
+
+  expect(response.status).toBe(400);
+  expect(listAfter).not.toHaveBeenCalled();
 });
 
 test("user listing coerces bounded query pagination and derives the repository offset", async () => {
