@@ -16,6 +16,7 @@ import { createTelemetry } from "../../infrastructure/observability/telemetry";
 import { CreateUserService } from "../../modules/users/application/create-user.service";
 import { DeleteUserService } from "../../modules/users/application/delete-user.service";
 import { GetUserService } from "../../modules/users/application/get-user.service";
+import { ListUsersCursorService } from "../../modules/users/application/list-users-cursor.service";
 import { ListUsersService } from "../../modules/users/application/list-users.service";
 import { UpdateUserService } from "../../modules/users/application/update-user.service";
 import { UserCreationIdempotencyObserver } from "../../modules/users/infrastructure/user-creation-idempotency-observer";
@@ -144,6 +145,7 @@ export function createProductionContainer(config: AppConfig): {
         userCreationIdempotencyMaintenance,
       ),
       getUserService: new GetUserService(userRepository),
+      listUsersCursorService: new ListUsersCursorService(userRepository),
       listUsersService: new ListUsersService(userRepository),
       updateUserService: new UpdateUserService(userRepository, logger),
       ...(principalResolver === undefined ? {} : { principalResolver }),
