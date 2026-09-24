@@ -20,6 +20,7 @@ import { requestLoggerMiddleware } from "../http/middleware/request-logger.middl
 import type { CreateUserService } from "../modules/users/application/create-user.service";
 import type { DeleteUserService } from "../modules/users/application/delete-user.service";
 import type { GetUserService } from "../modules/users/application/get-user.service";
+import type { ListUsersCursorService } from "../modules/users/application/list-users-cursor.service";
 import type { ListUsersService } from "../modules/users/application/list-users.service";
 import type { UpdateUserService } from "../modules/users/application/update-user.service";
 import { registerUserRoutes } from "../modules/users/presentation/user.routes";
@@ -32,6 +33,7 @@ export interface AppDependencies {
   readonly createUserService: CreateUserService;
   readonly deleteUserService: DeleteUserService;
   readonly getUserService: GetUserService;
+  readonly listUsersCursorService: ListUsersCursorService;
   readonly listUsersService: ListUsersService;
   readonly updateUserService: UpdateUserService;
   readonly principalResolver?: PrincipalResolver;

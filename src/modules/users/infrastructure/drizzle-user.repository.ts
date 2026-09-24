@@ -1,8 +1,9 @@
-import { and, eq, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import { AppError } from "../../../core/errors/app-error";
 import { users } from "../../../db/schema";
 import type { DatabaseSession } from "../../../infrastructure/database/database";
 import type { DatabaseObserver } from "../../../infrastructure/database/database-observer";
+import type { UserCursorListRepository } from "../application/user-cursor-list.repository";
 import type { UserDeleteRepository, UserDeleteResult } from "../application/user-delete.repository";
 import type { UserListRepository } from "../application/user-list.repository";
 import type {
@@ -120,7 +121,7 @@ function updatedUserFromRow(row: AtomicUserUpdateRow): User {
   return userFromDatabaseRow(row, "Atomic user update returned an incomplete row");
 }
 
-export class DrizzleUserRepository implements UserRepository, UserListRepository, UserUpdateRepository, UserDeleteRepository {
+export class DrizzleUserRepository implements UserRepository, UserListRepository, UserCursorListRepository, UserUpdateRepository, UserDeleteRepository {
   constructor(
     private readonly db: DatabaseSession,
     private readonly observer?: DatabaseObserver,
@@ -208,6 +209,43 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
         .map((row) => userFromDatabaseRow(row, "Atomic user list returned an incomplete row"));
 
       return { users: page, total };
+    };
+
+    return this.observer
+      ? this.observer.operation({ operation: "SELECT", collection: "users" }, execute)
+      : execute();
+  }
+
+  async listAfter(
+    tenantId: string,
+    input: {
+      readonly after?: { readonly createdAt: Date; readonly id: string };
+      readonly limit: number;
+    },
+  ): Promise<{ readonly users: readonly User[]; readonly hasMore: boolean }> {
+    const execute = async (): Promise<{
+      readonly users: readonly User[];
+      readonly hasMore: boolean;
+    }> => {
+      const cursorPredicate =
+        input.after === undefined
+          ? eq(users.tenantId, tenantId)
+          : and(
+              eq(users.tenantId, tenantId),
+              sql`(${users.createdAt}, ${users.id}) < (${input.after.createdAt}, ${input.after.id})`,
+            );
+
+      const rows = await this.db
+        .select()
+        .from(users)
+        .where(cursorPredicate)
+        .orderBy(desc(users.createdAt), desc(users.id))
+        .limit(input.limit + 1);
+
+      return {
+        users: rows.slice(0, input.limit),
+        hasMore: rows.length > input.limit,
+      };
     };
 
     return this.observer

@@ -275,6 +275,20 @@ test(
         expect(listed.data.some((user) => user.id === created.id)).toBe(true);
         expect(listed.meta).toMatchObject({ page: 1, perPage: 20, total: 1, totalPages: 1 });
 
+        const cursorListResponse = await boundedFetch(
+          `${baseUrl}/users/cursor?limit=1`,
+          { headers: { authorization } },
+        );
+        expect(cursorListResponse.status).toBe(200);
+        expect(cursorListResponse.headers.get("cache-control")).toBe("private, no-store");
+        const cursorListed = (await cursorListResponse.json()) as {
+          data: UserResponse[];
+          meta: { limit: number; nextCursor: string | null };
+        };
+        expect(cursorListed.data).toHaveLength(1);
+        expect(cursorListed.meta.limit).toBe(1);
+        expect(cursorListed.data[0]?.id).toBe(created.id);
+
         const updateResponse = await boundedFetch(`${baseUrl}/users/${created.id}`, {
           method: "PATCH",
           headers: {

@@ -33,3 +33,35 @@ export const PaginationMetaSchema = z
     totalPages: z.number().int().min(0),
   })
   .openapi("PaginationMeta");
+
+
+export const CursorPaginationQuerySchema = z.object({
+  cursor: z
+    .string()
+    .min(1)
+    .max(512)
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .optional()
+    .openapi({
+      param: { name: "cursor", in: "query" },
+      description: "Opaque cursor returned by the previous cursor-paginated response",
+    }),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(20)
+    .openapi({
+      param: { name: "limit", in: "query" },
+      example: 20,
+      description: "Maximum users returned by this cursor page",
+    }),
+});
+
+export const CursorPaginationMetaSchema = z
+  .object({
+    limit: z.number().int().min(1).max(100),
+    nextCursor: z.string().max(512).nullable(),
+  })
+  .openapi("CursorPaginationMeta");

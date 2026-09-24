@@ -15,6 +15,9 @@ test("GET and HEAD user reads share the same bounded read quota", () => {
         path: "/users/550e8400-e29b-41d4-a716-446655440000",
       }),
     ).toBe(HTTP_RATE_LIMIT_SCOPES.usersRead);
+    expect(resolveHttpRateLimitScope({ method, path: "/users/cursor" })).toBe(
+      HTTP_RATE_LIMIT_SCOPES.usersRead,
+    );
   }
 });
 

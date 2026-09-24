@@ -8,6 +8,7 @@ import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console
 import { CreateUserService } from "../../src/modules/users/application/create-user.service";
 import { DeleteUserService } from "../../src/modules/users/application/delete-user.service";
 import { GetUserService } from "../../src/modules/users/application/get-user.service";
+import { ListUsersCursorService } from "../../src/modules/users/application/list-users-cursor.service";
 import { ListUsersService } from "../../src/modules/users/application/list-users.service";
 import { UpdateUserService } from "../../src/modules/users/application/update-user.service";
 import type { UserCreationIdempotencyRepository } from "../../src/modules/users/application/user-creation-idempotency.repository";
@@ -48,6 +49,21 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
     async (tenantId: string, input: { readonly offset: number; readonly limit: number }) => ({
       users: tenantId === user.tenantId && input.offset === 0 ? [user] : [],
       total: tenantId === user.tenantId ? 1 : 0,
+    }),
+  );
+  const listAfter = mock(
+    async (
+      tenantId: string,
+      input: {
+        readonly after?: { readonly createdAt: Date; readonly id: string };
+        readonly limit: number;
+      },
+    ) => ({
+      users:
+        tenantId === user.tenantId && input.after === undefined
+          ? [user]
+          : [],
+      hasMore: tenantId === user.tenantId && input.after === undefined,
     }),
   );
   const update = mock(
@@ -112,6 +128,7 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
         ),
         deleteUserService: new DeleteUserService({ deleteById }, logger),
         getUserService: new GetUserService(repository),
+        listUsersCursorService: new ListUsersCursorService({ listAfter }),
         listUsersService: new ListUsersService({ listPage }),
         updateUserService: new UpdateUserService({ update }, logger),
         ...(resolver === undefined ? {} : { principalResolver: resolver }),
@@ -121,6 +138,7 @@ function buildApp(resolver?: PrincipalResolver, maxRequestBodyBytes?: number) {
     repository,
     findById,
     findByEmail,
+    listAfter,
     listPage,
     update,
     deleteById,
@@ -161,6 +179,35 @@ function createIdempotencyHarness() {
       return {
         users: tenantUsers.slice(input.offset, input.offset + input.limit),
         total: tenantUsers.length,
+      };
+    },
+  );
+  const listAfter = mock(
+    async (
+      tenantId: string,
+      input: {
+        readonly after?: { readonly createdAt: Date; readonly id: string };
+        readonly limit: number;
+      },
+    ) => {
+      const ordered = [...usersById.values()]
+        .filter((user) => user.tenantId === tenantId)
+        .sort((left, right) => {
+          const byCreatedAt = right.createdAt.getTime() - left.createdAt.getTime();
+          return byCreatedAt !== 0 ? byCreatedAt : right.id.localeCompare(left.id);
+        })
+        .filter((user) => {
+          if (!input.after) return true;
+          const createdAt = user.createdAt.getTime();
+          const afterCreatedAt = input.after.createdAt.getTime();
+          return (
+            createdAt < afterCreatedAt ||
+            (createdAt === afterCreatedAt && user.id < input.after.id)
+          );
+        });
+      return {
+        users: ordered.slice(0, input.limit),
+        hasMore: ordered.length > input.limit,
       };
     },
   );
@@ -208,6 +255,7 @@ function createIdempotencyHarness() {
         logger,
       ),
       getUserService: new GetUserService(repository),
+      listUsersCursorService: new ListUsersCursorService({ listAfter }),
       listUsersService: new ListUsersService({ listPage }),
       updateUserService: new UpdateUserService(
         { update: mock(async () => ({ state: "not_found" as const })) },
@@ -425,6 +473,67 @@ test("HEAD user listing keeps the private no-store policy without a body", async
   expect(response.headers.get("cache-control")).toBe("private, no-store");
   expect(await response.text()).toBe("");
   expect(listPage).toHaveBeenCalledWith("tenant-a", { offset: 0, limit: 20 });
+});
+
+test("cursor user listing returns an opaque next cursor and resumes after it", async () => {
+  const { app, listAfter } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const first = await app.request("/users/cursor?limit=1");
+  expect(first.status).toBe(200);
+  expect(first.headers.get("cache-control")).toBe("private, no-store");
+  const firstBody = await first.json();
+  expect(firstBody.data).toHaveLength(1);
+  expect(firstBody.meta.limit).toBe(1);
+  expect(typeof firstBody.meta.nextCursor).toBe("string");
+  expect(listAfter).toHaveBeenCalledWith("tenant-a", { limit: 1 });
+
+  const second = await app.request(
+    `/users/cursor?limit=1&cursor=${encodeURIComponent(firstBody.meta.nextCursor)}`,
+  );
+  expect(second.status).toBe(200);
+  expect(await second.json()).toEqual({
+    data: [],
+    meta: { limit: 1, nextCursor: null },
+  });
+  expect(listAfter).toHaveBeenLastCalledWith("tenant-a", {
+    after: {
+      createdAt: new Date("2026-09-13T00:00:00.000Z"),
+      id: "550e8400-e29b-41d4-a716-446655440000",
+    },
+    limit: 1,
+  });
+});
+
+test("invalid cursor fails validation before cursor repository access", async () => {
+  const { app, listAfter } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request("/users/cursor?cursor=not-json");
+
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({
+    error: { code: "VALIDATION_ERROR", message: "Invalid cursor" },
+  });
+  expect(listAfter).not.toHaveBeenCalled();
+});
+
+test("HEAD cursor user listing keeps the private no-store policy without a body", async () => {
+  const { app, listAfter } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request("/users/cursor?limit=1", { method: "HEAD" });
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(await response.text()).toBe("");
+  expect(listAfter).toHaveBeenCalledWith("tenant-a", { limit: 1 });
+});
+
+test("cursor listing enforces bounded limits before repository work", async () => {
+  const { app, listAfter } = buildApp(principalResolver("tenant-a", ["users:read"]));
+
+  const response = await app.request("/users/cursor?limit=101");
+
+  expect(response.status).toBe(400);
+  expect(listAfter).not.toHaveBeenCalled();
 });
 
 test("user listing coerces bounded query pagination and derives the repository offset", async () => {
