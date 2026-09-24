@@ -120,6 +120,64 @@ test("paginated listing is tenant-scoped, deterministic, and preserves the tenan
   expect(emptyTenant).toEqual({ users: [], total: 0 });
 });
 
+test("cursor listing uses keyset order, UUID tie-breaks, and tenant isolation", async () => {
+  const createdAt = new Date("2026-09-22T00:00:00.000Z");
+  await database.db.insert(users).values([
+    {
+      id: "550e8400-e29b-41d4-a716-446655440001",
+      tenantId: "tenant-a",
+      email: "cursor-a@example.com",
+      name: "Cursor A",
+      createdAt,
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440002",
+      tenantId: "tenant-a",
+      email: "cursor-b@example.com",
+      name: "Cursor B",
+      createdAt,
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440003",
+      tenantId: "tenant-a",
+      email: "cursor-c@example.com",
+      name: "Cursor C",
+      createdAt,
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440004",
+      tenantId: "tenant-b",
+      email: "cursor-other@example.com",
+      name: "Other tenant",
+      createdAt: new Date("2026-09-23T00:00:00.000Z"),
+    },
+  ]);
+
+  const first = await repository.listAfter("tenant-a", { limit: 2 });
+  expect(first.hasMore).toBe(true);
+  expect(first.users.map((user) => user.id)).toEqual([
+    "550e8400-e29b-41d4-a716-446655440003",
+    "550e8400-e29b-41d4-a716-446655440002",
+  ]);
+
+  const second = await repository.listAfter("tenant-a", {
+    after: {
+      createdAt: first.users[1]!.createdAt,
+      id: first.users[1]!.id,
+    },
+    limit: 2,
+  });
+  expect(second.hasMore).toBe(false);
+  expect(second.users.map((user) => user.id)).toEqual([
+    "550e8400-e29b-41d4-a716-446655440001",
+  ]);
+
+  const otherTenant = await repository.listAfter("tenant-b", { limit: 20 });
+  expect(otherTenant.users.map((user) => user.id)).toEqual([
+    "550e8400-e29b-41d4-a716-446655440004",
+  ]);
+});
+
 test("delete is tenant-scoped, version-guarded, and preserves stale rows", async () => {
   const created = await repository.create({
     tenantId: "tenant-a",
