@@ -14,12 +14,38 @@ export interface RateLimitObserverOptions {
 }
 
 type RateLimitResult = "allowed" | "denied" | "error";
+type RateLimitCleanupResult = "success" | "error";
 
 export class RateLimitObserver {
   private readonly now: RateLimitNow;
 
   constructor(private readonly options: RateLimitObserverOptions) {
     this.now = options.now ?? performance.now.bind(performance);
+  }
+
+  async cleanup(
+    descriptor: RateLimitObservationDescriptor,
+    execute: () => Promise<number>,
+  ): Promise<number> {
+    let result: RateLimitCleanupResult = "error";
+
+    try {
+      const deletedRows = await execute();
+      result = "success";
+      if (deletedRows > 0) {
+        this.options.meter.increment("rate_limit.cleanup.rows", deletedRows, {
+          "rate_limit.backend": descriptor.backend,
+          "rate_limit.algorithm": descriptor.algorithm,
+        });
+      }
+      return deletedRows;
+    } finally {
+      this.options.meter.increment("rate_limit.cleanup.runs", 1, {
+        "rate_limit.backend": descriptor.backend,
+        "rate_limit.algorithm": descriptor.algorithm,
+        "rate_limit.cleanup.result": result,
+      });
+    }
   }
 
   async decision(

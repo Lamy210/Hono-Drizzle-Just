@@ -257,29 +257,60 @@ export class PostgresGcraRateLimiter implements RateLimiter {
     }
 
     this.nextCleanupAt = now + this.cleanupIntervalMs;
-    await this.observe("DELETE", () =>
-      this.db.execute(sql`
-        with expired as (
-          select
-            ${rateLimitGcraBuckets.scope},
-            ${rateLimitGcraBuckets.identityHash}
-          from ${rateLimitGcraBuckets}
-          where ${rateLimitGcraBuckets.expiresAt} <= now()
-          order by
-            ${rateLimitGcraBuckets.expiresAt},
-            ${rateLimitGcraBuckets.scope},
-            ${rateLimitGcraBuckets.identityHash}
-          limit ${CLEANUP_BATCH_SIZE}
-          for update skip locked
-        )
-        delete from ${rateLimitGcraBuckets}
-        using expired
-        where
-          ${rateLimitGcraBuckets.scope} = expired.scope
-          and ${rateLimitGcraBuckets.identityHash} = expired.identity_hash
-          and ${rateLimitGcraBuckets.expiresAt} <= now()
-      `),
-    );
+
+    const cleanup = async (): Promise<number> => {
+      const result = await this.observe("DELETE", () =>
+        this.db.execute<{ deleted_count: string }>(sql`
+          with expired as (
+            select
+              ${rateLimitGcraBuckets.scope},
+              ${rateLimitGcraBuckets.identityHash}
+            from ${rateLimitGcraBuckets}
+            where ${rateLimitGcraBuckets.expiresAt} <= now()
+            order by
+              ${rateLimitGcraBuckets.expiresAt},
+              ${rateLimitGcraBuckets.scope},
+              ${rateLimitGcraBuckets.identityHash}
+            limit ${CLEANUP_BATCH_SIZE}
+            for update skip locked
+          ),
+          deleted as (
+            delete from ${rateLimitGcraBuckets}
+            using expired
+            where
+              ${rateLimitGcraBuckets.scope} = expired.scope
+              and ${rateLimitGcraBuckets.identityHash} = expired.identity_hash
+              and ${rateLimitGcraBuckets.expiresAt} <= now()
+            returning 1
+          )
+          select count(*)::text as deleted_count
+          from deleted
+        `),
+      );
+
+      const deletedCount = result.rows[0]?.deleted_count;
+      if (deletedCount === undefined || !/^[0-9]+$/.test(deletedCount)) {
+        throw new Error("Rate-limit cleanup returned an invalid deleted row count");
+      }
+      const parsed = Number(deletedCount);
+      if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > CLEANUP_BATCH_SIZE) {
+        throw new Error("Rate-limit cleanup returned an invalid deleted row count");
+      }
+      return parsed;
+    };
+
+    try {
+      if (this.rateLimitObserver) {
+        await this.rateLimitObserver.cleanup(
+          { backend: "postgresql", algorithm: "gcra" },
+          cleanup,
+        );
+      } else {
+        await cleanup();
+      }
+    } catch {
+      // Expired-bucket cleanup is retention maintenance. Quota enforcement remains authoritative.
+    }
   }
 
   private observe<T>(

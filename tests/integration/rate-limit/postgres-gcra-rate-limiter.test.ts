@@ -1,12 +1,30 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
+import type { Meter } from "../../../src/core/observability/meter";
+import type { TelemetryAttributes } from "../../../src/core/observability/tracer";
 import { rateLimitGcraBuckets } from "../../../src/db/schema";
 import { Sha256StringDigester } from "../../../src/infrastructure/crypto/sha256-string-digester";
+import type { DatabaseObserver } from "../../../src/infrastructure/database/database-observer";
 import { PostgresGcraRateLimiter } from "../../../src/infrastructure/rate-limit/postgres-gcra-rate-limiter";
+import { RateLimitObserver } from "../../../src/infrastructure/rate-limit/rate-limit-observer";
 import { createTestDatabase } from "../../helpers/database";
 
 const database = createTestDatabase();
 const digester = new Sha256StringDigester();
+
+class RecordingMeter implements Meter {
+  readonly counters: Array<{
+    name: string;
+    value: number;
+    attributes?: TelemetryAttributes;
+  }> = [];
+
+  increment(name: string, value = 1, attributes?: TelemetryAttributes): void {
+    this.counters.push({ name, value, ...(attributes ? { attributes } : {}) });
+  }
+
+  record(): void {}
+}
 
 beforeAll(async () => {
   await database.pool.query("select 1");
@@ -144,6 +162,59 @@ test("bounded cleanup removes expired GCRA state before consuming", async () => 
   const rows = await database.db.select().from(rateLimitGcraBuckets);
   expect(rows.filter((row) => row.expiresAt.getTime() === 0)).toHaveLength(5);
   expect(rows).toHaveLength(6);
+});
+
+test("cleanup failures are best-effort and do not block quota decisions", async () => {
+  const meter = new RecordingMeter();
+  const rateLimitObserver = new RateLimitObserver({ meter });
+  const cleanupFailure = new Error("cleanup lock timeout with identity-secret");
+  const observer = {
+    operation: async <T>(
+      descriptor: { readonly operation: string },
+      execute: () => Promise<T>,
+    ): Promise<T> => {
+      if (descriptor.operation === "DELETE") {
+        throw cleanupFailure;
+      }
+      return execute();
+    },
+  } as DatabaseObserver;
+
+  const limiter = new PostgresGcraRateLimiter(
+    database.db,
+    digester,
+    { limit: 2, windowSeconds: 60 },
+    observer,
+    rateLimitObserver,
+  );
+
+  const decision = await limiter.consume({
+    scope: "http.global",
+    identity: "203.0.113.199",
+  });
+
+  expect(decision.allowed).toBe(true);
+  expect(meter.counters).toContainEqual({
+    name: "rate_limit.cleanup.runs",
+    value: 1,
+    attributes: {
+      "rate_limit.backend": "postgresql",
+      "rate_limit.algorithm": "gcra",
+      "rate_limit.cleanup.result": "error",
+    },
+  });
+  expect(meter.counters).toContainEqual({
+    name: "rate_limit.decisions",
+    value: 1,
+    attributes: {
+      "rate_limit.backend": "postgresql",
+      "rate_limit.algorithm": "gcra",
+      "rate_limit.result": "allowed",
+    },
+  });
+  const serialized = JSON.stringify(meter.counters);
+  expect(serialized).not.toContain("identity-secret");
+  expect(serialized).not.toContain("203.0.113.199");
 });
 
 test("rejects invalid GCRA policy and request input", async () => {

@@ -1,12 +1,29 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
+import type { Meter } from "../../../src/core/observability/meter";
+import type { TelemetryAttributes } from "../../../src/core/observability/tracer";
 import { rateLimitBuckets } from "../../../src/db/schema";
 import { Sha256StringDigester } from "../../../src/infrastructure/crypto/sha256-string-digester";
 import { PostgresFixedWindowRateLimiter } from "../../../src/infrastructure/rate-limit/postgres-fixed-window-rate-limiter";
+import { RateLimitObserver } from "../../../src/infrastructure/rate-limit/rate-limit-observer";
 import { createTestDatabase } from "../../helpers/database";
 
 const database = createTestDatabase();
 const digester = new Sha256StringDigester();
+
+class RecordingMeter implements Meter {
+  readonly counters: Array<{
+    name: string;
+    value: number;
+    attributes?: TelemetryAttributes;
+  }> = [];
+
+  increment(name: string, value = 1, attributes?: TelemetryAttributes): void {
+    this.counters.push({ name, value, ...(attributes ? { attributes } : {}) });
+  }
+
+  record(): void {}
+}
 
 beforeAll(async () => {
   await database.pool.query("select 1");
@@ -203,11 +220,37 @@ test("periodic hot-path cleanup deletes at most one bounded expired batch", asyn
   }));
   await database.db.insert(rateLimitBuckets).values(expiredRows);
 
-  const limiter = new PostgresFixedWindowRateLimiter(database.db, digester, {
-    limit: 10,
-    windowSeconds: 60,
-  });
+  const meter = new RecordingMeter();
+  const rateLimitObserver = new RateLimitObserver({ meter });
+  const limiter = new PostgresFixedWindowRateLimiter(
+    database.db,
+    digester,
+    {
+      limit: 10,
+      windowSeconds: 60,
+    },
+    undefined,
+    rateLimitObserver,
+  );
   await limiter.consume({ scope: "http.global", identity: "203.0.113.44" });
+
+  expect(meter.counters).toContainEqual({
+    name: "rate_limit.cleanup.rows",
+    value: 1_000,
+    attributes: {
+      "rate_limit.backend": "postgresql",
+      "rate_limit.algorithm": "fixed_window",
+    },
+  });
+  expect(meter.counters).toContainEqual({
+    name: "rate_limit.cleanup.runs",
+    value: 1,
+    attributes: {
+      "rate_limit.backend": "postgresql",
+      "rate_limit.algorithm": "fixed_window",
+      "rate_limit.cleanup.result": "success",
+    },
+  });
 
   const rows = await database.db.select().from(rateLimitBuckets);
   const expired = rows.filter((row) => row.expiresAt.getTime() === 0);
