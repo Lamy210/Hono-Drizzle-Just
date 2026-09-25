@@ -208,6 +208,7 @@ test(
           }),
         });
         expect(createdResponse.status).toBe(201);
+        expect(createdResponse.headers.get("cache-control")).toBe("private, no-store");
         const createdLocation = createdResponse.headers.get("location");
         const createdEtag = createdResponse.headers.get("etag");
         expect(createdEtag).toBe('"v1"');
@@ -302,6 +303,7 @@ test(
           }),
         });
         expect(updateResponse.status).toBe(200);
+        expect(updateResponse.headers.get("cache-control")).toBe("private, no-store");
         const updatedEtag = updateResponse.headers.get("etag");
         expect(updatedEtag).toBe('"v2"');
         const updated = (await updateResponse.json()) as UserResponse;
@@ -471,6 +473,7 @@ test(
           },
         );
         expect(deleteIdempotentResponse.status).toBe(204);
+        expect(deleteIdempotentResponse.headers.get("cache-control")).toBe("private, no-store");
         expect(await deleteIdempotentResponse.text()).toBe("");
 
         const recreateResponse = await boundedFetch(`${baseUrl}/users`, {
