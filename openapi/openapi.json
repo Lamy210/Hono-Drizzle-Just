@@ -540,6 +540,13 @@
             },
             "description": "User created or idempotently replayed",
             "headers": {
+              "Cache-Control": {
+                "description": "Tenant-scoped mutation responses are private and must not be stored by caches",
+                "schema": {
+                  "example": "private, no-store",
+                  "type": "string"
+                }
+              },
               "ETag": {
                 "description": "Strong validator for the returned user representation",
                 "schema": {
@@ -716,6 +723,13 @@
           "204": {
             "description": "User deleted",
             "headers": {
+              "Cache-Control": {
+                "description": "Tenant-scoped mutation responses are private and must not be stored by caches",
+                "schema": {
+                  "example": "private, no-store",
+                  "type": "string"
+                }
+              },
               "RateLimit": {
                 "description": "Provisional current quota field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
                 "schema": {
@@ -1085,6 +1099,13 @@
             },
             "description": "Updated user",
             "headers": {
+              "Cache-Control": {
+                "description": "Tenant-scoped mutation responses are private and must not be stored by caches",
+                "schema": {
+                  "example": "private, no-store",
+                  "type": "string"
+                }
+              },
               "ETag": {
                 "description": "Strong validator for the returned user representation",
                 "schema": {

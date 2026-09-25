@@ -594,6 +594,7 @@ test("authorized PATCH updates only the principal tenant with normalized fields"
   });
 
   expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
   expect(update).toHaveBeenCalledWith(
     "tenant-a",
     "550e8400-e29b-41d4-a716-446655440000",
@@ -728,6 +729,7 @@ test("authorized DELETE removes only the matching principal-tenant version and r
   });
 
   expect(response.status).toBe(204);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
   expect(await response.text()).toBe("");
   expect(deleteById).toHaveBeenCalledWith(
     "tenant-a",
@@ -823,6 +825,7 @@ test("authorized create derives tenant from principal and ignores client tenant 
   });
 
   expect(response.status).toBe(201);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
   expect(response.headers.get("etag")).toBe('"v1"');
   expect(response.headers.get("location")).toBe(
     "/users/550e8400-e29b-41d4-a716-446655440000",
