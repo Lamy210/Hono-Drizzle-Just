@@ -1292,6 +1292,13 @@
                   "type": "string"
                 }
               },
+              "Link": {
+                "description": "RFC 8288 next-page link when another cursor page is available; omitted on the final page",
+                "schema": {
+                  "example": "</users/cursor?limit=20&cursor=eyJ2IjoxLCJjcmVhdGVkQXQiOiIyMDI2LTA5LTI0VDAwOjAwOjAwLjAwMFoiLCJpZCI6IjU1MGU4NDAwLWUyOWItNDFkNC1hNzE2LTQ0NjY1NTQ0MDAwMCJ9>; rel=\"next\"",
+                  "type": "string"
+                }
+              },
               "RateLimit": {
                 "description": "Provisional current quota field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
                 "schema": {
