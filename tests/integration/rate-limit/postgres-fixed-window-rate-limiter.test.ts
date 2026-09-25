@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, expect, spyOn, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import type { Meter } from "../../../src/core/observability/meter";
 import type { TelemetryAttributes } from "../../../src/core/observability/tracer";
@@ -175,6 +175,35 @@ test("returns exact quota metadata for allowed and denied fixed-window decisions
       throw new Error("PostgreSQL rate limiter must return quota metadata");
     }
     expect(denied.retryAfterSeconds).toBe(quota.resetAfterSeconds);
+  }
+});
+
+test("quota reset metadata uses the database clock rather than the application clock", async () => {
+  const dateNow = spyOn(Date, "now").mockReturnValue(0);
+  try {
+    const limiter = new PostgresFixedWindowRateLimiter(database.db, digester, {
+      limit: 1,
+      windowSeconds: 30,
+    });
+    const request = {
+      scope: "http.global",
+      identity: `clock-skew-${crypto.randomUUID()}`,
+    } as const;
+
+    const allowed = await limiter.consume(request);
+    expect(allowed.allowed).toBe(true);
+    expect(allowed.quota?.resetAfterSeconds).toBeGreaterThanOrEqual(1);
+    expect(allowed.quota?.resetAfterSeconds).toBeLessThanOrEqual(30);
+
+    const denied = await limiter.consume(request);
+    expect(denied.allowed).toBe(false);
+    if (!denied.allowed) {
+      expect(denied.retryAfterSeconds).toBeGreaterThanOrEqual(1);
+      expect(denied.retryAfterSeconds).toBeLessThanOrEqual(30);
+      expect(denied.quota?.resetAfterSeconds).toBe(denied.retryAfterSeconds);
+    }
+  } finally {
+    dateNow.mockRestore();
   }
 });
 

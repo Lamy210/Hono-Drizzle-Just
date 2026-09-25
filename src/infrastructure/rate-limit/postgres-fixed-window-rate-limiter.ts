@@ -8,6 +8,7 @@ import type {
 import { rateLimitBuckets } from "../../db/schema";
 import type { DatabaseSession } from "../database/database";
 import type { DatabaseObserver } from "../database/database-observer";
+import { databaseTimestampMs } from "./database-time";
 import type { RateLimitObserver } from "./rate-limit-observer";
 
 const SCOPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,99}$/;
@@ -111,6 +112,7 @@ export class PostgresFixedWindowRateLimiter implements RateLimiter {
         .returning({
           requestCount: rateLimitBuckets.requestCount,
           expiresAt: rateLimitBuckets.expiresAt,
+          observedAt: sql<string>`clock_timestamp()::text`,
         }),
     );
 
@@ -121,7 +123,9 @@ export class PostgresFixedWindowRateLimiter implements RateLimiter {
 
     const resetAfterSeconds = Math.max(
       1,
-      Math.ceil((bucket.expiresAt.getTime() - Date.now()) / 1_000),
+      Math.ceil(
+        (bucket.expiresAt.getTime() - databaseTimestampMs(bucket.observedAt)) / 1_000,
+      ),
     );
     const quota = {
       policyId: request.scope,
