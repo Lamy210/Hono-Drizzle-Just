@@ -281,6 +281,7 @@ test(
         );
         expect(cursorListResponse.status).toBe(200);
         expect(cursorListResponse.headers.get("cache-control")).toBe("private, no-store");
+        expect(cursorListResponse.headers.get("link")).toBeNull();
         const cursorListed = (await cursorListResponse.json()) as {
           data: UserResponse[];
           meta: { limit: number; nextCursor: string | null };
