@@ -319,6 +319,7 @@ test("anonymous protected user requests return 401", async () => {
   const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000");
 
   expect(response.status).toBe(401);
+  expect(response.headers.get("cache-control")).toBe("no-store");
   expect(await response.json()).toMatchObject({ error: { code: "UNAUTHORIZED" } });
   expect(repository.findById).not.toHaveBeenCalled();
 });
@@ -328,6 +329,7 @@ test("authenticated requests missing the required scope return 403", async () =>
   const response = await app.request("/users/550e8400-e29b-41d4-A716-446655440000");
 
   expect(response.status).toBe(403);
+  expect(response.headers.get("cache-control")).toBe("no-store");
   expect(await response.json()).toMatchObject({ error: { code: "FORBIDDEN" } });
   expect(repository.findById).not.toHaveBeenCalled();
 });
@@ -440,6 +442,7 @@ test("cross-tenant conditional GET remains 404 before validator evaluation", asy
   );
 
   expect(response.status).toBe(404);
+  expect(response.headers.get("cache-control")).toBe("no-store");
   expect(await response.json()).toMatchObject({ error: { code: "NOT_FOUND" } });
 });
 

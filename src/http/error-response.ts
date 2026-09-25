@@ -5,6 +5,7 @@ import type { AppEnv } from "./env";
 
 export function createAppErrorResponse(c: Context<AppEnv>, appError: AppError) {
   const context = c.get("requestContext");
+  c.header("Cache-Control", "no-store");
   const body = ErrorResponseSchema.parse({
     error: {
       code: appError.code,

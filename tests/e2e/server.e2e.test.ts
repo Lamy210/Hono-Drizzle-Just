@@ -501,6 +501,7 @@ test(
           headers: { authorization },
         });
         expect(crossTenant.status).toBe(404);
+        expect(crossTenant.headers.get("cache-control")).toBe("no-store");
         expect(await crossTenant.json()).toMatchObject({ error: { code: "NOT_FOUND" } });
 
         const crossTenantUpdate = await boundedFetch(`${baseUrl}/users/${tenantAUser.id}`, {

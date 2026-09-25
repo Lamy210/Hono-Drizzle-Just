@@ -178,6 +178,7 @@ test("rate limit denial returns quota fields, the correlated common 429 envelope
   });
 
   expect(response.status).toBe(429);
+  expect(response.headers.get("cache-control")).toBe("no-store");
   expect(response.headers.get("retry-after")).toBe("3");
   expect(response.headers.get("ratelimit-policy")).toBe('"http.global";q=120;w=60');
   expect(response.headers.get("ratelimit")).toBe('"http.global";r=0;t=3');

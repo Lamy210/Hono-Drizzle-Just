@@ -274,7 +274,7 @@ The template intentionally disables `Strict-Transport-Security`, `Cross-Origin-R
 
 CORS remains unset by default. A generated service must define its own allowed origins, credentials policy, methods, and headers rather than inheriting a permissive wildcard policy from the template.
 
-Routing failures are normalized at the HTTP boundary. An unmatched path returns the common correlated `NOT_FOUND` / 404 envelope, while a path that exists but does not support the requested method returns `METHOD_NOT_ALLOWED` / 405 with the standards-compatible `Allow` header. These responses are produced after request context is established, so request/trace IDs, structured request logging, metrics, and security headers remain consistent with application errors.
+Routing failures are normalized at the HTTP boundary. An unmatched path returns the common correlated `NOT_FOUND` / 404 envelope, while a path that exists but does not support the requested method returns `METHOD_NOT_ALLOWED` / 405 with the standards-compatible `Allow` header. These responses are produced after request context is established, so request/trace IDs, structured request logging, metrics, and security headers remain consistent with application errors. `createAppErrorResponse()` also sets `Cache-Control: no-store` for every structured error response, covering routing errors, validation/auth failures, tenant-local 404s, precondition failures, rate-limit denials, and 5xx errors from one common boundary. This prevents authenticated or point-in-time error state from being retained by browsers or intermediary caches.
 
 ## External HTTP
 

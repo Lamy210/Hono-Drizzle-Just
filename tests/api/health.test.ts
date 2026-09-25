@@ -90,6 +90,7 @@ test("unmatched routes use the common correlated 404 error response", async () =
   });
 
   expect(response.status).toBe(404);
+  expect(response.headers.get("cache-control")).toBe("no-store");
   expect(await response.json()).toEqual({
     error: { code: "NOT_FOUND", message: "Resource not found" },
     requestId,
@@ -111,6 +112,7 @@ test("unsupported methods use the common correlated 405 response with Allow", as
   });
 
   expect(response.status).toBe(405);
+  expect(response.headers.get("cache-control")).toBe("no-store");
   const allow = response.headers.get("allow");
   expect(allow).toContain("GET");
   expect(allow).toContain("HEAD");
