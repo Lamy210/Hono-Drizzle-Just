@@ -124,3 +124,79 @@ test("records GCRA as a bounded algorithm dimension", async () => {
     "rate_limit.result": "allowed",
   });
 });
+
+test("records successful cleanup runs and reclaimed rows with bounded attributes", async () => {
+  const meter = new RecordingMeter();
+  const observer = new RateLimitObserver({ meter, now: () => 10 });
+
+  expect(await observer.cleanup(descriptor, async () => 37)).toBe(37);
+
+  expect(meter.counters).toContainEqual({
+    name: "rate_limit.cleanup.rows",
+    value: 37,
+    attributes: {
+      "rate_limit.backend": "postgresql",
+      "rate_limit.algorithm": "fixed_window",
+    },
+  });
+  expect(meter.counters).toContainEqual({
+    name: "rate_limit.cleanup.runs",
+    value: 1,
+    attributes: {
+      "rate_limit.backend": "postgresql",
+      "rate_limit.algorithm": "fixed_window",
+      "rate_limit.cleanup.result": "success",
+    },
+  });
+});
+
+test("records zero-row cleanup without emitting a zero-value rows counter", async () => {
+  const meter = new RecordingMeter();
+  const observer = new RateLimitObserver({ meter, now: () => 10 });
+
+  expect(await observer.cleanup(descriptor, async () => 0)).toBe(0);
+
+  expect(meter.counters).toEqual([
+    {
+      name: "rate_limit.cleanup.runs",
+      value: 1,
+      attributes: {
+        "rate_limit.backend": "postgresql",
+        "rate_limit.algorithm": "fixed_window",
+        "rate_limit.cleanup.result": "success",
+      },
+    },
+  ]);
+});
+
+test("records cleanup failures without leaking error or request cardinality", async () => {
+  const meter = new RecordingMeter();
+  const observer = new RateLimitObserver({ meter, now: () => 10 });
+  const error = new Error("cleanup failed for http.secret 203.0.113.200");
+
+  await expect(
+    observer.cleanup(
+      { backend: "postgresql", algorithm: "gcra" },
+      async () => {
+        throw error;
+      },
+    ),
+  ).rejects.toBe(error);
+
+  expect(meter.counters).toEqual([
+    {
+      name: "rate_limit.cleanup.runs",
+      value: 1,
+      attributes: {
+        "rate_limit.backend": "postgresql",
+        "rate_limit.algorithm": "gcra",
+        "rate_limit.cleanup.result": "error",
+      },
+    },
+  ]);
+  const serialized = JSON.stringify(meter.counters);
+  expect(serialized).not.toContain("http.secret");
+  expect(serialized).not.toContain("203.0.113.200");
+  expect(serialized).not.toContain("cleanup failed");
+});
+
