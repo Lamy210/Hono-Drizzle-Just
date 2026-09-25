@@ -65,6 +65,14 @@ const UserListCacheResponseHeader = {
   },
 } as const;
 
+const UserMutationCacheResponseHeader = {
+  "Cache-Control": {
+    description:
+      "Tenant-scoped mutation responses are private and must not be stored by caches",
+    schema: { type: "string", example: "private, no-store" },
+  },
+} as const;
+
 const CursorNextLinkResponseHeader = {
   Link: {
     description:
@@ -127,6 +135,7 @@ const createUserRoute = createRoute({
         ...RateLimitResponseHeaders,
         ...EntityTagResponseHeader,
         ...CreatedResourceLocationResponseHeader,
+        ...UserMutationCacheResponseHeader,
       },
       content: { "application/json": { schema: UserResponseSchema } },
     },
@@ -249,7 +258,11 @@ const updateUserRoute = createRoute({
   responses: {
     200: {
       description: "Updated user",
-      headers: { ...RateLimitResponseHeaders, ...EntityTagResponseHeader },
+      headers: {
+        ...RateLimitResponseHeaders,
+        ...EntityTagResponseHeader,
+        ...UserMutationCacheResponseHeader,
+      },
       content: { "application/json": { schema: UserResponseSchema } },
     },
     400: {
@@ -304,7 +317,10 @@ const deleteUserRoute = createRoute({
   responses: {
     204: {
       description: "User deleted",
-      headers: RateLimitResponseHeaders,
+      headers: {
+        ...RateLimitResponseHeaders,
+        ...UserMutationCacheResponseHeader,
+      },
     },
     400: {
       description: "Validation error",
@@ -402,6 +418,7 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
     const response = UserResponseSchema.parse(toUserResponse(user));
     c.header("Location", `/users/${user.id}`);
     c.header("ETag", formatUserEntityTag(user.version));
+    c.header("Cache-Control", "private, no-store");
     return c.json(response, 201);
   });
 
@@ -454,6 +471,7 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
     );
     const response = UserResponseSchema.parse(toUserResponse(user));
     c.header("ETag", formatUserEntityTag(user.version));
+    c.header("Cache-Control", "private, no-store");
     return c.json(response, 200);
   });
 
@@ -466,6 +484,7 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
       ifMatch === undefined ? undefined : parseUserIfMatch(ifMatch),
       c.get("requestContext"),
     );
+    c.header("Cache-Control", "private, no-store");
     return c.body(null, 204);
   });
 
