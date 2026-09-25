@@ -34,3 +34,8 @@ export function decodeUserListCursor(value: string): UserListCursor {
     throw new AppError("VALIDATION_ERROR", "Invalid cursor", 400);
   }
 }
+
+export function formatUserListNextLink(cursor: string, limit: number): string {
+  return `</users/cursor?limit=${limit}&cursor=${encodeURIComponent(cursor)}>; rel="next"`;
+}
+
