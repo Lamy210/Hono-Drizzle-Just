@@ -20,7 +20,7 @@ import type { ListUsersCursorService } from "../application/list-users-cursor.se
 import type { ListUsersService } from "../application/list-users.service";
 import type { UpdateUserService } from "../application/update-user.service";
 import { formatUserEntityTag, parseUserIfMatch, userIfNoneMatchMatches } from "./user-etag";
-import { decodeUserListCursor, encodeUserListCursor } from "./user-list-cursor";
+import { decodeUserListCursor, encodeUserListCursor, formatUserListNextLink } from "./user-list-cursor";
 import { toUserResponse } from "./user.presenter";
 
 export interface UserRouteDependencies {
@@ -62,6 +62,18 @@ const UserListCacheResponseHeader = {
     description:
       "Tenant-scoped user lists are private and must not be stored by caches",
     schema: { type: "string", example: "private, no-store" },
+  },
+} as const;
+
+const CursorNextLinkResponseHeader = {
+  Link: {
+    description:
+      'RFC 8288 next-page link when another cursor page is available; omitted on the final page',
+    schema: {
+      type: "string",
+      example:
+        '</users/cursor?limit=20&cursor=eyJ2IjoxLCJjcmVhdGVkQXQiOiIyMDI2LTA5LTI0VDAwOjAwOjAwLjAwMFoiLCJpZCI6IjU1MGU4NDAwLWUyOWItNDFkNC1hNzE2LTQ0NjY1NTQ0MDAwMCJ9>; rel="next"',
+    },
   },
 } as const;
 
@@ -197,6 +209,7 @@ const listUsersCursorRoute = createRoute({
       headers: {
         ...RateLimitResponseHeaders,
         ...UserListCacheResponseHeader,
+        ...CursorNextLinkResponseHeader,
       },
       content: { "application/json": { schema: UserCursorListResponseSchema } },
     },
@@ -412,17 +425,19 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
       },
       c.get("requestContext"),
     );
+    const nextCursor =
+      result.meta.next === undefined ? null : encodeUserListCursor(result.meta.next);
     const response = UserCursorListResponseSchema.parse({
       data: result.users.map(toUserResponse),
       meta: {
         limit: result.meta.limit,
-        nextCursor:
-          result.meta.next === undefined
-            ? null
-            : encodeUserListCursor(result.meta.next),
+        nextCursor,
       },
     });
     c.header("Cache-Control", "private, no-store");
+    if (nextCursor !== null) {
+      c.header("Link", formatUserListNextLink(nextCursor, result.meta.limit));
+    }
     return c.json(response, 200);
   });
 

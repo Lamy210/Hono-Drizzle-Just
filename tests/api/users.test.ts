@@ -485,12 +485,16 @@ test("cursor user listing returns an opaque next cursor and resumes after it", a
   expect(firstBody.data).toHaveLength(1);
   expect(firstBody.meta.limit).toBe(1);
   expect(typeof firstBody.meta.nextCursor).toBe("string");
+  expect(first.headers.get("link")).toBe(
+    `</users/cursor?limit=1&cursor=${firstBody.meta.nextCursor}>; rel="next"`,
+  );
   expect(listAfter).toHaveBeenCalledWith("tenant-a", { limit: 1 });
 
   const second = await app.request(
     `/users/cursor?limit=1&cursor=${encodeURIComponent(firstBody.meta.nextCursor)}`,
   );
   expect(second.status).toBe(200);
+  expect(second.headers.get("link")).toBeNull();
   expect(await second.json()).toEqual({
     data: [],
     meta: { limit: 1, nextCursor: null },
@@ -523,6 +527,8 @@ test("HEAD cursor user listing keeps the private no-store policy without a body"
 
   expect(response.status).toBe(200);
   expect(response.headers.get("cache-control")).toBe("private, no-store");
+  const link = response.headers.get("link");
+  expect(link).toMatch(/^<\/users\/cursor\?limit=1&cursor=[A-Za-z0-9_-]+>; rel="next"$/);
   expect(await response.text()).toBe("");
   expect(listAfter).toHaveBeenCalledWith("tenant-a", { limit: 1 });
 });

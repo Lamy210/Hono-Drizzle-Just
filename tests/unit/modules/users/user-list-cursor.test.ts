@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   decodeUserListCursor,
   encodeUserListCursor,
+  formatUserListNextLink,
 } from "../../../../src/modules/users/presentation/user-list-cursor";
 
 test("cursor codec round-trips a canonical keyset position without tenant data", () => {
@@ -41,3 +42,15 @@ test("cursor decoder fails closed with a sanitized validation error", () => {
     }
   }
 });
+
+test("cursor next link uses an RFC 8288 relative next relation", () => {
+  const cursor = encodeUserListCursor({
+    createdAt: new Date("2026-09-24T12:34:56.789Z"),
+    id: "550e8400-e29b-41d4-a716-446655440000",
+  });
+
+  expect(formatUserListNextLink(cursor, 25)).toBe(
+    `</users/cursor?limit=25&cursor=${cursor}>; rel="next"`,
+  );
+});
+
