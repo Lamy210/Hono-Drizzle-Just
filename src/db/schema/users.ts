@@ -8,7 +8,9 @@ export const users = pgTable(
     email: varchar("email", { length: 320 }).notNull(),
     name: varchar("name", { length: 100 }).notNull(),
     version: integer("version").default(1).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date", precision: 3 })
+      .defaultNow()
+      .notNull(),
   },
   (table) => [
     unique("users_tenant_id_email_unique").on(table.tenantId, table.email),
