@@ -264,6 +264,7 @@ test(
         expect(fetchedResponse.status).toBe(200);
         expect(fetchedResponse.headers.get("etag")).toBe(createdEtag);
         expect(fetchedResponse.headers.get("cache-control")).toBe("private, no-cache");
+        expect(fetchedResponse.headers.get("vary")).toBe("Authorization, Cookie");
         expect((await fetchedResponse.json()) as UserResponse).toEqual(created);
 
         const headResponse = await boundedFetch(`${baseUrl}/users/${created.id}`, {
@@ -273,6 +274,7 @@ test(
         expect(headResponse.status).toBe(200);
         expect(headResponse.headers.get("etag")).toBe(createdEtag);
         expect(headResponse.headers.get("cache-control")).toBe("private, no-cache");
+        expect(headResponse.headers.get("vary")).toBe("Authorization, Cookie");
         expect(await headResponse.text()).toBe("");
 
         const notModifiedResponse = await boundedFetch(`${baseUrl}/users/${created.id}`, {
@@ -284,6 +286,7 @@ test(
         expect(notModifiedResponse.status).toBe(304);
         expect(notModifiedResponse.headers.get("etag")).toBe(createdEtag);
         expect(notModifiedResponse.headers.get("cache-control")).toBe("private, no-cache");
+        expect(notModifiedResponse.headers.get("vary")).toBe("Authorization, Cookie");
         expect(await notModifiedResponse.text()).toBe("");
 
         const notModifiedHeadResponse = await boundedFetch(
@@ -300,6 +303,9 @@ test(
         expect(notModifiedHeadResponse.headers.get("etag")).toBe(createdEtag);
         expect(notModifiedHeadResponse.headers.get("cache-control")).toBe(
           "private, no-cache",
+        );
+        expect(notModifiedHeadResponse.headers.get("vary")).toBe(
+          "Authorization, Cookie",
         );
         expect(await notModifiedHeadResponse.text()).toBe("");
 
