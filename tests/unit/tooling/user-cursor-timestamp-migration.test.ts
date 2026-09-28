@@ -13,6 +13,6 @@ test("user cursor timestamp precision is normalized by a forward migration", asy
     'ALTER COLUMN "created_at" TYPE timestamp(3) with time zone',
   );
   expect(migration).toContain(
-    "USING date_trunc('milliseconds', "created_at")",
+    `USING date_trunc('milliseconds', "created_at")`,
   );
 });
