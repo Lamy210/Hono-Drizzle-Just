@@ -44,6 +44,7 @@ describe("loadConfig", () => {
       databaseTransactionRetryBaseDelayMs: 10,
       databaseTransactionRetryMaxDelayMs: 100,
       healthCheckTimeoutMs: 1_500,
+      shutdownDrainDelayMs: 0,
       shutdownTimeoutMs: 10_000,
       otelEnabled: false,
       otelExporterOtlpEndpoint: "http://localhost:4318",
@@ -262,6 +263,21 @@ describe("loadConfig", () => {
         DATABASE_TRANSACTION_RETRY_MAX_DELAY_MS: "100",
       }),
     ).toThrow(ConfigurationError);
+  });
+
+  test("parses and bounds shutdown drain delay", () => {
+    const config = loadConfig({
+      ...required,
+      SHUTDOWN_DRAIN_DELAY_MS: "2500",
+    });
+
+    expect(config.shutdownDrainDelayMs).toBe(2_500);
+    expect(() => loadConfig({ ...required, SHUTDOWN_DRAIN_DELAY_MS: "-1" })).toThrow(
+      ConfigurationError,
+    );
+    expect(() => loadConfig({ ...required, SHUTDOWN_DRAIN_DELAY_MS: "60001" })).toThrow(
+      ConfigurationError,
+    );
   });
 
   test("parses explicit OpenTelemetry settings", () => {

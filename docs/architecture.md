@@ -243,12 +243,16 @@ A dependency outage can therefore remove the instance from traffic without causi
 
 `ApplicationLifecycle` owns shutdown callbacks and executes them once in reverse registration order. It continues closing later resources if one close fails and reports an aggregate error afterward.
 
-`GracefulShutdownCoordinator` uses Bun server semantics rather than closing infrastructure immediately:
+`GracefulShutdownCoordinator` coordinates a readiness-first drain before closing infrastructure:
 
-1. Stop accepting new requests with `server.stop(false)`.
-2. Allow in-flight requests to complete up to the configured grace period.
-3. Force active connections closed with `server.stop(true)` if the deadline is exceeded.
-4. Close registered infrastructure resources through `ApplicationLifecycle`.
+1. Mark the production `ReadinessGate` not-ready. `/health/ready` immediately reports the lifecycle check as down.
+2. Wait `SHUTDOWN_DRAIN_DELAY_MS` (default 0) so a load balancer can observe the readiness transition when the deployment requires propagation time.
+3. Stop accepting new requests with `server.stop(false)`.
+4. Allow in-flight requests to complete up to `SHUTDOWN_TIMEOUT_MS`.
+5. Force active connections closed with `server.stop(true)` if that deadline is exceeded.
+6. Close registered infrastructure resources through `ApplicationLifecycle`.
+
+The drain delay and in-flight timeout are separate phases, so deployment termination grace must budget for their sum plus infrastructure close time. With the default zero drain delay, shutdown preserves the previous immediate-stop behavior while still flipping readiness first.
 
 Production composition registers telemetry, pool-observability cleanup, and PostgreSQL in that order. Reverse shutdown therefore closes PostgreSQL first, unregisters pool callbacks next, and flushes/shuts down telemetry last.
 

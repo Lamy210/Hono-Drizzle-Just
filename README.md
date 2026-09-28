@@ -23,7 +23,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - API responses include a conservative security-header baseline without forcing CORS, HSTS, or cross-origin isolation policy.
 - Unmatched routes and unsupported HTTP methods use the same correlated JSON error envelope; 405 responses include an `Allow` header.
 - Optional application-owned `RateLimiter` integration returns correlated HTTP 429 responses with `Retry-After`; production composition includes selectable shared PostgreSQL fixed-window and GCRA adapters with low-cardinality decision metrics.
-- Deployment-safe liveness/readiness probes and graceful shutdown are built in.
+- Deployment-safe liveness/readiness probes and graceful shutdown are built in. Production shutdown marks the lifecycle readiness gate down before stopping HTTP acceptance; `SHUTDOWN_DRAIN_DELAY_MS` can reserve propagation time for an external load balancer before the in-flight-request grace period begins.
 - Database changes are delivered as committed Drizzle migrations rather than runtime schema pushes.
 
 ## Requirements
@@ -188,7 +188,8 @@ Configuration is loaded once during startup. Application modules should not read
 | `HTTP_RATE_LIMIT_USERS_READ_REQUESTS` | `120` | Requests allowed for the `GET/HEAD /users` and `GET/HEAD /users/{id}` read policy |
 | `HTTP_RATE_LIMIT_USERS_READ_WINDOW_SECONDS` | `60` | Policy window for the users read scope |
 | `HEALTH_CHECK_TIMEOUT_MS` | `1500` | Critical dependency readiness deadline |
-| `SHUTDOWN_TIMEOUT_MS` | `10000` | Grace period for in-flight HTTP requests |
+| `SHUTDOWN_DRAIN_DELAY_MS` | `0` | Delay after readiness turns not-ready and before HTTP acceptance stops; enable when a load balancer needs propagation time |
+| `SHUTDOWN_TIMEOUT_MS` | `10000` | Grace period for in-flight HTTP requests after acceptance stops |
 | `OTEL_ENABLED` | `false` | Enable OpenTelemetry trace/metrics SDK and exporters |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | Base OTLP/HTTP collector endpoint; `/v1/traces` and `/v1/metrics` are appended |
 | `OTEL_METRIC_EXPORT_INTERVAL_MS` | `60000` | Periodic metrics export interval |

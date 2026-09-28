@@ -26,6 +26,8 @@ const shutdown = new GracefulShutdownCoordinator({
   lifecycle: container.lifecycle,
   logger: container.dependencies.logger,
   timeoutMs: config.shutdownTimeoutMs,
+  drainDelayMs: config.shutdownDrainDelayMs,
+  beginDrain: () => container.readinessGate.markNotReady(),
 });
 
 container.dependencies.logger.info("server.started", { port: server.port });

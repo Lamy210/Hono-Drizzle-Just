@@ -109,6 +109,7 @@ const RawConfigSchema = z
     DATABASE_TRANSACTION_RETRY_BASE_DELAY_MS: integerEnv(10, 0, 10_000),
     DATABASE_TRANSACTION_RETRY_MAX_DELAY_MS: integerEnv(100, 0, 60_000),
     HEALTH_CHECK_TIMEOUT_MS: integerEnv(1_500, 50, 30_000),
+    SHUTDOWN_DRAIN_DELAY_MS: integerEnv(0, 0, 60_000),
     SHUTDOWN_TIMEOUT_MS: integerEnv(10_000, 100, 120_000),
     OTEL_ENABLED: booleanEnv(false),
     OTEL_EXPORTER_OTLP_ENDPOINT: z.string().default("http://localhost:4318").refine(isOtlpHttpEndpoint, {
@@ -234,6 +235,7 @@ export interface AppConfig {
   readonly databaseTransactionRetryBaseDelayMs: number;
   readonly databaseTransactionRetryMaxDelayMs: number;
   readonly healthCheckTimeoutMs: number;
+  readonly shutdownDrainDelayMs: number;
   readonly shutdownTimeoutMs: number;
   readonly otelEnabled: boolean;
   readonly otelExporterOtlpEndpoint: string;
@@ -274,6 +276,7 @@ export const AppConfigSchema = RawConfigSchema.transform(
     databaseTransactionRetryBaseDelayMs: raw.DATABASE_TRANSACTION_RETRY_BASE_DELAY_MS,
     databaseTransactionRetryMaxDelayMs: raw.DATABASE_TRANSACTION_RETRY_MAX_DELAY_MS,
     healthCheckTimeoutMs: raw.HEALTH_CHECK_TIMEOUT_MS,
+    shutdownDrainDelayMs: raw.SHUTDOWN_DRAIN_DELAY_MS,
     shutdownTimeoutMs: raw.SHUTDOWN_TIMEOUT_MS,
     otelEnabled: raw.OTEL_ENABLED,
     otelExporterOtlpEndpoint: normalizeOtlpHttpEndpoint(raw.OTEL_EXPORTER_OTLP_ENDPOINT),
