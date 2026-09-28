@@ -922,6 +922,13 @@
                 "schema": {
                   "type": "string"
                 }
+              },
+              "Vary": {
+                "description": "Credential fields that select the tenant-scoped user representation",
+                "schema": {
+                  "example": "Authorization, Cookie",
+                  "type": "string"
+                }
               }
             }
           },
@@ -951,6 +958,13 @@
               "RateLimit-Policy": {
                 "description": "Provisional quota policy field following draft-ietf-httpapi-ratelimit-headers-11 when rate limiting is enabled",
                 "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "description": "Credential fields that select the tenant-scoped user representation",
+                "schema": {
+                  "example": "Authorization, Cookie",
                   "type": "string"
                 }
               }

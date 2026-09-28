@@ -55,6 +55,11 @@ const UserRevalidationCacheResponseHeader = {
       "Private-cache revalidation policy for the tenant-scoped user representation",
     schema: { type: "string", example: "private, no-cache" },
   },
+  Vary: {
+    description:
+      "Credential fields that select the tenant-scoped user representation",
+    schema: { type: "string", example: "Authorization, Cookie" },
+  },
 } as const;
 
 const UserListCacheResponseHeader = {
@@ -494,6 +499,7 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>, dependencies: UserR
     const canonicalId = CanonicalUuidSchema.parse(id);
     const user = await dependencies.getUserService.execute(canonicalId, c.get("requestContext"));
     c.header("Cache-Control", "private, no-cache");
+    c.header("Vary", "Authorization, Cookie");
     c.header("ETag", formatUserEntityTag(user.version));
     if (ifNoneMatch !== undefined && userIfNoneMatchMatches(ifNoneMatch, user.version)) {
       return c.body(null, 304);
