@@ -200,6 +200,40 @@ test("cursor listing uses keyset order, UUID tie-breaks, and tenant isolation", 
   ]);
 });
 
+test("cursor pagination does not skip rows that originated within the same millisecond", async () => {
+  await database.pool.query(
+    `insert into users (id, tenant_id, email, name, created_at)
+     values
+       ('550e8400-e29b-41d4-a716-446655440001', 'tenant-a', 'micro-a@example.com', 'Micro A',
+        timestamptz '2026-09-24T00:00:00.123100Z'),
+       ('550e8400-e29b-41d4-a716-446655440002', 'tenant-a', 'micro-b@example.com', 'Micro B',
+        timestamptz '2026-09-24T00:00:00.123200Z')`,
+  );
+
+  const first = await repository.listAfter("tenant-a", { limit: 1 });
+  expect(first.hasMore).toBe(true);
+  expect(first.users.map((user) => user.id)).toEqual([
+    "550e8400-e29b-41d4-a716-446655440002",
+  ]);
+  expect(first.users[0]?.createdAt.toISOString()).toBe("2026-09-24T00:00:00.123Z");
+
+  const boundary = first.users[0];
+  expect(boundary).toBeDefined();
+  if (!boundary) {
+    throw new Error("Expected a cursor boundary");
+  }
+
+  const second = await repository.listAfter("tenant-a", {
+    after: { createdAt: boundary.createdAt, id: boundary.id },
+    limit: 1,
+  });
+  expect(second.hasMore).toBe(false);
+  expect(second.users.map((user) => user.id)).toEqual([
+    "550e8400-e29b-41d4-a716-446655440001",
+  ]);
+  expect(second.users[0]?.createdAt.toISOString()).toBe("2026-09-24T00:00:00.123Z");
+});
+
 test("delete is tenant-scoped, version-guarded, and preserves stale rows", async () => {
   const created = await repository.create({
     tenantId: "tenant-a",
@@ -440,6 +474,23 @@ test("repository maps a wrapped PostgreSQL tenant-local unique violation to a co
     code: "CONFLICT",
     status: 409,
   });
+});
+
+test("users created_at precision matches JavaScript Date cursor precision", async () => {
+  const result = await database.pool.query<{
+    data_type: string;
+    datetime_precision: number | null;
+  }>(
+    `select data_type, datetime_precision
+       from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'users'
+        and column_name = 'created_at'`,
+  );
+
+  expect(result.rows).toEqual([
+    { data_type: "timestamp with time zone", datetime_precision: 3 },
+  ]);
 });
 
 test("users persistence exposes a required version column with default 1", async () => {
