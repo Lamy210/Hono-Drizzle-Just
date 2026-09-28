@@ -1,5 +1,6 @@
 import type { AppConfig } from "../../config/load-config";
 import { ReadinessChecker } from "../../core/health/readiness-checker";
+import { ReadinessGate } from "../../core/health/readiness-gate";
 import { ApplicationLifecycle } from "../../core/lifecycle/application-lifecycle";
 import { StaticBearerPrincipalResolver } from "../../infrastructure/auth/static-bearer-principal-resolver";
 import { HTTP_RATE_LIMIT_SCOPES } from "../../http/rate-limit-policy";
@@ -26,6 +27,7 @@ import { createDatabaseAccess } from "./database-access";
 export function createProductionContainer(config: AppConfig): {
   dependencies: AppDependencies;
   lifecycle: ApplicationLifecycle;
+  readinessGate: ReadinessGate;
   close: () => Promise<void>;
 } {
   const logger = new JsonConsoleLogger(
@@ -88,7 +90,9 @@ export function createProductionContainer(config: AppConfig): {
     },
     idempotencyObserver,
   );
+  const readinessGate = new ReadinessGate();
   const readinessChecker = new ReadinessChecker([
+    readinessGate,
     new DatabaseHealthCheck(database.pool, config.healthCheckTimeoutMs),
   ]);
   const principalResolver = config.authDevStaticEnabled
@@ -154,6 +158,7 @@ export function createProductionContainer(config: AppConfig): {
       meter: telemetry.meter,
     },
     lifecycle,
+    readinessGate,
     close: () => lifecycle.close(),
   };
 }
