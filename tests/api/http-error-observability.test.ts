@@ -109,7 +109,7 @@ test("handled 4xx AppError keeps server span unset and logs a warning without st
   expect(lines[0]).not.toContain("invalid client value");
 });
 
-test("5xx AppError marks the server span as error and keeps exception diagnostics", async () => {
+test("5xx AppError marks the server span as error without logging free-form exception text", async () => {
   const { app, tracer, meter, lines } = createObservedApp();
   app.get("/server-error", () => {
     throw new AppError("INTERNAL_ERROR", "Internal server error", 500, undefined, {
@@ -131,10 +131,17 @@ test("5xx AppError marks the server span as error and keeps exception diagnostic
     errorCode: "INTERNAL_ERROR",
     statusCode: 500,
   });
-  expect(log.error).toMatchObject({ name: "AppError", message: "Internal server error" });
+  expect(log).toMatchObject({
+    errorType: "AppError",
+    causeType: "Error",
+  });
+  expect(log.error).toBeUndefined();
+  expect(lines[0]).not.toContain("database unavailable");
+  expect(lines[0]).not.toContain("Internal server error");
+  expect(lines[0]).not.toContain("stack");
 });
 
-test("unknown exceptions are normalized to 500 and classified as server failures", async () => {
+test("unknown exceptions are normalized to 500 and log only their type", async () => {
   const { app, tracer, lines } = createObservedApp();
   app.get("/unexpected", () => {
     throw new Error("unexpected internal failure");
@@ -151,7 +158,10 @@ test("unknown exceptions are normalized to 500 and classified as server failures
     errorCode: "INTERNAL_ERROR",
     statusCode: 500,
   });
-  expect(log.error).toMatchObject({ name: "Error", message: "unexpected internal failure" });
+  expect(log).toMatchObject({ errorType: "Error" });
+  expect(log.error).toBeUndefined();
+  expect(lines[0]).not.toContain("unexpected internal failure");
+  expect(lines[0]).not.toContain("stack");
 });
 
 test("classified database failures expose only stable sanitized HTTP errors", async () => {
@@ -189,5 +199,14 @@ test("classified database failures expose only stable sanitized HTTP errors", as
     message: "http.request.error",
     errorCode: "DATABASE_TIMEOUT",
     statusCode: 504,
+    errorType: "AppError",
+    causeType: "Error",
   });
+  expect(log.error).toBeUndefined();
+  expect(lines[0]).not.toContain("secret_value");
+  expect(lines[0]).not.toContain("private_constraint_name");
+  expect(lines[0]).not.toContain("canceling statement");
 });
+
+
+
