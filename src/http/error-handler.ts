@@ -3,18 +3,12 @@ import { AppError } from "../core/errors/app-error";
 import type { AppEnv } from "./env";
 import { createAppErrorResponse } from "./error-response";
 
-function errorType(error: unknown): string {
-  if (error instanceof Error) {
-    return error.name || "Error";
-  }
-  if (error === null) {
-    return "null";
-  }
-  return typeof error;
+function errorType(error: Error): string {
+  return error.name || "Error";
 }
 
-function errorCauseType(error: unknown): string | undefined {
-  if (!(error instanceof Error) || error.cause === undefined) {
+function errorCauseType(error: Error): string | undefined {
+  if (!(error.cause instanceof Error)) {
     return undefined;
   }
   return errorType(error.cause);
