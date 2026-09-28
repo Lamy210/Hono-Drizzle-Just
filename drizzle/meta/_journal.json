@@ -64,6 +64,13 @@
       "when": 1790207640000,
       "tag": "0008_idempotency_expiry_cleanup_index",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790640000000,
+      "tag": "0009_user_cursor_timestamp_precision",
+      "breakpoints": true
     }
   ]
 }
