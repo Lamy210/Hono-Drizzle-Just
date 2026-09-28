@@ -13,6 +13,16 @@ export interface GracefulShutdownOptions {
   readonly lifecycle: ClosableLifecycle;
   readonly logger: Logger;
   readonly timeoutMs: number;
+  readonly drainDelayMs?: number;
+  readonly beginDrain?: () => void;
+  readonly sleep?: (delayMs: number) => Promise<void>;
+}
+
+function defaultSleep(delayMs: number): Promise<void> {
+  if (delayMs <= 0) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 export class GracefulShutdownCoordinator {
@@ -20,6 +30,9 @@ export class GracefulShutdownCoordinator {
   private readonly lifecycle: ClosableLifecycle;
   private readonly logger: Logger;
   private readonly timeoutMs: number;
+  private readonly drainDelayMs: number;
+  private readonly beginDrain: () => void;
+  private readonly sleep: (delayMs: number) => Promise<void>;
   private shutdownPromise: Promise<void> | undefined;
 
   constructor(options: GracefulShutdownOptions) {
@@ -27,6 +40,9 @@ export class GracefulShutdownCoordinator {
     this.lifecycle = options.lifecycle;
     this.logger = options.logger;
     this.timeoutMs = Math.max(0, options.timeoutMs);
+    this.drainDelayMs = Math.max(0, options.drainDelayMs ?? 0);
+    this.beginDrain = options.beginDrain ?? (() => undefined);
+    this.sleep = options.sleep ?? defaultSleep;
   }
 
   shutdown(signal: string): Promise<void> {
@@ -35,8 +51,25 @@ export class GracefulShutdownCoordinator {
   }
 
   private async performShutdown(signal: string): Promise<void> {
-    this.logger.info("server.stopping", { signal, timeoutMs: this.timeoutMs });
+    this.logger.info("server.stopping", {
+      signal,
+      timeoutMs: this.timeoutMs,
+      drainDelayMs: this.drainDelayMs,
+    });
     const errors: unknown[] = [];
+
+    try {
+      this.beginDrain();
+      if (this.drainDelayMs > 0) {
+        this.logger.info("server.draining", {
+          signal,
+          drainDelayMs: this.drainDelayMs,
+        });
+        await this.sleep(this.drainDelayMs);
+      }
+    } catch (error) {
+      errors.push(error);
+    }
 
     try {
       const stoppedGracefully = await this.settlesWithin(this.server.stop(false), this.timeoutMs);
