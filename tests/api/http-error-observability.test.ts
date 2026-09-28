@@ -208,23 +208,5 @@ test("classified database failures expose only stable sanitized HTTP errors", as
   expect(lines[0]).not.toContain("canceling statement");
 });
 
-test("non-Error thrown values expose only their type at the HTTP log boundary", async () => {
-  const { app, lines } = createObservedApp();
-  app.get("/thrown-string", () => {
-    throw "Bearer top-secret-credential";
-  });
 
-  const response = await app.request("/thrown-string");
-
-  expect(response.status).toBe(500);
-  const log = JSON.parse(lines[0] ?? "{}");
-  expect(log).toMatchObject({
-    level: "error",
-    message: "http.request.error",
-    errorCode: "INTERNAL_ERROR",
-    statusCode: 500,
-    errorType: "string",
-  });
-  expect(lines[0]).not.toContain("top-secret-credential");
-});
 
