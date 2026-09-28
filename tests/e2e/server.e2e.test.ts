@@ -88,6 +88,37 @@ async function waitUntilReady(baseUrl: string, child: Bun.Subprocess): Promise<v
   throw new Error(`server did not become ready: ${lastState}`);
 }
 
+async function waitUntilNotReady(baseUrl: string, child: Bun.Subprocess): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  let lastState = "not attempted";
+
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(`server exited before readiness drain was observable: ${child.exitCode}`);
+    }
+
+    try {
+      const response = await boundedFetch(`${baseUrl}/health/ready`);
+      lastState = `HTTP ${response.status}`;
+      if (response.status === 503) {
+        const body = (await response.json()) as {
+          status: string;
+          checks: Record<string, { status: string }>;
+        };
+        expect(body.status).toBe("not_ready");
+        expect(body.checks.lifecycle?.status).toBe("down");
+        return;
+      }
+    } catch (error) {
+      lastState = error instanceof Error ? error.message : String(error);
+    }
+
+    await Bun.sleep(20);
+  }
+
+  throw new Error(`server did not expose draining readiness: ${lastState}`);
+}
+
 function failureWithLogs(error: unknown, stdout: string, stderr: string): Error {
   const message = error instanceof Error ? error.message : String(error);
   return new Error(`${message}\n--- child stdout ---\n${stdout}\n--- child stderr ---\n${stderr}`, {
@@ -109,6 +140,7 @@ async function withTenantServer<T>(
       DATABASE_URL: requiredDatabaseUrl(),
       PORT: String(port),
       OTEL_ENABLED: "false",
+      SHUTDOWN_DRAIN_DELAY_MS: "500",
       AUTH_DEV_STATIC_ENABLED: "true",
       AUTH_DEV_STATIC_BEARER_TOKEN: config.token,
       AUTH_DEV_STATIC_SUBJECT: config.subject,
@@ -132,6 +164,7 @@ async function withTenantServer<T>(
     });
 
     child.kill("SIGTERM");
+    await waitUntilNotReady(baseUrl, child);
     const exitCode = await withTimeout(child.exited, shutdownTimeoutMs, "server shutdown");
     if (exitCode !== 0) {
       throw new Error(`server exited with code ${exitCode} during graceful shutdown`);
@@ -141,6 +174,9 @@ async function withTenantServer<T>(
     const stderr = await stderrPromise;
     if (!stdout.includes('"message":"server.stopping"')) {
       throw new Error("server did not emit server.stopping during graceful shutdown");
+    }
+    if (!stdout.includes('"message":"server.draining"')) {
+      throw new Error("server did not emit server.draining during graceful shutdown");
     }
     if (!stdout.includes('"message":"server.stopped"')) {
       throw new Error("server did not emit server.stopped during graceful shutdown");
