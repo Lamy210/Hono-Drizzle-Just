@@ -50,6 +50,9 @@ function parseBaseUrl(value: string | URL): URL {
   if (url.username !== "" || url.password !== "") {
     throw new RangeError("baseUrl must not contain credentials");
   }
+  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") {
+    throw new RangeError("baseUrl must be an origin URL without path, query, or fragment");
+  }
   return url;
 }
 
