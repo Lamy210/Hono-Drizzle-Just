@@ -250,6 +250,88 @@ test("fetch wrapper omits invalid application-provided tracestate", async () => 
   expect(captured?.headers.get("tracestate")).toBeNull();
 });
 
+test("fetch wrapper rejects successful responses with a non-JSON media type", async () => {
+  let cancelled = 0;
+  const encoder = new TextEncoder();
+  const fetchImpl: FetchLike = async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('{"ok":true}'));
+        },
+        cancel() {
+          cancelled += 1;
+        },
+      }),
+      {
+        status: 200,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      },
+    );
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  await expect(
+    client.request(
+      { method: "GET", path: "/wrong-media-type" },
+      z.object({ ok: z.boolean() }),
+    ),
+  ).rejects.toMatchObject({
+    code: "UPSTREAM_RESPONSE_INVALID",
+    status: 502,
+    message: "Upstream response did not use a JSON media type",
+    details: undefined,
+    diagnostics: { host: "example.test" },
+  });
+  expect(cancelled).toBe(1);
+});
+
+test("fetch wrapper rejects successful JSON bodies with a missing content type", async () => {
+  const fetchImpl: FetchLike = async () =>
+    new Response('{"ok":true}', {
+      status: 200,
+      headers: { "content-type": "" },
+    });
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  await expect(
+    client.request(
+      { method: "GET", path: "/missing-media-type" },
+      z.object({ ok: z.boolean() }),
+    ),
+  ).rejects.toMatchObject({
+    code: "UPSTREAM_RESPONSE_INVALID",
+    status: 502,
+  });
+});
+
+test("fetch wrapper accepts structured syntax JSON media types", async () => {
+  const fetchImpl: FetchLike = async () =>
+    new Response('{"ok":true}', {
+      status: 200,
+      headers: { "content-type": "application/problem+json; charset=utf-8" },
+    });
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  const response = await client.request(
+    { method: "GET", path: "/structured-json" },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(response.data).toEqual({ ok: true });
+});
+
 test("fetch wrapper rejects chunked successful responses that exceed the configured byte limit", async () => {
   let cancelled = 0;
   const encoder = new TextEncoder();
