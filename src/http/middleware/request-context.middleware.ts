@@ -12,6 +12,7 @@ import {
   createRequestTrace,
   formatTraceParent,
   parseTraceParent,
+  parseTraceState,
 } from "../../infrastructure/tracing/w3c-trace-context";
 import type { ClientAddressResolver } from "../client-address";
 import type { AppEnv } from "../env";
@@ -38,10 +39,11 @@ export function createRequestContextMiddleware(
     const incomingTraceParent = c.req.header("traceparent") ?? null;
     const incomingTraceState = c.req.header("tracestate");
     const parsedParent = parseTraceParent(incomingTraceParent);
+    const parsedTraceState = parseTraceState(incomingTraceState);
     const parent = parsedParent
       ? {
           ...parsedParent,
-          ...(incomingTraceState === undefined ? {} : { traceState: incomingTraceState }),
+          ...(parsedTraceState === undefined ? {} : { traceState: parsedTraceState }),
         }
       : undefined;
     const fallbackTrace = createRequestTrace(incomingTraceParent, incomingTraceState);
