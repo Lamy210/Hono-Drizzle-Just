@@ -15,6 +15,19 @@ import type { Tracer } from "../../core/observability/tracer";
 import { DefaultRetryPolicy, type RetryPolicy } from "./retry-policy";
 import { formatTraceParent, parseTraceState } from "../tracing/w3c-trace-context";
 
+const TRANSPORT_OWNED_REQUEST_HEADERS = new Set([
+  "connection",
+  "content-length",
+  "expect",
+  "host",
+  "keep-alive",
+  "proxy-connection",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
 function positiveFiniteNumber(name: string, value: number): number {
   if (!Number.isFinite(value) || value <= 0) {
     throw new RangeError(`${name} must be a finite number greater than 0`);
@@ -179,6 +192,7 @@ export class FetchHttpClient implements HttpClient {
     startedAt: number,
   ): Promise<HttpResponse<TResponse>> {
     const headers = new Headers(request.headers);
+    this.assertApplicationHeaders(headers, url);
     headers.set("accept", "application/json");
 
     if (request.context) {
@@ -342,6 +356,21 @@ export class FetchHttpClient implements HttpClient {
           { cause: error, diagnostics: { host: url.host } },
         );
       }
+    }
+  }
+
+  private assertApplicationHeaders(headers: Headers, url: URL): void {
+    for (const name of TRANSPORT_OWNED_REQUEST_HEADERS) {
+      if (!headers.has(name)) {
+        continue;
+      }
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Outbound HTTP request included transport-owned headers",
+        500,
+        undefined,
+        { diagnostics: { host: url.host } },
+      );
     }
   }
 
