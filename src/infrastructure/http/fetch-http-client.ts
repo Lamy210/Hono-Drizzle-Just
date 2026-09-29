@@ -42,6 +42,23 @@ function positiveSafeInteger(name: string, value: number): number {
   return value;
 }
 
+function hasRawUrlControlCharacters(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasDotPathSegment(value: string): boolean {
+  const pathname = value.split("?", 1)[0] ?? value;
+  return pathname
+    .split("/")
+    .some((segment) => /^(?:\.|%2e){1,2}$/i.test(segment));
+}
+
 function parseBaseUrl(value: string | URL): URL {
   const url = new URL(value);
   if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -588,6 +605,9 @@ export class FetchHttpClient implements HttpClient {
       !path.startsWith("/") ||
       path.startsWith("//") ||
       path.includes("\\") ||
+      path.includes("#") ||
+      hasRawUrlControlCharacters(path) ||
+      hasDotPathSegment(path) ||
       /^[a-z][a-z0-9+.-]*:/i.test(path)
     ) {
       throw this.invalidHttpPath();
