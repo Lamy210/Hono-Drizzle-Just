@@ -271,7 +271,6 @@ export class FetchHttpClient implements HttpClient {
           if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt)) {
             this.logger.warn("http.client.retry", {
               method: request.method,
-              path: url.pathname,
               attempt,
               nextAttempt: attempt + 1,
               delayMs: retryDelay,
