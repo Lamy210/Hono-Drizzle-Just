@@ -329,3 +329,139 @@ test("fetch wrapper rejects invalid response byte limits", async () => {
   ).rejects.toBeInstanceOf(RangeError);
 });
 
+test("fetch wrapper rejects oversized serialized request bodies before any network attempt", async () => {
+  let fetchCalls = 0;
+  const fetchImpl: FetchLike = async () => {
+    fetchCalls += 1;
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultMaxRequestBytes: 24,
+  });
+
+  await expect(
+    client.request(
+      {
+        method: "POST",
+        path: "/large-request",
+        body: { value: "x".repeat(64) },
+        retry: "never",
+      },
+      z.object({ ok: z.boolean() }),
+    ),
+  ).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP request body exceeded maximum size",
+    details: undefined,
+    diagnostics: { host: "example.test" },
+  });
+  expect(fetchCalls).toBe(0);
+});
+
+test("request-specific outbound body limit overrides the adapter default", async () => {
+  let fetchCalls = 0;
+  const fetchImpl: FetchLike = async () => {
+    fetchCalls += 1;
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultMaxRequestBytes: 1_024,
+  });
+
+  await expect(
+    client.request(
+      {
+        method: "POST",
+        path: "/small-request",
+        body: { value: "1234567890" },
+        maxRequestBytes: 8,
+        retry: "never",
+      },
+      z.object({ ok: z.boolean() }),
+    ),
+  ).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP request body exceeded maximum size",
+  });
+  expect(fetchCalls).toBe(0);
+});
+
+test("request serialization failures are normalized without attempting fetch", async () => {
+  let fetchCalls = 0;
+  const fetchImpl: FetchLike = async () => {
+    fetchCalls += 1;
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  const circular: Record<string, unknown> = {};
+  circular.self = circular;
+
+  for (const body of [circular, { value: 1n }, () => undefined]) {
+    await expect(
+      client.request(
+        {
+          method: "POST",
+          path: "/invalid-request",
+          body,
+          retry: "never",
+        },
+        z.object({ ok: z.boolean() }),
+      ),
+    ).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      message: "Outbound HTTP request body could not be serialized",
+      details: undefined,
+      diagnostics: { host: "example.test" },
+    });
+  }
+
+  expect(fetchCalls).toBe(0);
+});
+
+test("fetch wrapper rejects invalid outbound request byte limits", async () => {
+  const logger = new JsonConsoleLogger({}, () => undefined);
+
+  for (const invalid of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    expect(
+      () =>
+        new FetchHttpClient({
+          baseUrl: "https://example.test",
+          logger,
+          defaultMaxRequestBytes: invalid,
+        }),
+    ).toThrow(RangeError);
+  }
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger,
+    fetchImpl: async () => Response.json({ ok: true }),
+  });
+  await expect(
+    client.request(
+      {
+        method: "POST",
+        path: "/invalid-request-limit",
+        body: { ok: true },
+        maxRequestBytes: 0,
+        retry: "never",
+      },
+      z.unknown(),
+    ),
+  ).rejects.toBeInstanceOf(RangeError);
+});
+
