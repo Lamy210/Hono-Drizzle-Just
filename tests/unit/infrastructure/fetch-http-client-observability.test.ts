@@ -139,3 +139,40 @@ test("outbound HTTP uses one client span across retries and propagates its trace
   });
   expect(meter.histograms[0]?.value).toBeGreaterThanOrEqual(0);
 });
+
+
+test("final upstream status remains available to client metrics through internal diagnostics", async () => {
+  const tracer = new ClientTracer();
+  const meter = new ClientMeter();
+  const client = new FetchHttpClient({
+    baseUrl: "https://internal.example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: mock(async () => new Response("unavailable", { status: 503 })),
+    tracer,
+    meter,
+    retryPolicy: { nextDelay: () => null },
+  });
+
+  await expect(
+    client.request(
+      { method: "GET", path: "/private-resource" },
+      { parse: (value) => value },
+    ),
+  ).rejects.toMatchObject({
+    code: "UPSTREAM_REQUEST_FAILED",
+    message: "Upstream request failed",
+    details: undefined,
+    diagnostics: { status: 503, host: "internal.example.test" },
+  });
+
+  expect(meter.counters).toContainEqual({
+    name: "http.client.requests",
+    value: 1,
+    attributes: {
+      method: "GET",
+      upstream: "internal.example.test",
+      outcome: "error",
+      status_code: 503,
+    },
+  });
+});
