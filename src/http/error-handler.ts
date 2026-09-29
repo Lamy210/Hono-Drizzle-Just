@@ -2,6 +2,7 @@ import type { ErrorHandler } from "hono";
 import { AppError } from "../core/errors/app-error";
 import type { AppEnv } from "./env";
 import { createAppErrorResponse } from "./error-response";
+import { httpRouteLabel } from "./route-label";
 
 function errorType(error: Error): string {
   return error.name || "Error";
@@ -28,7 +29,7 @@ export function createErrorHandler(): ErrorHandler<AppEnv> {
       errorCode: appError.code,
       statusCode: appError.status,
       method: c.req.method,
-      path: c.req.path,
+      route: httpRouteLabel(c),
     } as const;
 
     if (appError.status >= 500) {

@@ -1,5 +1,4 @@
 import { createMiddleware } from "hono/factory";
-import { routePath } from "hono/route";
 import type { PrincipalResolver } from "../../core/auth/principal-resolver";
 import type { RequestContext } from "../../core/context/request-context";
 import { AppError } from "../../core/errors/app-error";
@@ -17,14 +16,11 @@ import {
 import type { ClientAddressResolver } from "../client-address";
 import type { AppEnv } from "../env";
 import type { RemoteAddressResolver } from "../remote-address";
+import { httpRouteLabel } from "../route-label";
 
 export interface RequestObservability {
   readonly tracer: Tracer;
   readonly meter: Meter;
-}
-
-function metricRoute(c: Parameters<typeof routePath>[0]): string {
-  return routePath(c, -1) || "unmatched";
 }
 
 export function createRequestContextMiddleware(
@@ -118,7 +114,7 @@ export function createRequestContextMiddleware(
           }
 
           await next();
-          const route = metricRoute(c);
+          const route = httpRouteLabel(c);
           const statusCode = c.res.status;
           const attributes = { method: c.req.method, route, status_code: statusCode } as const;
           span.setAttribute("http.route", route);
@@ -133,7 +129,7 @@ export function createRequestContextMiddleware(
             attributes,
           );
         } catch (error) {
-          const route = metricRoute(c);
+          const route = httpRouteLabel(c);
           const statusCode = error instanceof AppError ? error.status : 500;
           const attributes = { method: c.req.method, route, status_code: statusCode } as const;
           span.setAttribute("http.route", route);
