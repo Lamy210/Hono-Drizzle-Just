@@ -366,13 +366,27 @@ export class FetchHttpClient implements HttpClient {
   }
 
   private resolveUrl(path: string): URL {
-    if (!path.startsWith("/") || path.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(path)) {
-      throw new AppError(
-        "INVALID_HTTP_PATH",
-        "HttpClient path must be an absolute path on the configured upstream host",
-        400,
-      );
+    if (
+      !path.startsWith("/") ||
+      path.startsWith("//") ||
+      path.includes("\\") ||
+      /^[a-z][a-z0-9+.-]*:/i.test(path)
+    ) {
+      throw this.invalidHttpPath();
     }
-    return new URL(path, this.baseUrl);
+
+    const url = new URL(path, this.baseUrl);
+    if (url.origin !== this.baseUrl.origin) {
+      throw this.invalidHttpPath();
+    }
+    return url;
+  }
+
+  private invalidHttpPath(): AppError {
+    return new AppError(
+      "INVALID_HTTP_PATH",
+      "HttpClient path must be an absolute path on the configured upstream host",
+      400,
+    );
   }
 }
