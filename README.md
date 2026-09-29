@@ -332,7 +332,7 @@ Retry behavior is deliberately conservative:
 - Without `Retry-After`, retry delay uses capped exponential backoff with full jitter.
 - A retry is skipped when its delay cannot fit inside the remaining total deadline.
 - JSON decoding and response-schema validation failures are never retried.
-- `x-request-id`, `traceparent`, and `tracestate` remain stable across attempts for the same outbound request.
+- `x-request-id`, `traceparent`, and any validated `tracestate` remain stable across attempts for the same outbound request; invalid application-provided `tracestate` is omitted rather than forwarded.
 
 Retry eligibility and delay calculation live in `RetryPolicy`, so an application can replace the default policy without changing service code or the `HttpClient` port.
 
@@ -392,7 +392,7 @@ Authentication and authorization remain separate concerns. This template does no
 
 ## Request correlation and tracing
 
-Every request receives an `x-request-id`. A valid incoming UUID request ID is accepted and normalized to lowercase; otherwise the server creates one. W3C `traceparent` is accepted only in its lowercase wire format. With OpenTelemetry enabled, the server span's trace/span IDs become the canonical request trace context; with telemetry disabled, the built-in W3C trace-context adapter preserves the same correlation behavior. The active `traceId` is attached to structured logs and common error responses.
+Every request receives an `x-request-id`. A valid incoming UUID request ID is accepted and normalized to lowercase; otherwise the server creates one. W3C `traceparent` is accepted only in its lowercase wire format. Companion `tracestate` is propagated only when its combined value is at most 512 characters, contains at most 32 list members, uses valid W3C key/value syntax, and has no duplicate keys. Invalid `tracestate` is dropped without restarting an otherwise valid `traceparent`. The outbound HTTP adapter revalidates `tracestate` before forwarding it as defense in depth. With OpenTelemetry enabled, the server span's trace/span IDs become the canonical request trace context; with telemetry disabled, the built-in W3C trace-context adapter preserves the same correlation behavior. The active `traceId` is attached to structured logs and common error responses.
 
 ## UUID policy
 
