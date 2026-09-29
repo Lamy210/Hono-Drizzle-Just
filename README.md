@@ -294,6 +294,8 @@ Factory infrastructure lives under `tests/factories` only. `TestFactory<T>` expo
 
 Relations stay explicit rather than being auto-created. Create the related record first, then pass its identifier as an override to the dependent factory. `createMany` preserves order but is not implicitly atomic; pass a transaction session when atomic fixture setup is required.
 
+Structured logger redaction matches an explicit credential-key allowlist after normalizing case plus `-`, `_`, and whitespace separators. Common spellings such as `client_secret` / `clientSecret`, `private-key` / `privateKey`, `access_token` / `accessToken`, API keys, passwords, passphrases, cookies, and session/ID/refresh tokens therefore converge to the same redaction rule. The matcher is intentionally not a broad substring rule: unrelated fields such as `publicKeyId` or `keyboardLayout` are not silently removed, so application code still owns the policy for domain-specific sensitive fields.
+
 ## Observability
 
 Application code depends on the small `Tracer` and `Meter` ports under `core/observability`, not on OpenTelemetry SDK types. `NoopTracer` and `NoopMeter` are the default behavior when `OTEL_ENABLED=false`; disabled telemetry does not construct exporters or make collector requests.

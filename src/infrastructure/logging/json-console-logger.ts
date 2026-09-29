@@ -10,21 +10,31 @@ const LEVEL_WEIGHT: Record<LogLevel, number> = {
 const SENSITIVE_KEYS = new Set([
   "authorization",
   "cookie",
-  "set-cookie",
-  "x-api-key",
-  "api-key",
+  "setcookie",
+  "xapikey",
   "apikey",
   "password",
+  "passwd",
+  "passphrase",
   "token",
-  "access_token",
-  "refresh_token",
+  "accesstoken",
+  "refreshtoken",
+  "idtoken",
+  "sessiontoken",
   "secret",
+  "clientsecret",
+  "privatekey",
+  "secretkey",
 ]);
 
 export type LogSink = (line: string) => void;
 
+function normalizedKey(key: string): string {
+  return key.toLowerCase().replace(/[-_\s]/g, "");
+}
+
 function sanitize(value: unknown, key?: string): unknown {
-  if (key && SENSITIVE_KEYS.has(key.toLowerCase())) {
+  if (key && SENSITIVE_KEYS.has(normalizedKey(key))) {
     return "[REDACTED]";
   }
   if (value instanceof Error) {
