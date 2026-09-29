@@ -318,6 +318,8 @@ The built-in JSON logger remains the logging path. Trace and span IDs correlate 
 
 Application code should depend on `HttpClient` instead of calling global `fetch` directly. `FetchHttpClient` fixes the upstream origin, rejects absolute caller-provided URLs, propagates request/trace correlation headers, validates successful JSON responses, and maps transport failures into stable application errors.
 
+Caller-provided paths are parsed only after transport-level origin guards run. Raw reverse solidus/backslash input is rejected because WHATWG special-URL parsing treats it as a slash, and the resolved URL must still have exactly the configured `baseUrl.origin`. This post-parse origin invariant also blocks control-character normalization tricks that could otherwise turn a path-looking string into a different authority. Encoded path/query data that remains on the configured origin is still allowed.
+
 Configured `baseUrl` values must use HTTP or HTTPS and must not contain embedded username/password credentials. Each physical fetch attempt uses `redirect: "manual"`, so redirects are surfaced as upstream failures instead of being followed automatically to another origin. Redirect support, if required by an application, should be added as an explicit allowlisted policy rather than by relying on the platform fetch default.
 
 `timeoutMs` is a **total request deadline** covering all network attempts and retry delays. `attemptTimeoutMs` limits one fetch attempt and is always capped by the remaining total deadline. Adapter defaults are 10 seconds total and 3 seconds per attempt; composition should normally supply the typed configuration values above.
