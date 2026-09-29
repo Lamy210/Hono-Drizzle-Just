@@ -11,6 +11,7 @@ import type {
 import type { TraceContext } from "../../src/core/tracing/trace-context";
 import type { AppEnv } from "../../src/http/env";
 import { createRequestContextMiddleware } from "../../src/http/middleware/request-context.middleware";
+import { requestLoggerMiddleware } from "../../src/http/middleware/request-logger.middleware";
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 
 class RecordingSpan implements Span {
@@ -69,10 +70,12 @@ class RecordingMeter implements Meter {
 test("request context uses the telemetry span identity and records low-cardinality HTTP metrics", async () => {
   const tracer = new RecordingTracer();
   const meter = new RecordingMeter();
-  const logger = new JsonConsoleLogger({ service: "test" }, () => undefined);
+  const lines: string[] = [];
+  const logger = new JsonConsoleLogger({ service: "test" }, (line) => lines.push(line));
   const app = new Hono<AppEnv>();
 
   app.use("*", createRequestContextMiddleware(logger, undefined, { tracer, meter }));
+  app.use("*", requestLoggerMiddleware);
   app.get("/users/:id", (c) => c.json({ trace: c.get("requestContext").trace }));
 
   const response = await app.request("/users/550e8400-e29b-41d4-a716-446655440000", {
@@ -128,4 +131,15 @@ test("request context uses the telemetry span identity and records low-cardinali
     status_code: 200,
   });
   expect(meter.histograms[0]?.value).toBeGreaterThanOrEqual(0);
+
+  expect(lines).toHaveLength(1);
+  const requestLog = JSON.parse(lines[0] ?? "{}");
+  expect(requestLog).toMatchObject({
+    message: "http.request",
+    method: "GET",
+    route: "/users/:id",
+    statusCode: 200,
+  });
+  expect(requestLog.path).toBeUndefined();
+  expect(lines[0]).not.toContain("550e8400-e29b-41d4-a716-446655440000");
 });
