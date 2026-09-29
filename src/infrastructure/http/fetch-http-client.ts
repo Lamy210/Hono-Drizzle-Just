@@ -189,13 +189,15 @@ export class FetchHttpClient implements HttpClient {
         ),
       );
 
+      let attemptSignal: AbortSignal | undefined;
       try {
+        attemptSignal = this.signalFactory(attemptTimeoutMs);
         const response = await this.fetchImpl(url, {
           method: request.method,
           headers,
           ...(body === undefined ? {} : { body }),
           redirect: "manual",
-          signal: this.signalFactory(attemptTimeoutMs),
+          signal: attemptSignal,
         });
 
         const retryDelay = this.retryPolicy.nextDelay(request, attempt, {
@@ -235,6 +237,9 @@ export class FetchHttpClient implements HttpClient {
         try {
           raw = request.method === "HEAD" || response.status === 204 ? undefined : await response.json();
         } catch (error) {
+          if (this.isAttemptTimeout(error, attemptSignal)) {
+            throw error;
+          }
           throw new AppError(
             "UPSTREAM_RESPONSE_INVALID",
             "Upstream returned invalid JSON",
@@ -267,6 +272,7 @@ export class FetchHttpClient implements HttpClient {
         });
         return { status: response.status, headers: response.headers, data };
       } catch (error) {
+        const timedOut = this.isAttemptTimeout(error, attemptSignal);
         if (!(error instanceof AppError)) {
           const retryDelay = this.retryPolicy.nextDelay(request, attempt, { kind: "network" });
           if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt)) {
@@ -276,10 +282,7 @@ export class FetchHttpClient implements HttpClient {
               attempt,
               nextAttempt: attempt + 1,
               delayMs: retryDelay,
-              reason:
-                error instanceof DOMException && error.name === "TimeoutError"
-                  ? "timeout"
-                  : "network",
+              reason: timedOut ? "timeout" : "network",
               traceId: trace?.traceId,
             });
             if (retryDelay > 0) {
@@ -291,7 +294,7 @@ export class FetchHttpClient implements HttpClient {
         if (error instanceof AppError) {
           throw error;
         }
-        if (error instanceof DOMException && error.name === "TimeoutError") {
+        if (timedOut) {
           throw this.timeoutError(url, error);
         }
         throw new AppError(
@@ -303,6 +306,26 @@ export class FetchHttpClient implements HttpClient {
         );
       }
     }
+  }
+
+  private isAttemptTimeout(error: unknown, signal: AbortSignal | undefined): boolean {
+    const errorName = this.errorName(error);
+    if (errorName === "TimeoutError") {
+      return true;
+    }
+    return (
+      errorName === "AbortError" &&
+      signal?.aborted === true &&
+      this.errorName(signal.reason) === "TimeoutError"
+    );
+  }
+
+  private errorName(error: unknown): string | undefined {
+    if (typeof error !== "object" || error === null || !("name" in error)) {
+      return undefined;
+    }
+    const name = (error as { readonly name?: unknown }).name;
+    return typeof name === "string" ? name : undefined;
   }
 
   private async discardResponseBody(response: Response): Promise<void> {
