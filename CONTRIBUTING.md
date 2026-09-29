@@ -97,6 +97,7 @@ In particular:
 - API schemas and database schemas remain separate contracts.
 - Application services depend on ports such as repositories and transaction managers, not concrete infrastructure adapters.
 - External HTTP calls go through the application-owned `HttpClient` abstraction.
+- Keep caller-provided outbound HTTP paths out of routine retry/response logs and metric labels. The configured upstream host plus bounded method/status/retry/correlation metadata is the default observability surface; do not add resource IDs or arbitrary path segments unless an explicit application audit contract requires them.
 - Authentication provider data is normalized into the provider-neutral `Principal` boundary.
 - Keep principal identifiers out of shared request logger context. The request logger may record bounded authentication state such as `authenticated: true`, but `subject`, `tenantId`, roles, scopes, credentials, and provider claims stay in `RequestContext.principal` unless an explicit application-owned audit event has a documented need for them.
 - Authorization stays in the application layer: protected use cases derive tenant ownership only from `RequestContext.principal`, and authorization failures must not disclose required scopes, other tenant IDs, or row existence.
