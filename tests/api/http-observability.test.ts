@@ -143,3 +143,36 @@ test("request context uses the telemetry span identity and records low-cardinali
   expect(requestLog.path).toBeUndefined();
   expect(lines[0]).not.toContain("550e8400-e29b-41d4-a716-446655440000");
 });
+
+
+test("invalid tracestate is dropped without restarting a valid traceparent", async () => {
+  const tracer = new RecordingTracer();
+  const meter = new RecordingMeter();
+  const logger = new JsonConsoleLogger({}, () => undefined);
+  const app = new Hono<AppEnv>();
+
+  app.use("*", createRequestContextMiddleware(logger, undefined, { tracer, meter }));
+  app.get("/trace", (c) => c.json({ trace: c.get("requestContext").trace }));
+
+  const response = await app.request("/trace", {
+    headers: {
+      traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+      tracestate: "vendor=value,vendor=duplicate",
+    },
+  });
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    trace: {
+      traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+      spanId: "bbbbbbbbbbbbbbbb",
+      traceFlags: "01",
+    },
+  });
+  expect(tracer.calls[0]?.options.parent).toEqual({
+    traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+    spanId: "00f067aa0ba902b7",
+    traceFlags: "01",
+  });
+  expect(tracer.calls[0]?.span.traceContext().traceState).toBeUndefined();
+});
