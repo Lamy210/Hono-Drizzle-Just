@@ -71,3 +71,52 @@ test("redaction does not treat unrelated key-like fields as credentials", () => 
   expect(entry.keyboardLayout).toBe("jp");
   expect(entry.monkey).toBe("business-value");
 });
+
+test("URL log values remove userinfo, fragments, and redact sensitive query parameters", () => {
+  const lines: string[] = [];
+  const logger = new JsonConsoleLogger({}, (line) => lines.push(line));
+  const url = new URL(
+    "https://client:password@example.test/resource/123?access_token=token-value&client_secret=client-value&filter=active#id_token=fragment-secret",
+  );
+
+  logger.info("upstream URL", { url });
+
+  const entry = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
+  expect(typeof entry.url).toBe("string");
+
+  const sanitized = new URL(String(entry.url));
+  expect(sanitized.username).toBe("");
+  expect(sanitized.password).toBe("");
+  expect(sanitized.hash).toBe("");
+  expect(sanitized.searchParams.get("access_token")).toBe("[REDACTED]");
+  expect(sanitized.searchParams.get("client_secret")).toBe("[REDACTED]");
+  expect(sanitized.searchParams.get("filter")).toBe("active");
+
+  const serialized = lines[0] ?? "";
+  expect(serialized).not.toContain("client:password");
+  expect(serialized).not.toContain("token-value");
+  expect(serialized).not.toContain("client-value");
+  expect(serialized).not.toContain("fragment-secret");
+});
+
+test("URL query redaction preserves repeated parameter order without leaking secret values", () => {
+  const lines: string[] = [];
+  const logger = new JsonConsoleLogger({}, (line) => lines.push(line));
+  const url = new URL(
+    "https://example.test/callback?scope=read&accessToken=first&scope=write&accessToken=second",
+  );
+
+  logger.info("callback URL", { callbackUrl: url });
+
+  const entry = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
+  const sanitized = new URL(String(entry.callbackUrl));
+  expect([...sanitized.searchParams.entries()]).toEqual([
+    ["scope", "read"],
+    ["accessToken", "[REDACTED]"],
+    ["scope", "write"],
+    ["accessToken", "[REDACTED]"],
+  ]);
+  expect(lines[0]).not.toContain("first");
+  expect(lines[0]).not.toContain("second");
+});
+
