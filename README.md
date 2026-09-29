@@ -176,6 +176,7 @@ Configuration is loaded once during startup. Application modules should not read
 | `LOG_LEVEL` | `info` | Minimum structured log level |
 | `HTTP_DEFAULT_TIMEOUT_MS` | `10000` | Total outbound HTTP deadline across attempts and retry delays |
 | `HTTP_DEFAULT_ATTEMPT_TIMEOUT_MS` | `3000` | Maximum duration of one outbound fetch attempt |
+| `HTTP_MAX_RESPONSE_BODY_BYTES` | `1048576` | Default maximum successful outbound response bytes read before JSON parsing; individual requests may lower or override it |
 | `HTTP_MAX_REQUEST_BODY_BYTES` | `1048576` | Application-level inbound request body limit; Hono returns the common 413 error contract when exceeded |
 | `HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES` | `2097152` | Bun transport hard cap; must be greater than `HTTP_MAX_REQUEST_BODY_BYTES` |
 | `HTTP_TRUSTED_PROXY_CIDRS` | empty | Comma-delimited trusted reverse-proxy IPv4/IPv6 CIDRs allowed to influence `clientAddress` through `X-Forwarded-For` |
@@ -321,6 +322,8 @@ Application code should depend on `HttpClient` instead of calling global `fetch`
 Caller-provided paths are parsed only after transport-level origin guards run. Raw reverse solidus/backslash input is rejected because WHATWG special-URL parsing treats it as a slash, and the resolved URL must still have exactly the configured `baseUrl.origin`. This post-parse origin invariant also blocks control-character normalization tricks that could otherwise turn a path-looking string into a different authority. Encoded path/query data that remains on the configured origin is still allowed.
 
 Configured `baseUrl` values must use HTTP or HTTPS and must not contain embedded username/password credentials. Each physical fetch attempt uses `redirect: "manual"`, so redirects are surfaced as upstream failures instead of being followed automatically to another origin. Redirect support, if required by an application, should be added as an explicit allowlisted policy rather than by relying on the platform fetch default.
+
+Successful outbound JSON bodies are also bounded. `FetchHttpClient` reads the response stream itself and stops once the configured byte limit is exceeded instead of trusting `Content-Length` or calling unbounded `response.json()`. The adapter default is 1 MiB and callers may set a request-specific `maxResponseBytes`; overflow cancels the body best-effort and returns the stable `UPSTREAM_RESPONSE_INVALID` 502 contract without logging response contents.
 
 `timeoutMs` is a **total request deadline** covering all network attempts and retry delays. `attemptTimeoutMs` limits one fetch attempt and is always capped by the remaining total deadline. Adapter defaults are 10 seconds total and 3 seconds per attempt; composition should normally supply the typed configuration values above.
 
