@@ -225,7 +225,7 @@ export class FetchHttpClient implements HttpClient {
           await this.discardResponseBody(response);
           throw new AppError(
             "UPSTREAM_REQUEST_FAILED",
-            `Upstream returned HTTP ${response.status}`,
+            "Upstream request failed",
             502,
             undefined,
             { diagnostics: { status: response.status, host: url.host } },
