@@ -289,7 +289,7 @@ Application code must not call global `fetch` directly. The application-owned `H
 
 `FetchHttpClient` is the infrastructure adapter. It fixes the upstream origin, rejects absolute caller-provided URLs to reduce SSRF foot-guns, injects correlation/tracing headers, serializes JSON request bodies, validates successful JSON responses, and maps transport/upstream failures into `AppError`.
 
-The adapter treats its configured upstream as a trust boundary. `baseUrl` must use `http:` or `https:` and cannot contain embedded username/password credentials. Every underlying fetch attempt sets `redirect: "manual"`; a 3xx response is therefore handled as an upstream failure rather than automatically following `Location` to another origin. Supporting redirects later requires an explicit policy with host/scheme constraints rather than reverting to the platform default.
+The adapter treats its configured upstream as a trust boundary. `baseUrl` must use `http:` or `https:` and cannot contain embedded username/password credentials. Every underlying fetch attempt sets `redirect: "manual"`; a 3xx response is therefore handled as an upstream failure rather than automatically following `Location` to another origin. Supporting redirects later requires an explicit policy with host/scheme constraints rather than reverting to the platform default. Non-success response bodies are never parsed or logged. Before retrying or surfacing a non-success status, the adapter best-effort cancels the body stream so the fetch implementation can release transport resources; cleanup failure never replaces the authoritative upstream-status error.
 
 ### Retry boundary
 
