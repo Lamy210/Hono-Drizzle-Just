@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
 import type { RequestContext } from "../../../src/core/context/request-context";
+import { AppError } from "../../../src/core/errors/app-error";
 import {
   FetchHttpClient,
   type FetchLike,
@@ -497,6 +498,50 @@ test("fetch wrapper rejects invalid outbound request byte limits", async () => {
       z.unknown(),
     ),
   ).rejects.toBeInstanceOf(RangeError);
+});
+
+test("fetch wrapper normalizes invalid application headers before network access", async () => {
+  let fetchCalls = 0;
+  const fetchImpl: FetchLike = async () => {
+    fetchCalls += 1;
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  for (const headers of [
+    { "bad header": "value" },
+    { authorization: "Bearer top-secret\r\nInjected: yes" },
+  ]) {
+    try {
+      await client.request(
+        {
+          method: "GET",
+          path: "/headers",
+          headers,
+        },
+        z.object({ ok: z.boolean() }),
+      );
+      throw new Error("expected invalid outbound headers to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      if (!(error instanceof AppError)) {
+        continue;
+      }
+      expect(error.code).toBe("INTERNAL_ERROR");
+      expect(error.status).toBe(500);
+      expect(error.message).toBe("Outbound HTTP request headers were invalid");
+      expect(error.details).toBeUndefined();
+      expect(error.diagnostics).toEqual({ host: "example.test" });
+      expect(error.cause).toBeUndefined();
+      expect(String(error)).not.toContain("top-secret");
+    }
+  }
+
+  expect(fetchCalls).toBe(0);
 });
 
 test("fetch wrapper rejects caller-controlled transport headers before network access", async () => {
