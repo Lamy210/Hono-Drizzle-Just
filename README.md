@@ -384,7 +384,7 @@ Authentication is adapter-driven. `core/auth` defines a provider-neutral `Princi
 
 `createApp` accepts an optional `PrincipalResolver`. If none is configured, requests remain anonymous and `RequestContext.principal` is absent. When a resolver is configured, the HTTP middleware passes only the inbound `Authorization` and `Cookie` credential values to it. Raw credentials are not copied into `RequestContext`, structured log context, or error responses.
 
-Base request correlation is established before principal resolution. A resolver can therefore throw a stable `AppError` such as `UNAUTHORIZED`/401 without losing `requestId`, `traceId`, or the request logger. Once resolution succeeds, only the normalized `subject` and optional `tenantId` are added to log context.
+Base request correlation is established before principal resolution. A resolver can therefore throw a stable `AppError` such as `UNAUTHORIZED`/401 without losing `requestId`, `traceId`, or the request logger. Once resolution succeeds, the principal remains available only through `RequestContext.principal`; shared request log context records the low-cardinality `authenticated: true` state instead of copying `subject` or `tenantId` into every downstream log line.
 
 Authentication and authorization remain separate concerns. This template does not force a JWT library, identity provider, role model, or route authorization policy; protected routes/use cases should explicitly require a principal or specific scopes/roles when such policy is added.
 

@@ -98,6 +98,7 @@ In particular:
 - Application services depend on ports such as repositories and transaction managers, not concrete infrastructure adapters.
 - External HTTP calls go through the application-owned `HttpClient` abstraction.
 - Authentication provider data is normalized into the provider-neutral `Principal` boundary.
+- Keep principal identifiers out of shared request logger context. The request logger may record bounded authentication state such as `authenticated: true`, but `subject`, `tenantId`, roles, scopes, credentials, and provider claims stay in `RequestContext.principal` unless an explicit application-owned audit event has a documented need for them.
 - Authorization stays in the application layer: protected use cases derive tenant ownership only from `RequestContext.principal`, and authorization failures must not disclose required scopes, other tenant IDs, or row existence.
 - Tenant-owned repositories must keep tenant ID in their public method signatures and SQL predicates; do not add an unscoped user lookup as a convenience method.
 - Cursor pagination remains tenant-scoped and keyset-based. Keep opaque cursor encoding in the presentation layer, keep tenant IDs out of cursor payloads, preserve the `created_at DESC, id DESC` tie-break, and do not replace the repository predicate with deep OFFSET pagination. The persisted `created_at` ordering key must stay at millisecond precision while cursors use JavaScript `Date`; increasing database timestamp precision without changing the cursor representation can reintroduce skipped rows.

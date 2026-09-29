@@ -5,6 +5,7 @@ import { AppError } from "../../src/core/errors/app-error";
 import { createErrorHandler } from "../../src/http/error-handler";
 import type { AppEnv } from "../../src/http/env";
 import { createRequestContextMiddleware } from "../../src/http/middleware/request-context.middleware";
+import { requestLoggerMiddleware } from "../../src/http/middleware/request-logger.middleware";
 import { JsonConsoleLogger } from "../../src/infrastructure/logging/json-console-logger";
 
 test("resolved principal is attached to RequestContext", async () => {
@@ -57,7 +58,7 @@ test("requests stay anonymous when no principal is resolved", async () => {
   expect(await response.json()).toEqual({ authenticated: false });
 });
 
-test("auth secrets are not copied into structured logs", async () => {
+test("resolved principal logs keep only low-cardinality authentication state", async () => {
   const lines: string[] = [];
   const resolver: PrincipalResolver = {
     resolve: mock(async () => ({ subject: "user-123", tenantId: "tenant-456" })),
@@ -66,6 +67,7 @@ test("auth secrets are not copied into structured logs", async () => {
   const app = new Hono<AppEnv>();
 
   app.use("*", createRequestContextMiddleware(logger, resolver));
+  app.use("*", requestLoggerMiddleware);
   app.get("/context", (c) => {
     c.get("logger").info("auth.context.ready");
     return c.body(null, 204);
@@ -79,11 +81,17 @@ test("auth secrets are not copied into structured logs", async () => {
   });
 
   expect(response.status).toBe(204);
-  expect(lines).toHaveLength(1);
-  expect(lines[0]).toContain("user-123");
-  expect(lines[0]).toContain("tenant-456");
-  expect(lines[0]).not.toContain("super-secret-token");
-  expect(lines[0]).not.toContain("super-secret-cookie");
+  expect(lines).toHaveLength(2);
+  for (const line of lines) {
+    const log = JSON.parse(line);
+    expect(log.authenticated).toBe(true);
+    expect(line).not.toContain("user-123");
+    expect(line).not.toContain("tenant-456");
+    expect(line).not.toContain("super-secret-token");
+    expect(line).not.toContain("super-secret-cookie");
+  }
+  expect(lines.some((line) => line.includes('"message":"http.request"'))).toBe(true);
+  expect(lines.some((line) => line.includes('"message":"auth.context.ready"'))).toBe(true);
 });
 
 test("principal resolver failures keep request correlation available to the error handler", async () => {

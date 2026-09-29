@@ -195,7 +195,7 @@ PrincipalResolver
 
 The request-context middleware establishes `requestId`, trace context, and a base request logger **before** invoking the resolver. This ordering is deliberate: an invalid credential or unavailable identity provider may throw an `AppError`, and the common error handler still needs correlation context and a logger to return a controlled response. `UNAUTHORIZED` is a stable 401 application error code for authentication adapters to use when appropriate.
 
-Raw `Authorization` and `Cookie` values are passed only to the resolver. They are not stored in `RequestContext`, copied into logger context, or echoed in error responses. After successful resolution, only `subject` and optional `tenantId` are added to structured log context.
+Raw `Authorization` and `Cookie` values are passed only to the resolver. They are not stored in `RequestContext`, copied into logger context, or echoed in error responses. After successful resolution, the normalized principal is stored only in `RequestContext.principal`; the shared request logger adds only `authenticated: true`. Subject and tenant identifiers therefore do not become implicit fields on every access/error/application log emitted later in the request. Use an explicit application-owned audit event when a concrete subject/resource identifier is actually required.
 
 If no resolver is composed, the request remains anonymous. The template still does not choose a JWT package, OIDC provider, Ory/Cognito integration, or role hierarchy. Authentication answers "who is this?"; application authorization answers "may this principal perform this use case for this tenant?"
 
