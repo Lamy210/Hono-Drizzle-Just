@@ -204,6 +204,7 @@ export class FetchHttpClient implements HttpClient {
           headers: response.headers,
         });
         if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt)) {
+          await this.discardResponseBody(response);
           this.logger.warn("http.client.retry", {
             method: request.method,
             path: url.pathname,
@@ -221,6 +222,7 @@ export class FetchHttpClient implements HttpClient {
         }
 
         if (!response.ok) {
+          await this.discardResponseBody(response);
           throw new AppError(
             "UPSTREAM_REQUEST_FAILED",
             `Upstream returned HTTP ${response.status}`,
@@ -300,6 +302,17 @@ export class FetchHttpClient implements HttpClient {
           { cause: error },
         );
       }
+    }
+  }
+
+  private async discardResponseBody(response: Response): Promise<void> {
+    if (response.body === null || response.bodyUsed) {
+      return;
+    }
+    try {
+      await response.body.cancel();
+    } catch {
+      // Body cleanup is best-effort and must not replace the upstream failure.
     }
   }
 

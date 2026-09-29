@@ -7,12 +7,20 @@ import {
 } from "../../../src/infrastructure/http/fetch-http-client";
 import { JsonConsoleLogger } from "../../../src/infrastructure/logging/json-console-logger";
 
-test("GET retries a retryable upstream status", async () => {
+test("GET discards a retryable response body before the next attempt", async () => {
   let attempts = 0;
+  let cancelledBodies = 0;
   const fetchImpl: FetchLike = async () => {
     attempts += 1;
     if (attempts === 1) {
-      return new Response("busy", { status: 503 });
+      return new Response(
+        new ReadableStream({
+          cancel() {
+            cancelledBodies += 1;
+          },
+        }),
+        { status: 503 },
+      );
     }
     return Response.json({ ok: true });
   };
@@ -31,6 +39,7 @@ test("GET retries a retryable upstream status", async () => {
 
   expect(response.data.ok).toBe(true);
   expect(attempts).toBe(2);
+  expect(cancelledBodies).toBe(1);
 });
 
 test("GET retries every configured transient upstream status", async () => {
