@@ -103,10 +103,34 @@ test("handled 4xx AppError keeps server span unset and logs a warning without st
     errorCode: "VALIDATION_ERROR",
     statusCode: 400,
     method: "GET",
-    path: "/client-error",
+    route: "/client-error",
   });
   expect(log.error).toBeUndefined();
   expect(lines[0]).not.toContain("invalid client value");
+});
+
+test("error logs use route templates instead of resource identifiers", async () => {
+  const { app, lines } = createObservedApp();
+  const resourceId = "550e8400-e29b-41d4-a716-446655440000";
+
+  app.get("/users/:id", () => {
+    throw new AppError("NOT_FOUND", "User not found", 404);
+  });
+
+  const response = await app.request(`/users/${resourceId}`);
+
+  expect(response.status).toBe(404);
+  expect(lines).toHaveLength(1);
+  const log = JSON.parse(lines[0] ?? "{}");
+  expect(log).toMatchObject({
+    level: "warn",
+    message: "http.request.rejected",
+    method: "GET",
+    route: "/users/:id",
+    statusCode: 404,
+  });
+  expect(log.path).toBeUndefined();
+  expect(lines[0]).not.toContain(resourceId);
 });
 
 test("5xx AppError marks the server span as error without logging free-form exception text", async () => {
