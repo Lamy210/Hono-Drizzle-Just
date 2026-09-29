@@ -500,6 +500,47 @@ test("fetch wrapper rejects invalid outbound request byte limits", async () => {
   ).rejects.toBeInstanceOf(RangeError);
 });
 
+test("fetch wrapper rejects GET and HEAD bodies before network access or retry", async () => {
+  let fetchCalls = 0;
+  const fetchImpl: FetchLike = async () => {
+    fetchCalls += 1;
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  for (const method of ["GET", "HEAD"] as const) {
+    try {
+      await client.request(
+        {
+          method,
+          path: "/resource",
+          body: { credential: "top-secret-value" },
+        },
+        z.unknown(),
+      );
+      throw new Error("expected GET/HEAD body to be rejected");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      if (!(error instanceof AppError)) {
+        continue;
+      }
+      expect(error.code).toBe("INTERNAL_ERROR");
+      expect(error.status).toBe(500);
+      expect(error.message).toBe("Outbound HTTP GET/HEAD requests cannot include a body");
+      expect(error.details).toBeUndefined();
+      expect(error.diagnostics).toEqual({ host: "example.test" });
+      expect(error.cause).toBeUndefined();
+      expect(String(error)).not.toContain("top-secret-value");
+    }
+  }
+
+  expect(fetchCalls).toBe(0);
+});
+
 test("fetch wrapper normalizes invalid application headers before network access", async () => {
   let fetchCalls = 0;
   const fetchImpl: FetchLike = async () => {

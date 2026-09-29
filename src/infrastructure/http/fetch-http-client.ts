@@ -194,6 +194,7 @@ export class FetchHttpClient implements HttpClient {
     trace: TraceContext | undefined,
     startedAt: number,
   ): Promise<HttpResponse<TResponse>> {
+    this.assertRequestBodyAllowed(request, url);
     const headers = this.createRequestHeaders(request.headers, url);
     this.assertApplicationHeaders(headers, url);
     headers.set("accept", "application/json");
@@ -359,6 +360,18 @@ export class FetchHttpClient implements HttpClient {
           { cause: error, diagnostics: { host: url.host } },
         );
       }
+    }
+  }
+
+  private assertRequestBodyAllowed(request: HttpRequest, url: URL): void {
+    if ((request.method === "GET" || request.method === "HEAD") && request.body !== undefined) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Outbound HTTP GET/HEAD requests cannot include a body",
+        500,
+        undefined,
+        { diagnostics: { host: url.host } },
+      );
     }
   }
 
