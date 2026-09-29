@@ -234,3 +234,43 @@ test("classified database failures expose only stable sanitized HTTP errors", as
 
 
 
+
+
+test("public AppError details remain serializable while internal diagnostics stay private", async () => {
+  const { app, lines } = createObservedApp();
+  app.get("/diagnostics-boundary", () => {
+    throw new AppError(
+      "UPSTREAM_REQUEST_FAILED",
+      "Upstream request failed",
+      502,
+      { retryable: false },
+      {
+        diagnostics: {
+          host: "internal.service.cluster.local",
+          status: 503,
+          credential: "Bearer top-secret",
+        },
+      },
+    );
+  });
+
+  const response = await app.request("/diagnostics-boundary");
+  const body = await response.json();
+  const serialized = JSON.stringify(body);
+
+  expect(response.status).toBe(502);
+  expect(body).toMatchObject({
+    error: {
+      code: "UPSTREAM_REQUEST_FAILED",
+      message: "Upstream request failed",
+      details: { retryable: false },
+    },
+  });
+  expect(serialized).not.toContain("internal.service.cluster.local");
+  expect(serialized).not.toContain("503");
+  expect(serialized).not.toContain("top-secret");
+
+  expect(lines).toHaveLength(1);
+  expect(lines[0]).not.toContain("internal.service.cluster.local");
+  expect(lines[0]).not.toContain("top-secret");
+});

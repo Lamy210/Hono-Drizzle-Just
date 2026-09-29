@@ -19,18 +19,39 @@ export type AppErrorCode =
   | "DATABASE_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
-export type AppErrorStatus = 400 | 401 | 403 | 404 | 405 | 409 | 412 | 413 | 422 | 428 | 429 | 500 | 502 | 503 | 504;
+export type AppErrorStatus =
+  | 400
+  | 401
+  | 403
+  | 404
+  | 405
+  | 409
+  | 412
+  | 413
+  | 422
+  | 428
+  | 429
+  | 500
+  | 502
+  | 503
+  | 504;
+
+export interface AppErrorOptions extends ErrorOptions {
+  readonly diagnostics?: unknown;
+}
 
 export class AppError extends Error {
   readonly name = "AppError";
+  readonly diagnostics: unknown | undefined;
 
   constructor(
     readonly code: AppErrorCode,
     message: string,
     readonly status: AppErrorStatus,
     readonly details: unknown | undefined = undefined,
-    options?: ErrorOptions,
+    options?: AppErrorOptions,
   ) {
     super(message, options);
+    this.diagnostics = options?.diagnostics;
   }
 }

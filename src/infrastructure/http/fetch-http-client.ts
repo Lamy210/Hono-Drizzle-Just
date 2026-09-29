@@ -225,9 +225,10 @@ export class FetchHttpClient implements HttpClient {
           await this.discardResponseBody(response);
           throw new AppError(
             "UPSTREAM_REQUEST_FAILED",
-            `Upstream returned HTTP ${response.status}`,
+            "Upstream request failed",
             502,
-            { status: response.status, host: url.host },
+            undefined,
+            { diagnostics: { status: response.status, host: url.host } },
           );
         }
 
@@ -239,8 +240,8 @@ export class FetchHttpClient implements HttpClient {
             "UPSTREAM_RESPONSE_INVALID",
             "Upstream returned invalid JSON",
             502,
-            { host: url.host },
-            { cause: error },
+            undefined,
+            { cause: error, diagnostics: { host: url.host } },
           );
         }
 
@@ -252,8 +253,8 @@ export class FetchHttpClient implements HttpClient {
             "UPSTREAM_RESPONSE_INVALID",
             "Upstream response did not match the expected schema",
             502,
-            { host: url.host },
-            { cause: error },
+            undefined,
+            { cause: error, diagnostics: { host: url.host } },
           );
         }
 
@@ -296,8 +297,8 @@ export class FetchHttpClient implements HttpClient {
           "UPSTREAM_REQUEST_FAILED",
           "Upstream request failed",
           502,
-          { host: url.host },
-          { cause: error },
+          undefined,
+          { cause: error, diagnostics: { host: url.host } },
         );
       }
     }
@@ -336,10 +337,14 @@ export class FetchHttpClient implements HttpClient {
   }
 
   private statusFromError(error: unknown): number | undefined {
-    if (!(error instanceof AppError) || typeof error.details !== "object" || error.details === null) {
+    if (
+      !(error instanceof AppError) ||
+      typeof error.diagnostics !== "object" ||
+      error.diagnostics === null
+    ) {
       return undefined;
     }
-    const status = "status" in error.details ? error.details.status : undefined;
+    const status = "status" in error.diagnostics ? error.diagnostics.status : undefined;
     return typeof status === "number" ? status : undefined;
   }
 
@@ -348,8 +353,11 @@ export class FetchHttpClient implements HttpClient {
       "UPSTREAM_TIMEOUT",
       "Upstream request timed out",
       504,
-      { host: url.host },
-      cause === undefined ? undefined : { cause },
+      undefined,
+      {
+        ...(cause === undefined ? {} : { cause }),
+        diagnostics: { host: url.host },
+      },
     );
   }
 
