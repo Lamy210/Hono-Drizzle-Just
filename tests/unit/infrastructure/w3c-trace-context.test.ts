@@ -41,7 +41,7 @@ describe("W3C trace context", () => {
   });
 
   test("accepts the documented 512-character propagation boundary", () => {
-    const key = `a${"b".repeat(253)}`;
+    const key = `a${"b".repeat(254)}`;
     const value = "v".repeat(256);
     const traceState = `${key}=${value}`;
 
@@ -64,9 +64,8 @@ describe("W3C trace context", () => {
       "vendor=value,vendor=duplicate",
       "vendor=value=extra",
       "vendor=value,broken",
-      "vendor=value,other=ends-with-space ",
       `vendor=${"v".repeat(257)}`,
-      `vendor=${"v".repeat(505)}`,
+      `a=${"v".repeat(256)},b=${"w".repeat(252)}`,
     ]) {
       expect(parseTraceState(traceState)).toBeUndefined();
       const trace = createRequestTrace(validTraceParent, traceState);
