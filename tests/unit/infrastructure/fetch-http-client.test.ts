@@ -143,7 +143,7 @@ test("fetch wrapper keeps normalized safe paths on the configured origin", async
     return Response.json({ ok: true });
   };
   const client = new FetchHttpClient({
-    baseUrl: "https://example.test/base",
+    baseUrl: "https://example.test",
     logger: new JsonConsoleLogger({}, () => undefined),
     fetchImpl,
   });
@@ -168,6 +168,40 @@ test("fetch wrapper rejects non-HTTP base URLs", () => {
         fetchImpl: fetch,
       }),
   ).toThrow(RangeError);
+});
+
+test("fetch wrapper rejects base URLs with path, query, or fragment components", () => {
+  const logger = new JsonConsoleLogger({}, () => undefined);
+
+  for (const baseUrl of [
+    "https://example.test/api",
+    "https://example.test/?region=private",
+    "https://example.test/#internal",
+  ]) {
+    expect(
+      () =>
+        new FetchHttpClient({
+          baseUrl,
+          logger,
+          fetchImpl: fetch,
+        }),
+    ).toThrow(RangeError);
+  }
+});
+
+test("fetch wrapper accepts canonical origin URLs with or without a trailing slash", () => {
+  const logger = new JsonConsoleLogger({}, () => undefined);
+
+  for (const baseUrl of ["https://example.test", "https://example.test/"]) {
+    expect(
+      () =>
+        new FetchHttpClient({
+          baseUrl,
+          logger,
+          fetchImpl: fetch,
+        }),
+    ).not.toThrow();
+  }
 });
 
 test("fetch wrapper rejects base URLs with embedded credentials", () => {
