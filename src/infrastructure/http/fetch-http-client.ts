@@ -194,7 +194,7 @@ export class FetchHttpClient implements HttpClient {
     trace: TraceContext | undefined,
     startedAt: number,
   ): Promise<HttpResponse<TResponse>> {
-    const headers = new Headers(request.headers);
+    const headers = this.createRequestHeaders(request.headers, url);
     this.assertApplicationHeaders(headers, url);
     headers.set("accept", "application/json");
 
@@ -359,6 +359,20 @@ export class FetchHttpClient implements HttpClient {
           { cause: error, diagnostics: { host: url.host } },
         );
       }
+    }
+  }
+
+  private createRequestHeaders(input: HeadersInit | undefined, url: URL): Headers {
+    try {
+      return new Headers(input);
+    } catch {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Outbound HTTP request headers were invalid",
+        500,
+        undefined,
+        { diagnostics: { host: url.host } },
+      );
     }
   }
 
