@@ -499,6 +499,44 @@ test("fetch wrapper rejects invalid outbound request byte limits", async () => {
   ).rejects.toBeInstanceOf(RangeError);
 });
 
+test("fetch wrapper normalizes invalid application headers before network access", async () => {
+  let fetchCalls = 0;
+  const fetchImpl: FetchLike = async () => {
+    fetchCalls += 1;
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  for (const headers of [
+    { "bad header": "value" },
+    { authorization: "Bearer top-secret\r\nInjected: yes" },
+  ]) {
+    await expect(
+      client.request(
+        {
+          method: "GET",
+          path: "/headers",
+          headers,
+        },
+        z.object({ ok: z.boolean() }),
+      ),
+    ).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      message: "Outbound HTTP request headers were invalid",
+      details: undefined,
+      diagnostics: { host: "example.test" },
+      cause: undefined,
+    });
+  }
+
+  expect(fetchCalls).toBe(0);
+});
+
 test("fetch wrapper rejects caller-controlled transport headers before network access", async () => {
   let fetchCalls = 0;
   const fetchImpl: FetchLike = async () => {
