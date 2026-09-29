@@ -137,6 +137,60 @@ test("fetch wrapper rejects path forms that URL parsing could reinterpret as ano
   }
 });
 
+test("fetch wrapper rejects same-origin paths whose raw meaning would be normalized", async () => {
+  let fetchCalls = 0;
+  const fetchImpl: FetchLike = async () => {
+    fetchCalls += 1;
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  for (const path of [
+    "/safe/\tvalue",
+    "/safe/\nvalue",
+    "/safe/\rvalue",
+    "/safe/\u0000value",
+    "/users#private-fragment",
+    "/api/../admin",
+    "/api/%2e%2e/admin",
+    "/api/.%2E/admin",
+  ]) {
+    await expect(
+      client.request({ method: "GET", path }, z.unknown()),
+    ).rejects.toMatchObject({ code: "INVALID_HTTP_PATH" });
+  }
+
+  expect(fetchCalls).toBe(0);
+});
+
+test("fetch wrapper allows encoded path data and dot-like non-segments", async () => {
+  let captured: URL | undefined;
+  const fetchImpl: FetchLike = async (input) => {
+    captured = new URL(input.toString());
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  await client.request(
+    {
+      method: "GET",
+      path: "/safe/%23fragment/%2evalue?next=../still-query-data",
+    },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(captured?.pathname).toBe("/safe/%23fragment/%2evalue");
+  expect(captured?.search).toBe("?next=../still-query-data");
+});
+
 test("fetch wrapper keeps normalized safe paths on the configured origin", async () => {
   let captured: URL | undefined;
   const fetchImpl: FetchLike = async (input) => {
