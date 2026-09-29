@@ -70,7 +70,9 @@ test("fetch wrapper surfaces redirects after discarding their response body", as
 
   await expect(client.request({ method: "GET", path: "/redirect" }, z.unknown())).rejects.toMatchObject({
     code: "UPSTREAM_REQUEST_FAILED",
-    details: { status: 302, host: "example.test" },
+    message: "Upstream request failed",
+    details: undefined,
+    diagnostics: { status: 302, host: "example.test" },
   });
   expect(cancelledBodies).toBe(1);
 });
@@ -94,7 +96,9 @@ test("response-body cleanup failures do not replace the upstream HTTP failure", 
 
   await expect(client.request({ method: "GET", path: "/bad-request" }, z.unknown())).rejects.toMatchObject({
     code: "UPSTREAM_REQUEST_FAILED",
-    details: { status: 400, host: "example.test" },
+    message: "Upstream request failed",
+    details: undefined,
+    diagnostics: { status: 400, host: "example.test" },
   });
 });
 
