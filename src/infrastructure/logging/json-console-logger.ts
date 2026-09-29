@@ -33,6 +33,24 @@ function normalizedKey(key: string): string {
   return key.toLowerCase().replace(/[-_\s]/g, "");
 }
 
+function sanitizeUrl(value: URL): string {
+  const sanitized = new URL(value.toString());
+  sanitized.username = "";
+  sanitized.password = "";
+  sanitized.hash = "";
+
+  const entries = [...sanitized.searchParams.entries()];
+  sanitized.search = "";
+  for (const [queryKey, queryValue] of entries) {
+    sanitized.searchParams.append(
+      queryKey,
+      SENSITIVE_KEYS.has(normalizedKey(queryKey)) ? "[REDACTED]" : queryValue,
+    );
+  }
+
+  return sanitized.toString();
+}
+
 function sanitize(value: unknown, key?: string): unknown {
   if (key && SENSITIVE_KEYS.has(normalizedKey(key))) {
     return "[REDACTED]";
@@ -44,7 +62,7 @@ function sanitize(value: unknown, key?: string): unknown {
     return value.toISOString();
   }
   if (value instanceof URL) {
-    return value.toString();
+    return sanitizeUrl(value);
   }
   if (Array.isArray(value)) {
     return value.map((item) => sanitize(item));
