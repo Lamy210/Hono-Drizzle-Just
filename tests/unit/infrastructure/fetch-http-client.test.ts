@@ -45,12 +45,20 @@ test("fetch wrapper propagates tracing headers and validates the response", asyn
   expect(capturedRedirect).toBe("manual");
 });
 
-test("fetch wrapper surfaces redirects instead of following them", async () => {
+test("fetch wrapper surfaces redirects after discarding their response body", async () => {
+  let cancelledBodies = 0;
   const fetchImpl: FetchLike = async () =>
-    new Response(null, {
-      status: 302,
-      headers: { location: "https://evil.example/redirected" },
-    });
+    new Response(
+      new ReadableStream({
+        cancel() {
+          cancelledBodies += 1;
+        },
+      }),
+      {
+        status: 302,
+        headers: { location: "https://evil.example/redirected" },
+      },
+    );
   const logger = new JsonConsoleLogger({}, () => undefined);
   const client = new FetchHttpClient({
     baseUrl: "https://example.test",
@@ -61,6 +69,30 @@ test("fetch wrapper surfaces redirects instead of following them", async () => {
   await expect(client.request({ method: "GET", path: "/redirect" }, z.unknown())).rejects.toMatchObject({
     code: "UPSTREAM_REQUEST_FAILED",
     details: { status: 302, host: "example.test" },
+  });
+  expect(cancelledBodies).toBe(1);
+});
+
+test("response-body cleanup failures do not replace the upstream HTTP failure", async () => {
+  const fetchImpl: FetchLike = async () =>
+    new Response(
+      new ReadableStream({
+        cancel() {
+          throw new Error("cleanup failed with private upstream details");
+        },
+      }),
+      { status: 400 },
+    );
+  const logger = new JsonConsoleLogger({}, () => undefined);
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger,
+    fetchImpl,
+  });
+
+  await expect(client.request({ method: "GET", path: "/bad-request" }, z.unknown())).rejects.toMatchObject({
+    code: "UPSTREAM_REQUEST_FAILED",
+    details: { status: 400, host: "example.test" },
   });
 });
 
