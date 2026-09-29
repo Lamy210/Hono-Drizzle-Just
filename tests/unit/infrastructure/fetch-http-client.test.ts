@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
 import type { RequestContext } from "../../../src/core/context/request-context";
+import { AppError } from "../../../src/core/errors/app-error";
 import {
   FetchHttpClient,
   type FetchLike,
@@ -515,23 +516,29 @@ test("fetch wrapper normalizes invalid application headers before network access
     { "bad header": "value" },
     { authorization: "Bearer top-secret\r\nInjected: yes" },
   ]) {
-    await expect(
-      client.request(
+    try {
+      await client.request(
         {
           method: "GET",
           path: "/headers",
           headers,
         },
         z.object({ ok: z.boolean() }),
-      ),
-    ).rejects.toMatchObject({
-      code: "INTERNAL_ERROR",
-      status: 500,
-      message: "Outbound HTTP request headers were invalid",
-      details: undefined,
-      diagnostics: { host: "example.test" },
-      cause: undefined,
-    });
+      );
+      throw new Error("expected invalid outbound headers to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      if (!(error instanceof AppError)) {
+        continue;
+      }
+      expect(error.code).toBe("INTERNAL_ERROR");
+      expect(error.status).toBe(500);
+      expect(error.message).toBe("Outbound HTTP request headers were invalid");
+      expect(error.details).toBeUndefined();
+      expect(error.diagnostics).toEqual({ host: "example.test" });
+      expect(error.cause).toBeUndefined();
+      expect(String(error)).not.toContain("top-secret");
+    }
   }
 
   expect(fetchCalls).toBe(0);
