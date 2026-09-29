@@ -445,6 +445,38 @@ test("request response limit can be lower than the adapter default", async () =>
   });
 });
 
+test("fetch wrapper rejects successful JSON bodies with invalid UTF-8", async () => {
+  const invalidUtf8Json = new Uint8Array([
+    0x7b, 0x22, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x22, 0x3a, 0x22,
+    0xc3, 0x28,
+    0x22, 0x7d,
+  ]);
+  const fetchImpl: FetchLike = async () =>
+    new Response(invalidUtf8Json, {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultMaxResponseBytes: 64,
+  });
+
+  await expect(
+    client.request(
+      { method: "GET", path: "/invalid-utf8" },
+      z.object({ value: z.string() }),
+    ),
+  ).rejects.toMatchObject({
+    code: "UPSTREAM_RESPONSE_INVALID",
+    status: 502,
+    message: "Upstream returned invalid JSON",
+    details: undefined,
+    diagnostics: { host: "example.test" },
+  });
+});
+
 test("fetch wrapper parses chunked JSON within the configured byte limit", async () => {
   const encoder = new TextEncoder();
   const fetchImpl: FetchLike = async () =>
