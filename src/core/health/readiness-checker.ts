@@ -1,7 +1,18 @@
 import type { HealthCheck, HealthCheckOutcome, ReadinessResult } from "./health-check";
 
 export class ReadinessChecker {
-  constructor(private readonly healthChecks: readonly HealthCheck[]) {}
+  private readonly healthChecks: readonly HealthCheck[];
+
+  constructor(healthChecks: readonly HealthCheck[]) {
+    const names = new Set<string>();
+    for (const healthCheck of healthChecks) {
+      if (names.has(healthCheck.name)) {
+        throw new TypeError(`Duplicate health check name: ${healthCheck.name}`);
+      }
+      names.add(healthCheck.name);
+    }
+    this.healthChecks = [...healthChecks];
+  }
 
   async check(): Promise<ReadinessResult> {
     const entries = await Promise.all(

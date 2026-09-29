@@ -20,6 +20,35 @@ describe("ReadinessChecker", () => {
     expect(result.checks.cache?.status).toBe("up");
   });
 
+
+  test("rejects duplicate check names before readiness can hide one result", () => {
+    const checks = [
+      check("database", async () => undefined),
+      check("database", async () => {
+        throw new Error("would otherwise be overwritten");
+      }),
+    ];
+
+    expect(() => new ReadinessChecker(checks)).toThrow(TypeError);
+  });
+
+  test("snapshots the configured check list at construction", async () => {
+    const checks: HealthCheck[] = [check("database", async () => undefined)];
+    const readiness = new ReadinessChecker(checks);
+    checks.push(
+      check("cache", async () => {
+        throw new Error("late mutation must not change readiness");
+      }),
+    );
+
+    const result = await readiness.check();
+
+    expect(result.status).toBe("ready");
+    expect(result.checks).toEqual({
+      database: expect.objectContaining({ status: "up" }),
+    });
+  });
+
   test("is not ready and contains the failed check when a dependency throws", async () => {
     const readiness = new ReadinessChecker([
       check("database", async () => {
