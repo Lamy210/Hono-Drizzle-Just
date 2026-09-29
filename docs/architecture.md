@@ -89,7 +89,7 @@ The idempotent create path hashes the raw key before entering persistence, claim
 
 ## Cross-cutting context
 
-`requestId` identifies one inbound API request. `traceId` follows the complete distributed trace. `spanId` identifies the local operation. Incoming W3C `traceparent` values retain the trace ID while the server creates a fresh local span ID.
+`requestId` identifies one inbound API request. `traceId` follows the complete distributed trace. `spanId` identifies the local operation. Incoming W3C `traceparent` values retain the trace ID while the server creates a fresh local span ID. `tracestate` is treated as untrusted propagation metadata: the infrastructure parser accepts at most 512 characters and 32 list members, validates W3C key/value grammar and key uniqueness, and otherwise drops the field. A malformed `tracestate` does not invalidate a valid `traceparent`; a malformed `traceparent` restarts the trace and does not trust its companion state.
 
 `RequestContext` also carries an optional normalized `Principal`. This keeps identity available to application services without exposing Hono request objects or identity-provider-specific session/JWT structures. Protected application services authorize against that principal, derive tenant ownership from it, and pass the authorized tenant ID into tenant-scoped repository methods rather than accepting tenant selection from client payloads or transport headers.
 
@@ -315,4 +315,4 @@ actualAttemptTimeout = min(attemptTimeout, remainingTotalDeadline)
 
 A retry is skipped when its delay cannot fit inside the remaining budget. This prevents `N` retries from turning a 10-second caller deadline into `N × 10` seconds. The default adapter values are 10 seconds total and 3 seconds per attempt.
 
-The same precomputed request headers are reused across attempts, so `x-request-id`, `traceparent`, and `tracestate` remain stable for one logical outbound call. Attempt count may be added to logs/metrics without changing correlation identity.
+The same precomputed request headers are reused across attempts, so `x-request-id`, `traceparent`, and any accepted `tracestate` remain stable for one logical outbound call. `FetchHttpClient` revalidates application-provided trace state before setting the outbound header, preventing manually assembled `RequestContext` values from bypassing the inbound boundary. Attempt count may be added to logs/metrics without changing correlation identity.
