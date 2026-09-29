@@ -13,6 +13,7 @@ const context: RequestContext = {
     traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
     spanId: "00f067aa0ba902b7",
     traceFlags: "01",
+    traceState: "vendor=value",
   },
   startedAt: 0,
 };
@@ -42,6 +43,7 @@ test("fetch wrapper propagates tracing headers and validates the response", asyn
   expect(captured?.headers.get("traceparent")).toBe(
     "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
   );
+  expect(captured?.headers.get("tracestate")).toBe("vendor=value");
   expect(capturedRedirect).toBe("manual");
 });
 
@@ -133,4 +135,36 @@ test("fetch wrapper rejects base URLs with embedded credentials", () => {
         fetchImpl: fetch,
       }),
   ).toThrow(RangeError);
+});
+
+
+test("fetch wrapper omits invalid application-provided tracestate", async () => {
+  let captured: Request | undefined;
+  const fetchImpl: FetchLike = async (input, init) => {
+    captured = new Request(input, init);
+    return Response.json({ ok: true });
+  };
+  const logger = new JsonConsoleLogger({}, () => undefined);
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger,
+    fetchImpl,
+  });
+  const invalidContext: RequestContext = {
+    ...context,
+    trace: {
+      ...context.trace,
+      traceState: "vendor=value,vendor=duplicate",
+    },
+  };
+
+  await client.request(
+    { method: "GET", path: "/trace", context: invalidContext },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(captured?.headers.get("traceparent")).toBe(
+    "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  );
+  expect(captured?.headers.get("tracestate")).toBeNull();
 });
