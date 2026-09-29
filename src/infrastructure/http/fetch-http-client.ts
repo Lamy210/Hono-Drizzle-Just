@@ -57,6 +57,8 @@ export interface FetchHttpClientOptions {
   readonly defaultTimeoutMs?: number;
   /** Maximum time budget for one fetch attempt. */
   readonly defaultAttemptTimeoutMs?: number;
+  /** Maximum serialized JSON request-body bytes before any network attempt. */
+  readonly defaultMaxRequestBytes?: number;
   /** Maximum successful response-body bytes read before JSON parsing. */
   readonly defaultMaxResponseBytes?: number;
   readonly retryPolicy?: RetryPolicy;
@@ -72,6 +74,7 @@ export class FetchHttpClient implements HttpClient {
   private readonly fetchImpl: FetchLike;
   private readonly defaultTimeoutMs: number;
   private readonly defaultAttemptTimeoutMs: number;
+  private readonly defaultMaxRequestBytes: number;
   private readonly defaultMaxResponseBytes: number;
   private readonly retryPolicy: RetryPolicy;
   private readonly sleep: SleepLike;
@@ -91,6 +94,10 @@ export class FetchHttpClient implements HttpClient {
     this.defaultAttemptTimeoutMs = positiveFiniteNumber(
       "defaultAttemptTimeoutMs",
       options.defaultAttemptTimeoutMs ?? 3_000,
+    );
+    this.defaultMaxRequestBytes = positiveSafeInteger(
+      "defaultMaxRequestBytes",
+      options.defaultMaxRequestBytes ?? 1_048_576,
     );
     this.defaultMaxResponseBytes = positiveSafeInteger(
       "defaultMaxResponseBytes",
@@ -114,6 +121,9 @@ export class FetchHttpClient implements HttpClient {
     }
     if (request.attemptTimeoutMs !== undefined) {
       positiveFiniteNumber("attemptTimeoutMs", request.attemptTimeoutMs);
+    }
+    if (request.maxRequestBytes !== undefined) {
+      positiveSafeInteger("maxRequestBytes", request.maxRequestBytes);
     }
     if (request.maxResponseBytes !== undefined) {
       positiveSafeInteger("maxResponseBytes", request.maxResponseBytes);
@@ -182,7 +192,11 @@ export class FetchHttpClient implements HttpClient {
       }
     }
 
-    const body = request.body === undefined ? undefined : JSON.stringify(request.body);
+    const body = this.serializeRequestBody(
+      request.body,
+      request.maxRequestBytes ?? this.defaultMaxRequestBytes,
+      url,
+    );
     if (body !== undefined) {
       headers.set("content-type", "application/json");
     }
@@ -329,6 +343,51 @@ export class FetchHttpClient implements HttpClient {
         );
       }
     }
+  }
+
+  private serializeRequestBody(
+    body: unknown,
+    maxRequestBytes: number,
+    url: URL,
+  ): string | undefined {
+    if (body === undefined) {
+      return undefined;
+    }
+
+    let serialized: string | undefined;
+    try {
+      serialized = JSON.stringify(body);
+    } catch (error) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Outbound HTTP request body could not be serialized",
+        500,
+        undefined,
+        { cause: error, diagnostics: { host: url.host } },
+      );
+    }
+
+    if (serialized === undefined) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Outbound HTTP request body could not be serialized",
+        500,
+        undefined,
+        { diagnostics: { host: url.host } },
+      );
+    }
+
+    if (new TextEncoder().encode(serialized).byteLength > maxRequestBytes) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Outbound HTTP request body exceeded maximum size",
+        500,
+        undefined,
+        { diagnostics: { host: url.host } },
+      );
+    }
+
+    return serialized;
   }
 
   private async readJsonBody(
