@@ -207,7 +207,6 @@ export class FetchHttpClient implements HttpClient {
           await this.discardResponseBody(response);
           this.logger.warn("http.client.retry", {
             method: request.method,
-            path: url.pathname,
             statusCode: response.status,
             attempt,
             nextAttempt: attempt + 1,
@@ -259,7 +258,6 @@ export class FetchHttpClient implements HttpClient {
 
         this.logger.info("http.client.response", {
           method: request.method,
-          path: url.pathname,
           statusCode: response.status,
           durationMs: Number((this.now() - startedAt).toFixed(2)),
           attempt,
