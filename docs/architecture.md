@@ -291,6 +291,8 @@ Application code must not call global `fetch` directly. The application-owned `H
 
 The adapter treats its configured upstream as a trust boundary. `baseUrl` must use `http:` or `https:` and cannot contain embedded username/password credentials. Every underlying fetch attempt sets `redirect: "manual"`; a 3xx response is therefore handled as an upstream failure rather than automatically following `Location` to another origin. Supporting redirects later requires an explicit policy with host/scheme constraints rather than reverting to the platform default. Non-success response bodies are never parsed or logged. Before retrying or surfacing a non-success status, the adapter best-effort cancels the body stream so the fetch implementation can release transport resources; cleanup failure never replaces the authoritative upstream-status error.
 
+Successful JSON response handling has a separate memory boundary. The infrastructure adapter consumes the `ReadableStream` incrementally, counts decoded transport bytes as delivered by fetch, and aborts parsing once `maxResponseBytes` is exceeded. It does not rely on `Content-Length`, so chunked responses and inaccurate/missing length headers remain bounded. The adapter-level default is 1 MiB (`HTTP_MAX_RESPONSE_BODY_BYTES` in typed template configuration); a request may override `maxResponseBytes` for a known endpoint. Oversized bodies map to `UPSTREAM_RESPONSE_INVALID` / 502 with fixed diagnostics containing only the configured upstream host.
+
 ### Retry boundary
 
 Retry eligibility and delay calculation live in `RetryPolicy`, not in services. The default policy is intentionally conservative:
