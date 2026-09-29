@@ -22,6 +22,13 @@ function positiveFiniteNumber(name: string, value: number): number {
   return value;
 }
 
+function positiveSafeInteger(name: string, value: number): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new RangeError(`${name} must be a positive safe integer`);
+  }
+  return value;
+}
+
 function parseBaseUrl(value: string | URL): URL {
   const url = new URL(value);
   if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -50,6 +57,8 @@ export interface FetchHttpClientOptions {
   readonly defaultTimeoutMs?: number;
   /** Maximum time budget for one fetch attempt. */
   readonly defaultAttemptTimeoutMs?: number;
+  /** Maximum successful response-body bytes read before JSON parsing. */
+  readonly defaultMaxResponseBytes?: number;
   readonly retryPolicy?: RetryPolicy;
   readonly sleep?: SleepLike;
   readonly now?: MonotonicNow;
@@ -63,6 +72,7 @@ export class FetchHttpClient implements HttpClient {
   private readonly fetchImpl: FetchLike;
   private readonly defaultTimeoutMs: number;
   private readonly defaultAttemptTimeoutMs: number;
+  private readonly defaultMaxResponseBytes: number;
   private readonly retryPolicy: RetryPolicy;
   private readonly sleep: SleepLike;
   private readonly now: MonotonicNow;
@@ -82,6 +92,10 @@ export class FetchHttpClient implements HttpClient {
       "defaultAttemptTimeoutMs",
       options.defaultAttemptTimeoutMs ?? 3_000,
     );
+    this.defaultMaxResponseBytes = positiveSafeInteger(
+      "defaultMaxResponseBytes",
+      options.defaultMaxResponseBytes ?? 1_048_576,
+    );
     this.retryPolicy = options.retryPolicy ?? new DefaultRetryPolicy();
     this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
     this.now = options.now ?? performance.now.bind(performance);
@@ -100,6 +114,9 @@ export class FetchHttpClient implements HttpClient {
     }
     if (request.attemptTimeoutMs !== undefined) {
       positiveFiniteNumber("attemptTimeoutMs", request.attemptTimeoutMs);
+    }
+    if (request.maxResponseBytes !== undefined) {
+      positiveSafeInteger("maxResponseBytes", request.maxResponseBytes);
     }
 
     const url = this.resolveUrl(request.path);
@@ -234,8 +251,18 @@ export class FetchHttpClient implements HttpClient {
 
         let raw: unknown;
         try {
-          raw = request.method === "HEAD" || response.status === 204 ? undefined : await response.json();
+          raw =
+            request.method === "HEAD" || response.status === 204
+              ? undefined
+              : await this.readJsonBody(
+                  response,
+                  request.maxResponseBytes ?? this.defaultMaxResponseBytes,
+                  url,
+                );
         } catch (error) {
+          if (error instanceof AppError) {
+            throw error;
+          }
           throw new AppError(
             "UPSTREAM_RESPONSE_INVALID",
             "Upstream returned invalid JSON",
@@ -302,6 +329,55 @@ export class FetchHttpClient implements HttpClient {
         );
       }
     }
+  }
+
+  private async readJsonBody(
+    response: Response,
+    maxResponseBytes: number,
+    url: URL,
+  ): Promise<unknown> {
+    if (response.body === null) {
+      return JSON.parse("");
+    }
+
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        totalBytes += value.byteLength;
+        if (totalBytes > maxResponseBytes) {
+          try {
+            await reader.cancel();
+          } catch {
+            // Cleanup is best-effort; the size violation remains authoritative.
+          }
+          throw new AppError(
+            "UPSTREAM_RESPONSE_INVALID",
+            "Upstream response exceeded maximum size",
+            502,
+            undefined,
+            { diagnostics: { host: url.host } },
+          );
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    const body = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return JSON.parse(new TextDecoder().decode(body));
   }
 
   private async discardResponseBody(response: Response): Promise<void> {

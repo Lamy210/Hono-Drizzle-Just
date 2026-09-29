@@ -214,3 +214,118 @@ test("fetch wrapper omits invalid application-provided tracestate", async () => 
   );
   expect(captured?.headers.get("tracestate")).toBeNull();
 });
+
+test("fetch wrapper rejects chunked successful responses that exceed the configured byte limit", async () => {
+  let cancelled = 0;
+  const encoder = new TextEncoder();
+  const fetchImpl: FetchLike = async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('{"value":"'));
+          controller.enqueue(encoder.encode("x".repeat(64)));
+          controller.enqueue(encoder.encode('"}'));
+        },
+        cancel() {
+          cancelled += 1;
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultMaxResponseBytes: 32,
+  });
+
+  await expect(
+    client.request(
+      { method: "GET", path: "/large" },
+      z.object({ value: z.string() }),
+    ),
+  ).rejects.toMatchObject({
+    code: "UPSTREAM_RESPONSE_INVALID",
+    status: 502,
+    message: "Upstream response exceeded maximum size",
+    details: undefined,
+    diagnostics: { host: "example.test" },
+  });
+  expect(cancelled).toBe(1);
+});
+
+test("request response limit can be lower than the adapter default", async () => {
+  const fetchImpl: FetchLike = async () => Response.json({ value: "1234567890" });
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultMaxResponseBytes: 1_024,
+  });
+
+  await expect(
+    client.request(
+      { method: "GET", path: "/small", maxResponseBytes: 8 },
+      z.object({ value: z.string() }),
+    ),
+  ).rejects.toMatchObject({
+    code: "UPSTREAM_RESPONSE_INVALID",
+    status: 502,
+  });
+});
+
+test("fetch wrapper parses chunked JSON within the configured byte limit", async () => {
+  const encoder = new TextEncoder();
+  const fetchImpl: FetchLike = async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('{"ok":'));
+          controller.enqueue(encoder.encode("true}"));
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultMaxResponseBytes: 64,
+  });
+
+  const response = await client.request(
+    { method: "GET", path: "/bounded" },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(response.data).toEqual({ ok: true });
+});
+
+test("fetch wrapper rejects invalid response byte limits", async () => {
+  const logger = new JsonConsoleLogger({}, () => undefined);
+
+  for (const invalid of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    expect(
+      () =>
+        new FetchHttpClient({
+          baseUrl: "https://example.test",
+          logger,
+          defaultMaxResponseBytes: invalid,
+        }),
+    ).toThrow(RangeError);
+  }
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger,
+    fetchImpl: async () => Response.json({ ok: true }),
+  });
+  await expect(
+    client.request(
+      { method: "GET", path: "/invalid-limit", maxResponseBytes: 0 },
+      z.unknown(),
+    ),
+  ).rejects.toBeInstanceOf(RangeError);
+});
+

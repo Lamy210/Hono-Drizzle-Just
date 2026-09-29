@@ -16,6 +16,8 @@ export interface HttpRequest<TBody = unknown> {
   readonly timeoutMs?: number;
   /** Maximum time budget for one network attempt. */
   readonly attemptTimeoutMs?: number;
+  /** Maximum successful response-body bytes read before validation. */
+  readonly maxResponseBytes?: number;
   readonly retry?: HttpRetryMode;
   readonly context?: RequestContext;
 }
