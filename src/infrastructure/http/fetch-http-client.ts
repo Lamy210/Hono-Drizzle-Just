@@ -536,7 +536,7 @@ export class FetchHttpClient implements HttpClient {
       body.set(chunk, offset);
       offset += chunk.byteLength;
     }
-    return JSON.parse(new TextDecoder().decode(body));
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
   }
 
   private async discardResponseBody(response: Response): Promise<void> {
