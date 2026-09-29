@@ -135,3 +135,41 @@ test("request and trace correlation headers stay stable across retries", async (
   expect(captured[1]?.get("x-request-id")).toBe(context.requestId);
   expect(captured[0]?.get("traceparent")).toBe(captured[1]?.get("traceparent"));
 });
+
+
+test("network retry logs omit caller-provided resource paths", async () => {
+  let attempts = 0;
+  const lines: string[] = [];
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      throw new TypeError("network unavailable");
+    }
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, (line) => lines.push(line)),
+    fetchImpl,
+    sleep: async () => undefined,
+  });
+
+  await client.request(
+    {
+      method: "GET",
+      path: "/users/550e8400-e29b-41d4-a716-446655440000?token=top-secret",
+    },
+    z.object({ ok: z.boolean() }),
+  );
+
+  const retryLog = lines.map((line) => JSON.parse(line)).find((entry) => entry.message === "http.client.retry");
+  expect(retryLog).toMatchObject({
+    method: "GET",
+    attempt: 1,
+    nextAttempt: 2,
+    reason: "network",
+  });
+  expect(retryLog.path).toBeUndefined();
+  expect(JSON.stringify(retryLog)).not.toContain("550e8400-e29b-41d4-a716-446655440000");
+  expect(JSON.stringify(retryLog)).not.toContain("top-secret");
+});
