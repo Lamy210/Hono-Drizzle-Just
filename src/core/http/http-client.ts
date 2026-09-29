@@ -12,9 +12,9 @@ export interface HttpRequest<TBody = unknown> {
   readonly path: string;
   readonly headers?: HeadersInit;
   readonly body?: TBody;
-  /** Total time budget across attempts, retry delays, and response handling. */
+  /** Total time budget across attempts, response-body handling, and retry delays. */
   readonly timeoutMs?: number;
-  /** Maximum time budget for one network attempt. */
+  /** Maximum time budget for one fetch attempt, including response-body consumption. */
   readonly attemptTimeoutMs?: number;
   readonly retry?: HttpRetryMode;
   readonly context?: RequestContext;
