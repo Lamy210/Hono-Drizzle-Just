@@ -176,6 +176,7 @@ Configuration is loaded once during startup. Application modules should not read
 | `LOG_LEVEL` | `info` | Minimum structured log level |
 | `HTTP_DEFAULT_TIMEOUT_MS` | `10000` | Total outbound HTTP deadline across attempts and retry delays |
 | `HTTP_DEFAULT_ATTEMPT_TIMEOUT_MS` | `3000` | Maximum duration of one outbound fetch attempt |
+| `HTTP_MAX_OUTBOUND_REQUEST_BODY_BYTES` | `1048576` | Default maximum serialized outbound JSON request bytes before any network attempt; individual requests may lower or override it |
 | `HTTP_MAX_RESPONSE_BODY_BYTES` | `1048576` | Default maximum successful outbound response bytes read before JSON parsing; individual requests may lower or override it |
 | `HTTP_MAX_REQUEST_BODY_BYTES` | `1048576` | Application-level inbound request body limit; Hono returns the common 413 error contract when exceeded |
 | `HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES` | `2097152` | Bun transport hard cap; must be greater than `HTTP_MAX_REQUEST_BODY_BYTES` |
@@ -323,7 +324,9 @@ Caller-provided paths are parsed only after transport-level origin guards run. R
 
 Configured `baseUrl` values must use HTTP or HTTPS and must not contain embedded username/password credentials. Each physical fetch attempt uses `redirect: "manual"`, so redirects are surfaced as upstream failures instead of being followed automatically to another origin. Redirect support, if required by an application, should be added as an explicit allowlisted policy rather than by relying on the platform fetch default.
 
-Successful outbound JSON bodies are also bounded. `FetchHttpClient` reads the response stream itself and stops once the configured byte limit is exceeded instead of trusting `Content-Length` or calling unbounded `response.json()`. The adapter default is 1 MiB and callers may set a request-specific `maxResponseBytes`; overflow cancels the body best-effort and returns the stable `UPSTREAM_RESPONSE_INVALID` 502 contract without logging response contents.
+Outbound JSON request bodies are serialized before the first network attempt and are also bounded. The adapter default is 1 MiB and callers may set `maxRequestBytes` for a known endpoint. Circular structures, BigInt values, top-level non-serializable values, and byte-limit violations are normalized to a fixed `INTERNAL_ERROR` contract before fetch is invoked, so serialization failures do not escape as raw `TypeError` values and oversized bodies are never retried or sent upstream.
+
+Successful outbound JSON bodies are bounded independently. `FetchHttpClient` reads the response stream itself and stops once the configured byte limit is exceeded instead of trusting `Content-Length` or calling unbounded `response.json()`. The adapter default is 1 MiB and callers may set a request-specific `maxResponseBytes`; overflow cancels the body best-effort and returns the stable `UPSTREAM_RESPONSE_INVALID` 502 contract without logging response contents.
 
 `timeoutMs` is a **total request deadline** covering all network attempts and retry delays. `attemptTimeoutMs` limits one fetch attempt and is always capped by the remaining total deadline. Adapter defaults are 10 seconds total and 3 seconds per attempt; composition should normally supply the typed configuration values above.
 

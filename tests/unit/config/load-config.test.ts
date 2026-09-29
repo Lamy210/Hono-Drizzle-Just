@@ -24,6 +24,7 @@ describe("loadConfig", () => {
       logLevel: "info",
       httpDefaultTimeoutMs: 10_000,
       httpDefaultAttemptTimeoutMs: 3_000,
+      httpMaxOutboundRequestBodyBytes: 1_048_576,
       httpMaxResponseBodyBytes: 1_048_576,
       httpMaxRequestBodyBytes: 1_048_576,
       httpTransportMaxRequestBodyBytes: 2_097_152,
@@ -113,6 +114,24 @@ describe("loadConfig", () => {
       expect(error).toBeInstanceOf(ConfigurationError);
       expect(String(error)).not.toContain(secret);
     }
+  });
+
+  test("parses and bounds outbound request body size", () => {
+    const config = loadConfig({
+      ...required,
+      HTTP_MAX_OUTBOUND_REQUEST_BODY_BYTES: "4096",
+    });
+
+    expect(config.httpMaxOutboundRequestBodyBytes).toBe(4_096);
+    expect(() =>
+      loadConfig({ ...required, HTTP_MAX_OUTBOUND_REQUEST_BODY_BYTES: "0" }),
+    ).toThrow(ConfigurationError);
+    expect(() =>
+      loadConfig({
+        ...required,
+        HTTP_MAX_OUTBOUND_REQUEST_BODY_BYTES: String(64 * 1024 * 1024 + 1),
+      }),
+    ).toThrow(ConfigurationError);
   });
 
   test("parses and bounds outbound response body size", () => {

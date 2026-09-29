@@ -87,6 +87,7 @@ const RawConfigSchema = z
     LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
     HTTP_DEFAULT_TIMEOUT_MS: integerEnv(10_000, 1, 120_000),
     HTTP_DEFAULT_ATTEMPT_TIMEOUT_MS: integerEnv(3_000, 1, 120_000),
+    HTTP_MAX_OUTBOUND_REQUEST_BODY_BYTES: integerEnv(1_048_576, 1, 64 * 1024 * 1024),
     HTTP_MAX_RESPONSE_BODY_BYTES: integerEnv(1_048_576, 1, 64 * 1024 * 1024),
     HTTP_MAX_REQUEST_BODY_BYTES: integerEnv(1_048_576, 1_024, 64 * 1024 * 1024),
     HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES: integerEnv(2_097_152, 2_048, 128 * 1024 * 1024),
@@ -216,6 +217,7 @@ export interface AppConfig {
   readonly logLevel: LogLevel;
   readonly httpDefaultTimeoutMs: number;
   readonly httpDefaultAttemptTimeoutMs: number;
+  readonly httpMaxOutboundRequestBodyBytes: number;
   readonly httpMaxResponseBodyBytes: number;
   readonly httpMaxRequestBodyBytes: number;
   readonly httpTransportMaxRequestBodyBytes: number;
@@ -258,6 +260,7 @@ export const AppConfigSchema = RawConfigSchema.transform(
     logLevel: raw.LOG_LEVEL,
     httpDefaultTimeoutMs: raw.HTTP_DEFAULT_TIMEOUT_MS,
     httpDefaultAttemptTimeoutMs: raw.HTTP_DEFAULT_ATTEMPT_TIMEOUT_MS,
+    httpMaxOutboundRequestBodyBytes: raw.HTTP_MAX_OUTBOUND_REQUEST_BODY_BYTES,
     httpMaxResponseBodyBytes: raw.HTTP_MAX_RESPONSE_BODY_BYTES,
     httpMaxRequestBodyBytes: raw.HTTP_MAX_REQUEST_BODY_BYTES,
     httpTransportMaxRequestBodyBytes: raw.HTTP_TRANSPORT_MAX_REQUEST_BODY_BYTES,
