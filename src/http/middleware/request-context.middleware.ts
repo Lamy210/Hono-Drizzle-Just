@@ -111,8 +111,7 @@ export function createRequestContextMiddleware(
               c.set(
                 "logger",
                 baseLogger.child({
-                  subject: principal.subject,
-                  ...(principal.tenantId === undefined ? {} : { tenantId: principal.tenantId }),
+                  authenticated: true,
                 }),
               );
             }
