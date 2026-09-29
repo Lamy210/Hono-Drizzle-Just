@@ -283,7 +283,7 @@ export class FetchHttpClient implements HttpClient {
 
         let raw: unknown;
         try {
-          if (request.method === "HEAD" || response.status === 204) {
+          if (request.method === "HEAD" || response.status === 204 || response.status === 205) {
             raw = undefined;
           } else {
             await this.assertJsonResponseContentType(response, url);
