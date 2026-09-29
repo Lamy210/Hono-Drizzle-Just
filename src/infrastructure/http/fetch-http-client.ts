@@ -13,7 +13,7 @@ import { NoopMeter } from "../../core/observability/noop-meter";
 import { NoopTracer } from "../../core/observability/noop-tracer";
 import type { Tracer } from "../../core/observability/tracer";
 import { DefaultRetryPolicy, type RetryPolicy } from "./retry-policy";
-import { formatTraceParent } from "../tracing/w3c-trace-context";
+import { formatTraceParent, parseTraceState } from "../tracing/w3c-trace-context";
 
 function positiveFiniteNumber(name: string, value: number): number {
   if (!Number.isFinite(value) || value <= 0) {
@@ -159,8 +159,9 @@ export class FetchHttpClient implements HttpClient {
     }
     if (trace) {
       headers.set("traceparent", formatTraceParent(trace));
-      if (trace.traceState) {
-        headers.set("tracestate", trace.traceState);
+      const traceState = parseTraceState(trace.traceState);
+      if (traceState !== undefined) {
+        headers.set("tracestate", traceState);
       }
     }
 
