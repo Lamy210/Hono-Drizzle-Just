@@ -88,6 +88,28 @@ test("HEAD accepts a successful empty response without attempting JSON decoding"
   expect(attempts).toBe(1);
 });
 
+test("205 accepts a successful empty response without JSON media type or decoding", async () => {
+  let attempts = 0;
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    return new Response(null, { status: 205 });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: logger(),
+    fetchImpl,
+  });
+
+  const response = await client.request(
+    { method: "POST", path: "/reset", retry: "never" },
+    z.undefined(),
+  );
+
+  expect(response.status).toBe(205);
+  expect(response.data).toBeUndefined();
+  expect(attempts).toBe(1);
+});
+
 test("POST does not retry without explicit idempotent opt-in", async () => {
   let attempts = 0;
   const fetchImpl: FetchLike = async () => {
