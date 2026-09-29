@@ -465,3 +465,78 @@ test("fetch wrapper rejects invalid outbound request byte limits", async () => {
   ).rejects.toBeInstanceOf(RangeError);
 });
 
+test("fetch wrapper rejects caller-controlled transport headers before network access", async () => {
+  let fetchCalls = 0;
+  const fetchImpl: FetchLike = async () => {
+    fetchCalls += 1;
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  for (const name of [
+    "Host",
+    "Content-Length",
+    "Transfer-Encoding",
+    "Connection",
+    "Keep-Alive",
+    "TE",
+    "Trailer",
+    "Upgrade",
+    "Expect",
+    "Proxy-Connection",
+  ]) {
+    await expect(
+      client.request(
+        {
+          method: "GET",
+          path: "/headers",
+          headers: { [name]: "attacker-controlled-value" },
+        },
+        z.object({ ok: z.boolean() }),
+      ),
+    ).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      message: "Outbound HTTP request included transport-owned headers",
+      details: undefined,
+      diagnostics: { host: "example.test" },
+    });
+  }
+
+  expect(fetchCalls).toBe(0);
+});
+
+test("fetch wrapper preserves application-owned authorization and custom headers", async () => {
+  let captured: Request | undefined;
+  const fetchImpl: FetchLike = async (input, init) => {
+    captured = new Request(input, init);
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  await client.request(
+    {
+      method: "GET",
+      path: "/headers",
+      headers: {
+        authorization: "Bearer opaque-token",
+        cookie: "session=opaque-session",
+        "x-application-header": "application-value",
+      },
+    },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(captured?.headers.get("authorization")).toBe("Bearer opaque-token");
+  expect(captured?.headers.get("cookie")).toBe("session=opaque-session");
+  expect(captured?.headers.get("x-application-header")).toBe("application-value");
+});
+
