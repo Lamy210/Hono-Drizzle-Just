@@ -115,6 +115,48 @@ test("fetch wrapper rejects absolute paths so callers cannot override the config
   ).rejects.toMatchObject({ code: "INVALID_HTTP_PATH" });
 });
 
+test("fetch wrapper rejects path forms that URL parsing could reinterpret as another origin", async () => {
+  const fetchImpl = async () => Response.json({ ok: true });
+  const logger = new JsonConsoleLogger({}, () => undefined);
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger,
+    fetchImpl,
+  });
+
+  for (const path of [
+    "/\\\\evil.example/private",
+    "/\n/evil.example/private",
+    "/\t/evil.example/private",
+    "/\r/evil.example/private",
+  ]) {
+    await expect(
+      client.request({ method: "GET", path }, z.unknown()),
+    ).rejects.toMatchObject({ code: "INVALID_HTTP_PATH" });
+  }
+});
+
+test("fetch wrapper keeps normalized safe paths on the configured origin", async () => {
+  let captured: URL | undefined;
+  const fetchImpl: FetchLike = async (input) => {
+    captured = new URL(input.toString());
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test/base",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  await client.request(
+    { method: "GET", path: "/safe/%5Cvalue?next=%2F%2Fevil.example" },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(captured?.origin).toBe("https://example.test");
+  expect(captured?.pathname).toBe("/safe/%5Cvalue");
+});
+
 test("fetch wrapper rejects non-HTTP base URLs", () => {
   const logger = new JsonConsoleLogger({}, () => undefined);
 
