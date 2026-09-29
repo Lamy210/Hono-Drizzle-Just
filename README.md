@@ -17,7 +17,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - Vendor-neutral `Tracer` / `Meter` ports with optional OpenTelemetry trace and metrics export.
 - HTTP server observability distinguishes handled 4xx client rejections from 5xx server failures in span status and structured log severity.
 - Structured JSON logging behind an application-owned `Logger` interface with secret redaction.
-- External HTTP access goes through an application-owned `HttpClient` abstraction and `FetchHttpClient` adapter; configured `baseUrl` values are origin-only, request headers are validated/normalized before fetch, and GET/HEAD request bodies are rejected before the transport can misclassify them as retryable network failures.
+- External HTTP access goes through an application-owned `HttpClient` abstraction and `FetchHttpClient` adapter; configured `baseUrl` values are origin-only, request invariants are validated before fetch, and successful body-bearing responses must declare `application/json` or an `application/*+json` media type before JSON parsing.
 - Outbound HTTP retries are conservative, idempotency-aware, deadline-bounded, and trace-preserving.
 - Environment variables are parsed once at startup into a typed configuration object.
 - API responses include a conservative security-header baseline without forcing CORS, HSTS, or cross-origin isolation policy.

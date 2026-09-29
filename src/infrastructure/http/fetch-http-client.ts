@@ -283,14 +283,16 @@ export class FetchHttpClient implements HttpClient {
 
         let raw: unknown;
         try {
-          raw =
-            request.method === "HEAD" || response.status === 204
-              ? undefined
-              : await this.readJsonBody(
-                  response,
-                  request.maxResponseBytes ?? this.defaultMaxResponseBytes,
-                  url,
-                );
+          if (request.method === "HEAD" || response.status === 204) {
+            raw = undefined;
+          } else {
+            await this.assertJsonResponseContentType(response, url);
+            raw = await this.readJsonBody(
+              response,
+              request.maxResponseBytes ?? this.defaultMaxResponseBytes,
+              url,
+            );
+          }
         } catch (error) {
           if (error instanceof AppError) {
             throw error;
@@ -447,6 +449,28 @@ export class FetchHttpClient implements HttpClient {
     }
 
     return serialized;
+  }
+
+  private async assertJsonResponseContentType(response: Response, url: URL): Promise<void> {
+    const contentType = response.headers.get("content-type");
+    const mediaType = contentType?.split(";", 1)[0]?.trim().toLowerCase();
+    const isJson =
+      mediaType === "application/json" ||
+      (mediaType !== undefined &&
+        /^application\/[!#$%&'*+.^_`|~0-9a-z-]+\+json$/.test(mediaType));
+
+    if (isJson) {
+      return;
+    }
+
+    await this.discardResponseBody(response);
+    throw new AppError(
+      "UPSTREAM_RESPONSE_INVALID",
+      "Upstream response did not use a JSON media type",
+      502,
+      undefined,
+      { diagnostics: { host: url.host } },
+    );
   }
 
   private async readJsonBody(
