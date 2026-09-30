@@ -95,7 +95,12 @@ function hasAmbiguousContentTypeValue(value: string): boolean {
 }
 
 function parseBaseUrl(value: string | URL): URL {
-  const url = new URL(value);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new RangeError("baseUrl must be a valid absolute URL");
+  }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new RangeError("baseUrl must use http or https");
   }
@@ -660,6 +665,7 @@ export class FetchHttpClient implements HttpClient {
 
   private resolveUrl(path: string): URL {
     if (
+      typeof path !== "string" ||
       !path.startsWith("/") ||
       path.startsWith("//") ||
       path.includes("\\") ||
