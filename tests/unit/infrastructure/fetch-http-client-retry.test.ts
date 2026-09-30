@@ -250,7 +250,10 @@ test("retry does not wait for a hanging response-body cancellation", async () =>
     baseUrl: "https://example.test",
     logger: new JsonConsoleLogger({}, () => undefined),
     fetchImpl,
-    retryPolicy: { nextDelay: () => 0 },
+    retryPolicy: {
+      nextDelay: (_request, _attempt, failure) =>
+        failure.kind === "response" && failure.status === 503 ? 0 : null,
+    },
   });
 
   const outcome = client
