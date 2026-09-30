@@ -329,7 +329,7 @@ Retry eligibility and delay calculation live in `RetryPolicy`, not in services. 
 actualAttemptTimeout = min(attemptTimeout, remainingTotalDeadline)
 ```
 
-A retry is skipped when its delay cannot fit inside the remaining budget. This prevents `N` retries from turning a 10-second caller deadline into `N × 10` seconds. The default adapter values are 10 seconds total and 3 seconds per attempt.
+A retry is skipped when its delay cannot fit inside the remaining budget. The adapter separately caps one logical request at `maxAttempts` total network attempts (default 8, including the first attempt), and it does not invoke the retry policy once no further attempt can be made. The deadline therefore bounds elapsed time while the attempt ceiling bounds request amplification, including a custom policy that repeatedly returns a zero delay or a monotonic clock that does not advance between attempts. The default retry policy remains stricter at one retry; the adapter ceiling is a safety backstop rather than the normal retry count. The default time values are 10 seconds total and 3 seconds per attempt.
 
 The injected monotonic clock is also treated as an untrusted runtime hook. Each logical request wraps it with a request-local reader that normalizes hook exceptions, rejects non-finite timestamps, and rejects time moving backwards relative to the previous read. The same validated reader drives total-deadline checks, retry-budget checks, response-duration logs, and client-duration metrics, so `NaN`, `Infinity`, or a regressing test/runtime clock cannot silently extend a deadline or write invalid telemetry.
 
