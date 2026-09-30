@@ -138,6 +138,8 @@ export interface FetchHttpClientOptions {
   readonly defaultMaxRequestBytes?: number;
   /** Maximum successful response-body bytes read before JSON parsing. */
   readonly defaultMaxResponseBytes?: number;
+  /** Maximum total network attempts for one logical request, including the first attempt. */
+  readonly maxAttempts?: number;
   readonly retryPolicy?: RetryPolicy;
   readonly sleep?: SleepLike;
   readonly now?: MonotonicNow;
@@ -153,6 +155,7 @@ export class FetchHttpClient implements HttpClient {
   private readonly defaultAttemptTimeoutMs: number;
   private readonly defaultMaxRequestBytes: number;
   private readonly defaultMaxResponseBytes: number;
+  private readonly maxAttempts: number;
   private readonly retryPolicy: RetryPolicy;
   private readonly sleep: SleepLike;
   private readonly now: MonotonicNow;
@@ -180,6 +183,7 @@ export class FetchHttpClient implements HttpClient {
       "defaultMaxResponseBytes",
       options.defaultMaxResponseBytes ?? 1_048_576,
     );
+    this.maxAttempts = positiveSafeInteger("maxAttempts", options.maxAttempts ?? 8);
     this.retryPolicy = options.retryPolicy ?? new DefaultRetryPolicy();
     this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
     this.now = options.now ?? performance.now.bind(performance);
@@ -327,18 +331,20 @@ export class FetchHttpClient implements HttpClient {
         }
 
         if (!response.ok) {
-          let retryDelay: number | null;
+          let retryDelay: number | null = null;
           try {
-            retryDelay = this.nextRetryDelay(
+            if (attempt < this.maxAttempts) {
+              retryDelay = this.nextRetryDelay(
               request,
               attempt,
               {
                 kind: "response",
                 status: response.status,
                 headers: response.headers,
-              },
-              url,
-            );
+                },
+                url,
+              );
+            }
           } catch (error) {
             this.discardResponseBody(response);
             throw error;
@@ -418,7 +424,7 @@ export class FetchHttpClient implements HttpClient {
         });
         return { status: response.status, headers: response.headers, data };
       } catch (error) {
-        if (!(error instanceof AppError)) {
+        if (!(error instanceof AppError) && attempt < this.maxAttempts) {
           const retryDelay = this.nextRetryDelay(request, attempt, { kind: "network" }, url);
           if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt, requestNow)) {
             this.warnBestEffort("http.client.retry", {
