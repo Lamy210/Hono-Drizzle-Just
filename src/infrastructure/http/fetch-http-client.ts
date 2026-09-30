@@ -7,7 +7,7 @@ import type {
   HttpResponse,
   SchemaParser,
 } from "../../core/http/http-client";
-import type { Logger } from "../../core/logging/logger";
+import type { LogContext, Logger } from "../../core/logging/logger";
 import type { Meter } from "../../core/observability/meter";
 import { NoopMeter } from "../../core/observability/noop-meter";
 import { NoopTracer } from "../../core/observability/noop-tracer";
@@ -346,7 +346,7 @@ export class FetchHttpClient implements HttpClient {
 
           if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt, requestNow)) {
             this.discardResponseBody(response);
-            this.logger.warn("http.client.retry", {
+            this.warnBestEffort("http.client.retry", {
               method: request.method,
               statusCode: response.status,
               attempt,
@@ -409,7 +409,7 @@ export class FetchHttpClient implements HttpClient {
           );
         }
 
-        this.logger.info("http.client.response", {
+        this.infoBestEffort("http.client.response", {
           method: request.method,
           statusCode: response.status,
           durationMs: Number((requestNow() - startedAt).toFixed(2)),
@@ -421,7 +421,7 @@ export class FetchHttpClient implements HttpClient {
         if (!(error instanceof AppError)) {
           const retryDelay = this.nextRetryDelay(request, attempt, { kind: "network" }, url);
           if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt, requestNow)) {
-            this.logger.warn("http.client.retry", {
+            this.warnBestEffort("http.client.retry", {
               method: request.method,
               attempt,
               nextAttempt: attempt + 1,
@@ -828,12 +828,34 @@ export class FetchHttpClient implements HttpClient {
       outcome,
       ...(statusCode === undefined ? {} : { status_code: statusCode }),
     } as const;
-    this.meter.increment("http.client.requests", 1, attributes);
-    this.meter.record(
-      "http.client.duration",
-      (requestNow() - startedAt) / 1_000,
-      attributes,
-    );
+    try {
+      this.meter.increment("http.client.requests", 1, attributes);
+    } catch {
+      // Observability is best-effort and must not replace the HTTP result.
+    }
+
+    const durationSeconds = (requestNow() - startedAt) / 1_000;
+    try {
+      this.meter.record("http.client.duration", durationSeconds, attributes);
+    } catch {
+      // Observability is best-effort and must not replace the HTTP result.
+    }
+  }
+
+  private infoBestEffort(message: string, context: LogContext): void {
+    try {
+      this.logger.info(message, context);
+    } catch {
+      // Logging is best-effort and must not replace or replay the HTTP result.
+    }
+  }
+
+  private warnBestEffort(message: string, context: LogContext): void {
+    try {
+      this.logger.warn(message, context);
+    } catch {
+      // Logging is best-effort and must not replace or replay the HTTP result.
+    }
   }
 
   private statusFromError(error: unknown): number | undefined {

@@ -64,6 +64,16 @@ class ClientMeter implements Meter {
   }
 }
 
+class ThrowingMeter implements Meter {
+  increment(): void {
+    throw new Error("counter backend unavailable");
+  }
+
+  record(): void {
+    throw new Error("histogram backend unavailable");
+  }
+}
+
 test("invalid runtime methods never become outbound telemetry dimensions", async () => {
   const tracer = new ClientTracer();
   const meter = new ClientMeter();
@@ -323,3 +333,49 @@ test("final upstream status remains available to client metrics through internal
     },
   });
 });
+
+test("meter failures do not discard successful upstream responses", async () => {
+  let fetchCalls = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://api.example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return Response.json({ ok: true });
+    },
+    meter: new ThrowingMeter(),
+  });
+
+  const response = await client.request(
+    { method: "GET", path: "/resource" },
+    { parse: (value) => value as { ok: boolean } },
+  );
+
+  expect(response.data).toEqual({ ok: true });
+  expect(fetchCalls).toBe(1);
+});
+
+test("meter failures do not replace authoritative upstream failures", async () => {
+  const client = new FetchHttpClient({
+    baseUrl: "https://api.example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => new Response("unavailable", { status: 503 }),
+    retryPolicy: { nextDelay: () => null },
+    meter: new ThrowingMeter(),
+  });
+
+  await expect(
+    client.request(
+      { method: "GET", path: "/resource" },
+      { parse: (value) => value },
+    ),
+  ).rejects.toMatchObject({
+    code: "UPSTREAM_REQUEST_FAILED",
+    status: 502,
+    diagnostics: {
+      host: "api.example.test",
+      status: 503,
+    },
+  });
+});
+
