@@ -74,6 +74,86 @@ class ThrowingMeter implements Meter {
   }
 }
 
+test("invalid runtime tracer shapes fail locally before clocks or network access", async () => {
+  const throwingTracer = Object.defineProperty({}, "withSpan", {
+    get() {
+      throw new Error("private tracer getter failure");
+    },
+  });
+  const invalidTracers: unknown[] = [
+    null,
+    {},
+    { withSpan: "not-callable" },
+    throwingTracer,
+  ];
+
+  for (const invalidTracer of invalidTracers) {
+    let fetchCalls = 0;
+    let nowCalls = 0;
+    const client = new FetchHttpClient({
+      baseUrl: "https://api.example.test",
+      logger: new JsonConsoleLogger({}, () => undefined),
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        return Response.json({ ok: true });
+      },
+      now: () => {
+        nowCalls += 1;
+        return 0;
+      },
+      tracer: invalidTracer as Tracer,
+    });
+
+    await expect(
+      client.request(
+        { method: "GET", path: "/resource" },
+        { parse: (value) => value },
+      ),
+    ).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      message: "Outbound HTTP tracer was invalid",
+      details: undefined,
+      diagnostics: { host: "api.example.test" },
+    });
+
+    expect(nowCalls).toBe(0);
+    expect(fetchCalls).toBe(0);
+  }
+});
+
+test("tracer withSpan is resolved once and keeps its receiver", async () => {
+  const tracer = new ClientTracer();
+  const inheritedWithSpan = ClientTracer.prototype.withSpan;
+  let getterReads = 0;
+  Object.defineProperty(tracer, "withSpan", {
+    configurable: true,
+    get() {
+      getterReads += 1;
+      if (getterReads > 1) {
+        throw new Error("withSpan getter must not be evaluated twice");
+      }
+      return inheritedWithSpan;
+    },
+  });
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://api.example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => Response.json({ ok: true }),
+    tracer,
+  });
+
+  const response = await client.request(
+    { method: "GET", path: "/resource" },
+    { parse: (value) => value as { ok: boolean } },
+  );
+
+  expect(response.data).toEqual({ ok: true });
+  expect(getterReads).toBe(1);
+  expect(tracer.calls).toHaveLength(1);
+});
+
 test("invalid runtime methods never become outbound telemetry dimensions", async () => {
   const tracer = new ClientTracer();
   const meter = new ClientMeter();
