@@ -318,11 +318,11 @@ export class FetchHttpClient implements HttpClient {
             headers: response.headers,
           }, url);
         } catch (error) {
-          await this.discardResponseBody(response);
+          this.discardResponseBody(response);
           throw error;
         }
         if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt)) {
-          await this.discardResponseBody(response);
+          this.discardResponseBody(response);
           this.logger.warn("http.client.retry", {
             method: request.method,
             statusCode: response.status,
@@ -339,7 +339,7 @@ export class FetchHttpClient implements HttpClient {
         }
 
         if (!response.ok) {
-          await this.discardResponseBody(response);
+          this.discardResponseBody(response);
           throw new AppError(
             "UPSTREAM_REQUEST_FAILED",
             "Upstream request failed",
@@ -532,7 +532,7 @@ export class FetchHttpClient implements HttpClient {
   private async assertJsonResponseContentType(response: Response, url: URL): Promise<void> {
     const contentType = response.headers.get("content-type");
     if (contentType === null || hasAmbiguousContentTypeValue(contentType)) {
-      await this.discardResponseBody(response);
+      this.discardResponseBody(response);
       throw new AppError(
         "UPSTREAM_RESPONSE_INVALID",
         "Upstream response did not use a JSON media type",
@@ -552,7 +552,7 @@ export class FetchHttpClient implements HttpClient {
       return;
     }
 
-    await this.discardResponseBody(response);
+    this.discardResponseBody(response);
     throw new AppError(
       "UPSTREAM_RESPONSE_INVALID",
       "Upstream response did not use a JSON media type",
@@ -583,11 +583,7 @@ export class FetchHttpClient implements HttpClient {
         }
         totalBytes += value.byteLength;
         if (totalBytes > maxResponseBytes) {
-          try {
-            await reader.cancel();
-          } catch {
-            // Cleanup is best-effort; the size violation remains authoritative.
-          }
+          this.cancelReaderBestEffort(reader);
           throw new AppError(
             "UPSTREAM_RESPONSE_INVALID",
             "Upstream response exceeded maximum size",
@@ -611,14 +607,22 @@ export class FetchHttpClient implements HttpClient {
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
   }
 
-  private async discardResponseBody(response: Response): Promise<void> {
+  private cancelReaderBestEffort(reader: ReadableStreamDefaultReader<Uint8Array>): void {
+    try {
+      void reader.cancel().catch(() => undefined);
+    } catch {
+      // Cleanup is best-effort and must not delay or replace the size violation.
+    }
+  }
+
+  private discardResponseBody(response: Response): void {
     if (response.body === null || response.bodyUsed) {
       return;
     }
     try {
-      await response.body.cancel();
+      void response.body.cancel().catch(() => undefined);
     } catch {
-      // Body cleanup is best-effort and must not replace the upstream failure.
+      // Cleanup is best-effort and must not delay or replace the upstream failure.
     }
   }
 
