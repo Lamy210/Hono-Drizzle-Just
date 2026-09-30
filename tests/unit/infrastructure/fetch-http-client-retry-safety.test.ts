@@ -21,6 +21,40 @@ function logger() {
   return new JsonConsoleLogger({}, () => undefined);
 }
 
+test("retry sleep failures are local adapter errors and do not trigger another fetch", async () => {
+  let attempts = 0;
+  let sleepCalls = 0;
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    return new Response("busy", { status: 503 });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: logger(),
+    fetchImpl,
+    retryPolicy: {
+      nextDelay: () => 25,
+    },
+    sleep: async () => {
+      sleepCalls += 1;
+      throw new Error("private scheduler failure");
+    },
+  });
+
+  await expect(
+    client.request({ method: "GET", path: "/resource" }, z.unknown()),
+  ).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP retry delay failed",
+    details: undefined,
+    diagnostics: { host: "example.test" },
+  });
+
+  expect(attempts).toBe(1);
+  expect(sleepCalls).toBe(1);
+});
+
 test("attempt timeout is retryable for safe methods", async () => {
   let attempts = 0;
   const fetchImpl: FetchLike = async () => {
