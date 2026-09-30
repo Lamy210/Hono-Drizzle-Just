@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
 import type { RequestContext } from "../../../src/core/context/request-context";
+import type { HttpRequest } from "../../../src/core/http/http-client";
 import { AppError } from "../../../src/core/errors/app-error";
 import {
   FetchHttpClient,
@@ -741,6 +742,32 @@ test("fetch wrapper rejects invalid outbound request byte limits", async () => {
       z.unknown(),
     ),
   ).rejects.toBeInstanceOf(RangeError);
+});
+
+test("fetch wrapper rejects unsupported runtime methods before network access", async () => {
+  let fetchCalls = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return Response.json({ ok: true });
+    },
+  });
+
+  const request = {
+    method: "get",
+    path: "/resource",
+    body: { unsafe: true },
+  } as unknown as HttpRequest;
+
+  await expect(client.request(request, z.unknown())).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP method was invalid",
+    details: undefined,
+  });
+  expect(fetchCalls).toBe(0);
 });
 
 test("fetch wrapper rejects GET and HEAD bodies before network access or retry", async () => {
