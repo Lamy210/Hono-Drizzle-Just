@@ -13,7 +13,7 @@ import { NoopMeter } from "../../core/observability/noop-meter";
 import { NoopTracer } from "../../core/observability/noop-tracer";
 import type { Tracer } from "../../core/observability/tracer";
 import { DefaultRetryPolicy, type RetryPolicy } from "./retry-policy";
-import { formatTraceParent, parseTraceState } from "../tracing/w3c-trace-context";
+import { formatTraceParent, parseTraceParent, parseTraceState } from "../tracing/w3c-trace-context";
 
 const OUTBOUND_HTTP_METHODS = new Set<HttpMethod>([
   "GET",
@@ -194,6 +194,7 @@ export class FetchHttpClient implements HttpClient {
   ): Promise<HttpResponse<TResponse>> {
     this.assertHttpMethod(request.method);
     this.assertRequestControls(request);
+    this.assertRequestContext(request.context);
 
     const url = this.resolveUrl(request.path);
     const startedAt = this.now();
@@ -435,6 +436,59 @@ export class FetchHttpClient implements HttpClient {
         500,
       );
     }
+  }
+
+  private assertRequestContext(context: unknown): void {
+    if (context === undefined) {
+      return;
+    }
+
+    if (typeof context !== "object" || context === null) {
+      throw this.invalidRequestContextError();
+    }
+
+    const candidate = context as {
+      requestId?: unknown;
+      trace?: unknown;
+    };
+    if (
+      typeof candidate.requestId !== "string" ||
+      !/^[\x21-\x7e]{1,128}$/.test(candidate.requestId) ||
+      typeof candidate.trace !== "object" ||
+      candidate.trace === null
+    ) {
+      throw this.invalidRequestContextError();
+    }
+
+    const trace = candidate.trace as {
+      traceId?: unknown;
+      spanId?: unknown;
+      traceFlags?: unknown;
+      traceState?: unknown;
+    };
+    if (
+      typeof trace.traceId !== "string" ||
+      typeof trace.spanId !== "string" ||
+      typeof trace.traceFlags !== "string" ||
+      (trace.traceState !== undefined && typeof trace.traceState !== "string")
+    ) {
+      throw this.invalidRequestContextError();
+    }
+
+    const traceParent = `00-${trace.traceId}-${trace.spanId}-${trace.traceFlags}`;
+    if (parseTraceParent(traceParent) === null) {
+      throw this.invalidRequestContextError();
+    }
+  }
+
+  private invalidRequestContextError(): AppError {
+    return new AppError(
+      "INTERNAL_ERROR",
+      "Outbound HTTP request context was invalid",
+      500,
+      undefined,
+      { diagnostics: { host: this.baseUrl.host } },
+    );
   }
 
   private assertRequestControls(request: HttpRequest): void {
