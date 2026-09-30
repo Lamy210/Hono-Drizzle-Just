@@ -18,7 +18,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - HTTP server observability distinguishes handled 4xx client rejections from 5xx server failures in span status and structured log severity.
 - Structured JSON logging behind an application-owned `Logger` interface with secret redaction.
 - External HTTP access goes through an application-owned `HttpClient` abstraction and `FetchHttpClient` adapter; invalid `baseUrl` syntax and non-string runtime paths are normalized at the adapter boundary, configured upstreams remain origin-only, runtime methods are allowlisted before telemetry/network access, parser-normalized raw paths are rejected before fetch, request invariants are validated, and successful body-bearing responses must declare one unambiguous JSON media type and contain valid UTF-8 before parsing.
-- Outbound HTTP retries are conservative, idempotency-aware, deadline-bounded, trace-preserving, and validate custom retry-policy outputs before sleeping or retrying.
+- Outbound HTTP retries are conservative, idempotency-aware, deadline-bounded, trace-preserving, and normalize custom retry-policy, timeout-signal, and retry-sleep hook failures before they can masquerade as upstream failures.
 - Environment variables are parsed once at startup into a typed configuration object.
 - API responses include a conservative security-header baseline without forcing CORS, HSTS, or cross-origin isolation policy.
 - Unmatched routes and unsupported HTTP methods use the same correlated JSON error envelope; 405 responses include an `Allow` header.
@@ -344,7 +344,7 @@ Retry behavior is deliberately conservative:
 - JSON decoding and response-schema validation failures are never retried.
 - `x-request-id`, `traceparent`, and any validated `tracestate` remain stable across attempts for the same outbound request; invalid application-provided `tracestate` is omitted rather than forwarded.
 
-Retry eligibility and delay calculation live in `RetryPolicy`, so an application can replace the default policy without changing service code or the `HttpClient` port.
+Retry eligibility and delay calculation live in `RetryPolicy`, so an application can replace the default policy without changing service code or the `HttpClient` port. Injected runtime hooks are treated as local infrastructure dependencies: retry-policy exceptions/invalid delays, timeout-signal factory exceptions or non-`AbortSignal` results, and retry-sleep rejections are normalized to stable `INTERNAL_ERROR` failures and do not trigger an additional network attempt.
 
 ## Common commands
 
