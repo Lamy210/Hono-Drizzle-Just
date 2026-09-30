@@ -439,6 +439,31 @@ test("client waits for Retry-After before retrying", async () => {
   expect(delays).toEqual([2_000]);
 });
 
+test("extreme Retry-After is treated as outside the deadline, not a local policy error", async () => {
+  let attempts = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => {
+      attempts += 1;
+      return new Response("busy", {
+        status: 429,
+        headers: { "retry-after": "9".repeat(400) },
+      });
+    },
+    defaultTimeoutMs: 1_000,
+  });
+
+  await expect(
+    client.request({ method: "GET", path: "/resource" }, z.unknown()),
+  ).rejects.toMatchObject({
+    code: "UPSTREAM_REQUEST_FAILED",
+    status: 502,
+    diagnostics: { status: 429, host: "example.test" },
+  });
+  expect(attempts).toBe(1);
+});
+
 test("retry delay that exceeds the total deadline is not attempted", async () => {
   let attempts = 0;
   const delays: number[] = [];
