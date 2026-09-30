@@ -917,6 +917,9 @@ test("fetch wrapper rejects caller-controlled transport headers before network a
     "Upgrade",
     "Expect",
     "Proxy-Connection",
+    "Traceparent",
+    "Tracestate",
+    "X-Request-Id",
   ]) {
     await expect(
       client.request(
@@ -924,6 +927,45 @@ test("fetch wrapper rejects caller-controlled transport headers before network a
           method: "GET",
           path: "/headers",
           headers: { [name]: "attacker-controlled-value" },
+        },
+        z.object({ ok: z.boolean() }),
+      ),
+    ).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      message: "Outbound HTTP request included transport-owned headers",
+      details: undefined,
+      diagnostics: { host: "example.test" },
+    });
+  }
+
+  expect(fetchCalls).toBe(0);
+});
+
+test("caller correlation headers cannot override or survive adapter-owned context", async () => {
+  let fetchCalls = 0;
+  const fetchImpl: FetchLike = async () => {
+    fetchCalls += 1;
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  for (const headers of [
+    { "x-request-id": "attacker-request-id" },
+    { traceparent: "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01" },
+    { tracestate: "attacker=state" },
+  ]) {
+    await expect(
+      client.request(
+        {
+          method: "GET",
+          path: "/headers",
+          headers,
+          context,
         },
         z.object({ ok: z.boolean() }),
       ),
