@@ -193,19 +193,7 @@ export class FetchHttpClient implements HttpClient {
     responseSchema: SchemaParser<TResponse>,
   ): Promise<HttpResponse<TResponse>> {
     this.assertHttpMethod(request.method);
-
-    if (request.timeoutMs !== undefined) {
-      positiveFiniteNumber("timeoutMs", request.timeoutMs);
-    }
-    if (request.attemptTimeoutMs !== undefined) {
-      positiveFiniteNumber("attemptTimeoutMs", request.attemptTimeoutMs);
-    }
-    if (request.maxRequestBytes !== undefined) {
-      positiveSafeInteger("maxRequestBytes", request.maxRequestBytes);
-    }
-    if (request.maxResponseBytes !== undefined) {
-      positiveSafeInteger("maxResponseBytes", request.maxResponseBytes);
-    }
+    this.assertRequestControls(request);
 
     const url = this.resolveUrl(request.path);
     const startedAt = this.now();
@@ -445,6 +433,45 @@ export class FetchHttpClient implements HttpClient {
         "INTERNAL_ERROR",
         "Outbound HTTP method was invalid",
         500,
+      );
+    }
+  }
+
+  private assertRequestControls(request: HttpRequest): void {
+    if (
+      request.retry !== undefined &&
+      request.retry !== "never" &&
+      request.retry !== "idempotent"
+    ) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Outbound HTTP retry mode was invalid",
+        500,
+        undefined,
+        { diagnostics: { host: this.baseUrl.host } },
+      );
+    }
+
+    try {
+      if (request.timeoutMs !== undefined) {
+        positiveFiniteNumber("timeoutMs", request.timeoutMs);
+      }
+      if (request.attemptTimeoutMs !== undefined) {
+        positiveFiniteNumber("attemptTimeoutMs", request.attemptTimeoutMs);
+      }
+      if (request.maxRequestBytes !== undefined) {
+        positiveSafeInteger("maxRequestBytes", request.maxRequestBytes);
+      }
+      if (request.maxResponseBytes !== undefined) {
+        positiveSafeInteger("maxResponseBytes", request.maxResponseBytes);
+      }
+    } catch {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Outbound HTTP request controls were invalid",
+        500,
+        undefined,
+        { diagnostics: { host: this.baseUrl.host } },
       );
     }
   }

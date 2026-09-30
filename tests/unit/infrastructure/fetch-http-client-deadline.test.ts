@@ -53,14 +53,24 @@ test("request rejects invalid timeout overrides before calling fetch", async () 
         { method: "GET", path: "/resource", timeoutMs: invalidTimeoutMs },
         z.unknown(),
       ),
-    ).rejects.toBeInstanceOf(RangeError);
+    ).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      message: "Outbound HTTP request controls were invalid",
+      diagnostics: { host: "example.test" },
+    });
 
     await expect(
       client.request(
         { method: "GET", path: "/resource", attemptTimeoutMs: invalidTimeoutMs },
         z.unknown(),
       ),
-    ).rejects.toBeInstanceOf(RangeError);
+    ).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      message: "Outbound HTTP request controls were invalid",
+      diagnostics: { host: "example.test" },
+    });
   }
 
   expect(attempts).toBe(0);

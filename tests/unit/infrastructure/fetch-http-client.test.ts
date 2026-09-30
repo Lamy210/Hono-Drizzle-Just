@@ -699,7 +699,12 @@ test("fetch wrapper rejects invalid response byte limits", async () => {
       { method: "GET", path: "/invalid-limit", maxResponseBytes: 0 },
       z.unknown(),
     ),
-  ).rejects.toBeInstanceOf(RangeError);
+  ).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP request controls were invalid",
+    diagnostics: { host: "example.test" },
+  });
 });
 
 test("fetch wrapper rejects oversized serialized request bodies before any network attempt", async () => {
@@ -835,7 +840,48 @@ test("fetch wrapper rejects invalid outbound request byte limits", async () => {
       },
       z.unknown(),
     ),
-  ).rejects.toBeInstanceOf(RangeError);
+  ).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP request controls were invalid",
+    diagnostics: { host: "example.test" },
+  });
+});
+
+test("fetch wrapper rejects invalid runtime retry modes before network access", async () => {
+  let fetchCalls = 0;
+  let policyCalls = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return Response.json({ ok: true });
+    },
+    retryPolicy: {
+      nextDelay: () => {
+        policyCalls += 1;
+        return 0;
+      },
+    },
+  });
+
+  const request = {
+    method: "GET",
+    path: "/resource",
+    retry: "always",
+  } as unknown as HttpRequest;
+
+  await expect(client.request(request, z.unknown())).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP retry mode was invalid",
+    details: undefined,
+    diagnostics: { host: "example.test" },
+  });
+
+  expect(fetchCalls).toBe(0);
+  expect(policyCalls).toBe(0);
 });
 
 test("fetch wrapper rejects unsupported runtime methods before network access", async () => {
