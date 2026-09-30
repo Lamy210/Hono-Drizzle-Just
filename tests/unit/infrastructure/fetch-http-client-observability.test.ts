@@ -124,6 +124,46 @@ test("invalid runtime retry controls never become outbound telemetry dimensions"
   expect(meter.histograms).toEqual([]);
 });
 
+test("invalid runtime request context never reaches tracer, metrics, or fetch", async () => {
+  const tracer = new ClientTracer();
+  const meter = new ClientMeter();
+  let fetchCalls = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://api.example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return Response.json({ ok: true });
+    },
+    tracer,
+    meter,
+  });
+
+  const request = {
+    method: "GET",
+    path: "/resource",
+    context: {
+      requestId: "request-123",
+      trace: {
+        traceId: "00000000000000000000000000000000",
+        spanId: "00f067aa0ba902b7",
+        traceFlags: "01",
+      },
+      startedAt: 0,
+    },
+  } as unknown as HttpRequest;
+
+  await expect(client.request(request, { parse: (value) => value })).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    message: "Outbound HTTP request context was invalid",
+  });
+
+  expect(fetchCalls).toBe(0);
+  expect(tracer.calls).toEqual([]);
+  expect(meter.counters).toEqual([]);
+  expect(meter.histograms).toEqual([]);
+});
+
 test("outbound HTTP uses one client span across retries and propagates its trace context", async () => {
   const tracer = new ClientTracer();
   const meter = new ClientMeter();
