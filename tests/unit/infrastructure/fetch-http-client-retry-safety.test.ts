@@ -3,8 +3,13 @@ import { z } from "zod";
 import type { RequestContext } from "../../../src/core/context/request-context";
 import {
   FetchHttpClient,
+  type FetchHttpClientOptions,
   type FetchLike,
+  type MonotonicNow,
+  type SleepLike,
+  type TimeoutSignalFactory,
 } from "../../../src/infrastructure/http/fetch-http-client";
+import type { RetryPolicy } from "../../../src/infrastructure/http/retry-policy";
 import { JsonConsoleLogger } from "../../../src/infrastructure/logging/json-console-logger";
 
 const context: RequestContext = {
@@ -105,6 +110,101 @@ test("null fetch hooks are rejected instead of falling back to global fetch", as
   });
 
   expect(signalFactoryCalls).toBe(0);
+});
+
+test("invalid optional runtime hooks fail locally before network access", async () => {
+  const cases: Array<{
+    options: Partial<FetchHttpClientOptions>;
+    message: string;
+  }> = [
+    {
+      options: { retryPolicy: null as unknown as RetryPolicy },
+      message: "Outbound HTTP retry policy was invalid",
+    },
+    {
+      options: { retryPolicy: {} as RetryPolicy },
+      message: "Outbound HTTP retry policy was invalid",
+    },
+    {
+      options: { sleep: null as unknown as SleepLike },
+      message: "Outbound HTTP retry sleep hook was invalid",
+    },
+    {
+      options: { sleep: {} as unknown as SleepLike },
+      message: "Outbound HTTP retry sleep hook was invalid",
+    },
+    {
+      options: { now: null as unknown as MonotonicNow },
+      message: "Outbound HTTP monotonic clock hook was invalid",
+    },
+    {
+      options: { now: {} as unknown as MonotonicNow },
+      message: "Outbound HTTP monotonic clock hook was invalid",
+    },
+    {
+      options: { signalFactory: null as unknown as TimeoutSignalFactory },
+      message: "Outbound HTTP timeout signal factory was invalid",
+    },
+    {
+      options: { signalFactory: {} as unknown as TimeoutSignalFactory },
+      message: "Outbound HTTP timeout signal factory was invalid",
+    },
+  ];
+
+  for (const { options, message } of cases) {
+    let fetchCalls = 0;
+    const client = new FetchHttpClient({
+      ...options,
+      baseUrl: "https://example.test",
+      logger: logger(),
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        return Response.json({ ok: true });
+      },
+    });
+
+    await expect(
+      client.request({ method: "GET", path: "/resource" }, z.unknown()),
+    ).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      message,
+      details: undefined,
+      diagnostics: { host: "example.test" },
+    });
+
+    expect(fetchCalls).toBe(0);
+  }
+});
+
+test("retry policy nextDelay getters are validated before network access", async () => {
+  let fetchCalls = 0;
+  const retryPolicy = Object.defineProperty({}, "nextDelay", {
+    get() {
+      throw new Error("private retry policy getter failure");
+    },
+  }) as RetryPolicy;
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: logger(),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return new Response("busy", { status: 503 });
+    },
+    retryPolicy,
+  });
+
+  await expect(
+    client.request({ method: "GET", path: "/resource" }, z.unknown()),
+  ).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP retry policy was invalid",
+    details: undefined,
+    diagnostics: { host: "example.test" },
+  });
+
+  expect(fetchCalls).toBe(0);
 });
 
 test("invalid fetch hook responses fail locally without retrying", async () => {
