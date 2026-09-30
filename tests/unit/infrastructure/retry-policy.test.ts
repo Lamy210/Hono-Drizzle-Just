@@ -19,6 +19,17 @@ test("Retry-After delay-seconds controls the retry delay", () => {
   expect(policy.nextDelay(getRequest, 1, failure)).toBe(2_000);
 });
 
+test("extreme Retry-After delay-seconds saturate to a finite delay", () => {
+  const policy = new DefaultRetryPolicy();
+  const failure: RetryFailure = {
+    kind: "response",
+    status: 429,
+    headers: new Headers({ "retry-after": "9".repeat(400) }),
+  };
+
+  expect(policy.nextDelay(getRequest, 1, failure)).toBe(Number.MAX_SAFE_INTEGER);
+});
+
 test("Retry-After HTTP-date controls the retry delay", () => {
   const nowMs = Date.parse("2026-09-14T00:00:00.000Z");
   const policy = new DefaultRetryPolicy({ now: () => nowMs });
