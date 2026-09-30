@@ -307,11 +307,17 @@ export class FetchHttpClient implements HttpClient {
           signal: this.signalFactory(attemptTimeoutMs),
         });
 
-        const retryDelay = this.retryPolicy.nextDelay(request, attempt, {
-          kind: "response",
-          status: response.status,
-          headers: response.headers,
-        });
+        let retryDelay: number | null;
+        try {
+          retryDelay = this.nextRetryDelay(request, attempt, {
+            kind: "response",
+            status: response.status,
+            headers: response.headers,
+          }, url);
+        } catch (error) {
+          await this.discardResponseBody(response);
+          throw error;
+        }
         if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt)) {
           await this.discardResponseBody(response);
           this.logger.warn("http.client.retry", {
@@ -388,7 +394,7 @@ export class FetchHttpClient implements HttpClient {
         return { status: response.status, headers: response.headers, data };
       } catch (error) {
         if (!(error instanceof AppError)) {
-          const retryDelay = this.retryPolicy.nextDelay(request, attempt, { kind: "network" });
+          const retryDelay = this.nextRetryDelay(request, attempt, { kind: "network" }, url);
           if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt)) {
             this.logger.warn("http.client.retry", {
               method: request.method,
@@ -611,6 +617,40 @@ export class FetchHttpClient implements HttpClient {
     } catch {
       // Body cleanup is best-effort and must not replace the upstream failure.
     }
+  }
+
+  private nextRetryDelay(
+    request: HttpRequest,
+    attempt: number,
+    failure: Parameters<RetryPolicy["nextDelay"]>[2],
+    url: URL,
+  ): number | null {
+    let delay: number | null;
+    try {
+      delay = this.retryPolicy.nextDelay(request, attempt, failure);
+    } catch (error) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Outbound HTTP retry policy failed",
+        500,
+        undefined,
+        { cause: error, diagnostics: { host: url.host } },
+      );
+    }
+
+    if (delay === null) {
+      return null;
+    }
+    if (!Number.isFinite(delay) || delay < 0) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Outbound HTTP retry policy returned an invalid delay",
+        500,
+        undefined,
+        { diagnostics: { host: url.host } },
+      );
+    }
+    return delay;
   }
 
   private recordClientMetrics(
