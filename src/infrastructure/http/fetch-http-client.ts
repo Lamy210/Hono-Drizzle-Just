@@ -123,6 +123,7 @@ export type FetchLike = (
 
 export type SleepLike = (delayMs: number) => Promise<void>;
 export type MonotonicNow = () => number;
+type RequestNow = () => number;
 export type TimeoutSignalFactory = (timeoutMs: number) => AbortSignal;
 
 export interface FetchHttpClientOptions {
@@ -197,7 +198,8 @@ export class FetchHttpClient implements HttpClient {
     this.assertRequestContext(request.context);
 
     const url = this.resolveUrl(request.path);
-    const startedAt = this.now();
+    const requestNow = this.createRequestNow(url);
+    const startedAt = requestNow();
 
     return this.tracer.withSpan(
       "http.client.request",
@@ -221,9 +223,17 @@ export class FetchHttpClient implements HttpClient {
             url,
             trace,
             startedAt,
+            requestNow,
           );
           span.setAttribute("http.response.status_code", response.status);
-          this.recordClientMetrics(request.method, url.host, "success", startedAt, response.status);
+          this.recordClientMetrics(
+            request.method,
+            url.host,
+            "success",
+            startedAt,
+            requestNow,
+            response.status,
+          );
           return response;
         } catch (error) {
           const statusCode = this.statusFromError(error);
@@ -231,7 +241,14 @@ export class FetchHttpClient implements HttpClient {
             span.setAttribute("http.response.status_code", statusCode);
           }
           span.setStatus("error");
-          this.recordClientMetrics(request.method, url.host, "error", startedAt, statusCode);
+          this.recordClientMetrics(
+            request.method,
+            url.host,
+            "error",
+            startedAt,
+            requestNow,
+            statusCode,
+          );
           throw error;
         }
       },
@@ -244,6 +261,7 @@ export class FetchHttpClient implements HttpClient {
     url: URL,
     trace: TraceContext | undefined,
     startedAt: number,
+    requestNow: RequestNow,
   ): Promise<HttpResponse<TResponse>> {
     this.assertRequestBodyAllowed(request, url);
     const headers = this.createRequestHeaders(request.headers, url);
@@ -274,7 +292,7 @@ export class FetchHttpClient implements HttpClient {
     let attempt = 0;
 
     while (true) {
-      const remainingBeforeAttempt = this.remainingMs(deadlineAt);
+      const remainingBeforeAttempt = this.remainingMs(deadlineAt, requestNow);
       if (remainingBeforeAttempt <= 0) {
         throw this.timeoutError(url);
       }
@@ -326,7 +344,7 @@ export class FetchHttpClient implements HttpClient {
             throw error;
           }
 
-          if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt)) {
+          if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt, requestNow)) {
             this.discardResponseBody(response);
             this.logger.warn("http.client.retry", {
               method: request.method,
@@ -394,7 +412,7 @@ export class FetchHttpClient implements HttpClient {
         this.logger.info("http.client.response", {
           method: request.method,
           statusCode: response.status,
-          durationMs: Number((this.now() - startedAt).toFixed(2)),
+          durationMs: Number((requestNow() - startedAt).toFixed(2)),
           attempt,
           traceId: trace?.traceId,
         });
@@ -402,7 +420,7 @@ export class FetchHttpClient implements HttpClient {
       } catch (error) {
         if (!(error instanceof AppError)) {
           const retryDelay = this.nextRetryDelay(request, attempt, { kind: "network" }, url);
-          if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt)) {
+          if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt, requestNow)) {
             this.logger.warn("http.client.retry", {
               method: request.method,
               attempt,
@@ -801,6 +819,7 @@ export class FetchHttpClient implements HttpClient {
     upstream: string,
     outcome: "success" | "error",
     startedAt: number,
+    requestNow: RequestNow,
     statusCode?: number,
   ): void {
     const attributes = {
@@ -812,7 +831,7 @@ export class FetchHttpClient implements HttpClient {
     this.meter.increment("http.client.requests", 1, attributes);
     this.meter.record(
       "http.client.duration",
-      Math.max(0, this.now() - startedAt) / 1_000,
+      (requestNow() - startedAt) / 1_000,
       attributes,
     );
   }
@@ -842,8 +861,40 @@ export class FetchHttpClient implements HttpClient {
     );
   }
 
-  private remainingMs(deadlineAt: number): number {
-    return Math.max(0, deadlineAt - this.now());
+  private remainingMs(deadlineAt: number, requestNow: RequestNow): number {
+    return Math.max(0, deadlineAt - requestNow());
+  }
+
+  private createRequestNow(url: URL): RequestNow {
+    let last: number | undefined;
+
+    return () => {
+      let current: number;
+      try {
+        current = this.now();
+      } catch (error) {
+        throw new AppError(
+          "INTERNAL_ERROR",
+          "Outbound HTTP monotonic clock failed",
+          500,
+          undefined,
+          { cause: error, diagnostics: { host: url.host } },
+        );
+      }
+
+      if (!Number.isFinite(current) || (last !== undefined && current < last)) {
+        throw new AppError(
+          "INTERNAL_ERROR",
+          "Outbound HTTP monotonic clock returned an invalid timestamp",
+          500,
+          undefined,
+          { diagnostics: { host: url.host } },
+        );
+      }
+
+      last = current;
+      return current;
+    };
   }
 
   private resolveUrl(path: string): URL {
