@@ -1,4 +1,5 @@
 import { expect, mock, test } from "bun:test";
+import type { HttpRequest } from "../../../src/core/http/http-client";
 import type { Meter } from "../../../src/core/observability/meter";
 import type {
   Span,
@@ -59,6 +60,37 @@ class ClientMeter implements Meter {
     this.histograms.push({ name, value, ...(attributes === undefined ? {} : { attributes }) });
   }
 }
+
+test("invalid runtime methods never become outbound telemetry dimensions", async () => {
+  const tracer = new ClientTracer();
+  const meter = new ClientMeter();
+  let fetchCalls = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://api.example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return Response.json({ ok: true });
+    },
+    tracer,
+    meter,
+  });
+
+  const request = {
+    method: "x-user-controlled-method",
+    path: "/resource",
+  } as unknown as HttpRequest;
+
+  await expect(client.request(request, { parse: (value) => value })).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    message: "Outbound HTTP method was invalid",
+  });
+
+  expect(fetchCalls).toBe(0);
+  expect(tracer.calls).toEqual([]);
+  expect(meter.counters).toEqual([]);
+  expect(meter.histograms).toEqual([]);
+});
 
 test("outbound HTTP uses one client span across retries and propagates its trace context", async () => {
   const tracer = new ClientTracer();
