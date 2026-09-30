@@ -33,9 +33,12 @@ const TRANSPORT_OWNED_REQUEST_HEADERS = new Set([
   "keep-alive",
   "proxy-connection",
   "te",
+  "traceparent",
+  "tracestate",
   "trailer",
   "transfer-encoding",
   "upgrade",
+  "x-request-id",
 ]);
 
 function positiveFiniteNumber(name: string, value: number): number {
