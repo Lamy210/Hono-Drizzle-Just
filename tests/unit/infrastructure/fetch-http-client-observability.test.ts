@@ -9,7 +9,10 @@ import type {
   Tracer,
 } from "../../../src/core/observability/tracer";
 import type { TraceContext } from "../../../src/core/tracing/trace-context";
-import { FetchHttpClient } from "../../../src/infrastructure/http/fetch-http-client";
+import {
+  FetchHttpClient,
+  type FetchLike,
+} from "../../../src/infrastructure/http/fetch-http-client";
 import { JsonConsoleLogger } from "../../../src/infrastructure/logging/json-console-logger";
 
 class ClientSpan implements Span {
@@ -174,7 +177,7 @@ test("invalid fetch hook responses are recorded as local client errors without s
     fetchImpl: (async () => {
       attempts += 1;
       return { ok: true, status: 200 } as unknown as Response;
-    }) as typeof fetch,
+    }) as unknown as FetchLike,
     tracer,
     meter,
   });
