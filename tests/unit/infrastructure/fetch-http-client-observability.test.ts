@@ -92,6 +92,38 @@ test("invalid runtime methods never become outbound telemetry dimensions", async
   expect(meter.histograms).toEqual([]);
 });
 
+test("invalid runtime retry controls never become outbound telemetry dimensions", async () => {
+  const tracer = new ClientTracer();
+  const meter = new ClientMeter();
+  let fetchCalls = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://api.example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return Response.json({ ok: true });
+    },
+    tracer,
+    meter,
+  });
+
+  const request = {
+    method: "GET",
+    path: "/resource",
+    retry: "attacker-controlled-mode",
+  } as unknown as HttpRequest;
+
+  await expect(client.request(request, { parse: (value) => value })).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    message: "Outbound HTTP retry mode was invalid",
+  });
+
+  expect(fetchCalls).toBe(0);
+  expect(tracer.calls).toEqual([]);
+  expect(meter.counters).toEqual([]);
+  expect(meter.histograms).toEqual([]);
+});
+
 test("outbound HTTP uses one client span across retries and propagates its trace context", async () => {
   const tracer = new ClientTracer();
   const meter = new ClientMeter();
