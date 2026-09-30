@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { z } from "zod";
 import type { RequestContext } from "../../../src/core/context/request-context";
 import type { HttpRequest } from "../../../src/core/http/http-client";
+import type { HttpRequest } from "../../../src/core/http/http-client";
 import { AppError } from "../../../src/core/errors/app-error";
 import {
   FetchHttpClient,
@@ -102,6 +103,30 @@ test("response-body cleanup failures do not replace the upstream HTTP failure", 
     details: undefined,
     diagnostics: { status: 400, host: "example.test" },
   });
+});
+
+test("fetch wrapper normalizes non-string runtime paths before network access", async () => {
+  let fetchCalls = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return Response.json({ ok: true });
+    },
+  });
+  const request = {
+    method: "GET",
+    path: { secret: "private-path-value" },
+  } as unknown as HttpRequest;
+
+  await expect(client.request(request, z.unknown())).rejects.toMatchObject({
+    code: "INVALID_HTTP_PATH",
+    status: 400,
+    message: "HttpClient path must be an absolute path on the configured upstream host",
+    details: undefined,
+  });
+  expect(fetchCalls).toBe(0);
 });
 
 test("fetch wrapper rejects absolute paths so callers cannot override the configured host", async () => {
@@ -211,6 +236,21 @@ test("fetch wrapper keeps normalized safe paths on the configured origin", async
 
   expect(captured?.origin).toBe("https://example.test");
   expect(captured?.pathname).toBe("/safe/%5Cvalue");
+});
+
+test("fetch wrapper normalizes syntactically invalid base URLs", () => {
+  const logger = new JsonConsoleLogger({}, () => undefined);
+
+  for (const baseUrl of ["", "not a url", "https://"]) {
+    expect(
+      () =>
+        new FetchHttpClient({
+          baseUrl,
+          logger,
+          fetchImpl: fetch,
+        }),
+    ).toThrow(new RangeError("baseUrl must be a valid absolute URL"));
+  }
 });
 
 test("fetch wrapper rejects non-HTTP base URLs", () => {
