@@ -298,6 +298,15 @@ export class FetchHttpClient implements HttpClient {
           redirect: "manual",
           signal: this.createAttemptSignal(attemptTimeoutMs, url),
         });
+        if (!(response instanceof Response)) {
+          throw new AppError(
+            "INTERNAL_ERROR",
+            "Outbound HTTP fetch implementation returned an invalid response",
+            500,
+            undefined,
+            { diagnostics: { host: url.host } },
+          );
+        }
 
         if (!response.ok) {
           let retryDelay: number | null;
