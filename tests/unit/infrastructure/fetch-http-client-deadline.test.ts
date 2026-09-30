@@ -66,6 +66,60 @@ test("request rejects invalid timeout overrides before calling fetch", async () 
   expect(attempts).toBe(0);
 });
 
+test("signal factory failures are local adapter errors and never reach fetch", async () => {
+  let fetchCalls = 0;
+  const fetchImpl: FetchLike = async () => {
+    fetchCalls += 1;
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: logger(),
+    fetchImpl,
+    signalFactory: () => {
+      throw new Error("private timeout hook failure");
+    },
+  });
+
+  await expect(
+    client.request({ method: "GET", path: "/resource" }, z.unknown()),
+  ).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP timeout signal factory failed",
+    details: undefined,
+    diagnostics: { host: "example.test" },
+  });
+
+  expect(fetchCalls).toBe(0);
+});
+
+test("signal factory must return an AbortSignal before fetch", async () => {
+  let fetchCalls = 0;
+  const fetchImpl: FetchLike = async () => {
+    fetchCalls += 1;
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: logger(),
+    fetchImpl,
+    signalFactory: () => ({}) as AbortSignal,
+  });
+
+  await expect(
+    client.request({ method: "GET", path: "/resource" }, z.unknown()),
+  ).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP timeout signal factory returned an invalid signal",
+    details: undefined,
+    diagnostics: { host: "example.test" },
+  });
+
+  expect(fetchCalls).toBe(0);
+});
+
 test("attempt timeout is capped by the remaining total deadline", async () => {
   let nowMs = 0;
   let attempts = 0;
