@@ -15,6 +15,16 @@ import type { Tracer } from "../../core/observability/tracer";
 import { DefaultRetryPolicy, type RetryPolicy } from "./retry-policy";
 import { formatTraceParent, parseTraceState } from "../tracing/w3c-trace-context";
 
+const OUTBOUND_HTTP_METHODS = new Set<HttpMethod>([
+  "GET",
+  "HEAD",
+  "OPTIONS",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+]);
+
 const TRANSPORT_OWNED_REQUEST_HEADERS = new Set([
   "connection",
   "content-length",
@@ -174,6 +184,8 @@ export class FetchHttpClient implements HttpClient {
     request: HttpRequest,
     responseSchema: SchemaParser<TResponse>,
   ): Promise<HttpResponse<TResponse>> {
+    this.assertHttpMethod(request.method);
+
     if (request.timeoutMs !== undefined) {
       positiveFiniteNumber("timeoutMs", request.timeoutMs);
     }
@@ -404,6 +416,16 @@ export class FetchHttpClient implements HttpClient {
           { cause: error, diagnostics: { host: url.host } },
         );
       }
+    }
+  }
+
+  private assertHttpMethod(method: unknown): asserts method is HttpMethod {
+    if (typeof method !== "string" || !OUTBOUND_HTTP_METHODS.has(method as HttpMethod)) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Outbound HTTP method was invalid",
+        500,
+      );
     }
   }
 
