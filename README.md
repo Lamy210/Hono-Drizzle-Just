@@ -18,7 +18,7 @@ Reusable backend API template built around **Bun + Hono + Drizzle ORM + PostgreS
 - HTTP server observability distinguishes handled 4xx client rejections from 5xx server failures in span status and structured log severity.
 - Structured JSON logging behind an application-owned `Logger` interface with secret redaction.
 - External HTTP access goes through an application-owned `HttpClient` abstraction and `FetchHttpClient` adapter; invalid `baseUrl` syntax and non-string runtime paths are normalized at the adapter boundary, configured upstreams remain origin-only, runtime methods are allowlisted before telemetry/network access, parser-normalized raw paths are rejected before fetch, request invariants are validated, and successful body-bearing responses must declare one unambiguous JSON media type and contain valid UTF-8 before parsing.
-- Outbound HTTP retries are conservative, idempotency-aware, deadline-bounded, and trace-preserving.
+- Outbound HTTP retries are conservative, idempotency-aware, deadline-bounded, trace-preserving, and validate custom retry-policy outputs before sleeping or retrying.
 - Environment variables are parsed once at startup into a typed configuration object.
 - API responses include a conservative security-header baseline without forcing CORS, HSTS, or cross-origin isolation policy.
 - Unmatched routes and unsupported HTTP methods use the same correlated JSON error envelope; 405 responses include an `Allow` header.
