@@ -76,6 +76,64 @@ test("request rejects invalid timeout overrides before calling fetch", async () 
   expect(attempts).toBe(0);
 });
 
+test("monotonic clock failures are normalized before fetch", async () => {
+  let fetchCalls = 0;
+  const fetchImpl: FetchLike = async () => {
+    fetchCalls += 1;
+    return Response.json({ ok: true });
+  };
+
+  for (const now of [
+    () => {
+      throw new Error("private clock failure");
+    },
+    () => Number.NaN,
+    () => Number.POSITIVE_INFINITY,
+  ]) {
+    const client = new FetchHttpClient({
+      baseUrl: "https://example.test",
+      logger: logger(),
+      fetchImpl,
+      now,
+    });
+
+    await expect(
+      client.request({ method: "GET", path: "/resource" }, z.unknown()),
+    ).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      diagnostics: { host: "example.test" },
+    });
+  }
+
+  expect(fetchCalls).toBe(0);
+});
+
+test("monotonic clock cannot move backwards within one logical request", async () => {
+  let fetchCalls = 0;
+  const times = [1_000, 999, 1_000];
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: logger(),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return Response.json({ ok: true });
+    },
+    now: () => times.shift() ?? 1_000,
+  });
+
+  await expect(
+    client.request({ method: "GET", path: "/resource" }, z.unknown()),
+  ).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP monotonic clock returned an invalid timestamp",
+    diagnostics: { host: "example.test" },
+  });
+
+  expect(fetchCalls).toBe(0);
+});
+
 test("signal factory failures are local adapter errors and never reach fetch", async () => {
   let fetchCalls = 0;
   const fetchImpl: FetchLike = async () => {
