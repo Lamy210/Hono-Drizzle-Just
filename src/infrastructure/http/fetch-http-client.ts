@@ -196,6 +196,7 @@ export class FetchHttpClient implements HttpClient {
     this.assertHttpMethod(request.method);
     this.assertRequestControls(request);
     this.assertRequestContext(request.context);
+    const parseResponse = this.createResponseParser(responseSchema);
 
     const url = this.resolveUrl(request.path);
     const requestNow = this.createRequestNow(url);
@@ -219,7 +220,7 @@ export class FetchHttpClient implements HttpClient {
         try {
           const response = await this.executeRequest(
             request,
-            responseSchema,
+            parseResponse,
             url,
             trace,
             startedAt,
@@ -257,7 +258,7 @@ export class FetchHttpClient implements HttpClient {
 
   private async executeRequest<TResponse>(
     request: HttpRequest,
-    responseSchema: SchemaParser<TResponse>,
+    parseResponse: (value: unknown) => TResponse,
     url: URL,
     trace: TraceContext | undefined,
     startedAt: number,
@@ -398,7 +399,7 @@ export class FetchHttpClient implements HttpClient {
 
         let data: TResponse;
         try {
-          data = responseSchema.parse(raw);
+          data = parseResponse(raw);
         } catch (error) {
           throw new AppError(
             "UPSTREAM_RESPONSE_INVALID",
@@ -453,6 +454,40 @@ export class FetchHttpClient implements HttpClient {
         );
       }
     }
+  }
+
+  private createResponseParser<TResponse>(
+    responseSchema: SchemaParser<TResponse>,
+  ): (value: unknown) => TResponse {
+    const candidate = responseSchema as unknown;
+    if (
+      candidate === null ||
+      (typeof candidate !== "object" && typeof candidate !== "function")
+    ) {
+      throw this.invalidResponseSchemaError();
+    }
+
+    let parse: unknown;
+    try {
+      parse = Reflect.get(candidate, "parse");
+    } catch {
+      throw this.invalidResponseSchemaError();
+    }
+    if (typeof parse !== "function") {
+      throw this.invalidResponseSchemaError();
+    }
+
+    return (value) => Reflect.apply(parse, candidate, [value]) as TResponse;
+  }
+
+  private invalidResponseSchemaError(): AppError {
+    return new AppError(
+      "INTERNAL_ERROR",
+      "Outbound HTTP response schema was invalid",
+      500,
+      undefined,
+      { diagnostics: { host: this.baseUrl.host } },
+    );
   }
 
   private assertHttpMethod(method: unknown): asserts method is HttpMethod {

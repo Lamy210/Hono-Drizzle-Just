@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
 import type { RequestContext } from "../../../src/core/context/request-context";
-import type { HttpRequest } from "../../../src/core/http/http-client";
+import type { HttpRequest, SchemaParser } from "../../../src/core/http/http-client";
 import { AppError } from "../../../src/core/errors/app-error";
 import {
   FetchHttpClient,
@@ -908,6 +908,45 @@ test("fetch wrapper rejects invalid outbound request byte limits", async () => {
     message: "Outbound HTTP request controls were invalid",
     diagnostics: { host: "example.test" },
   });
+});
+
+test("fetch wrapper rejects invalid runtime response schemas before network access", async () => {
+  let fetchCalls = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return Response.json({ created: true });
+    },
+  });
+  const throwingSchema = Object.defineProperty({}, "parse", {
+    get() {
+      throw new Error("schema getter failure");
+    },
+  });
+
+  for (const invalidSchema of [null, {}, { parse: "not-callable" }, throwingSchema]) {
+    await expect(
+      client.request(
+        {
+          method: "POST",
+          path: "/resource",
+          body: { operation: "create" },
+          retry: "never",
+        },
+        invalidSchema as unknown as SchemaParser<unknown>,
+      ),
+    ).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      message: "Outbound HTTP response schema was invalid",
+      details: undefined,
+      diagnostics: { host: "example.test" },
+    });
+  }
+
+  expect(fetchCalls).toBe(0);
 });
 
 test("fetch wrapper rejects invalid runtime retry modes before network access", async () => {
