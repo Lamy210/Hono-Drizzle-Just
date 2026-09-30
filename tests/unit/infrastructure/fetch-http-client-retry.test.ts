@@ -7,6 +7,109 @@ import {
 } from "../../../src/infrastructure/http/fetch-http-client";
 import { JsonConsoleLogger } from "../../../src/infrastructure/logging/json-console-logger";
 
+test("invalid custom retry delays fail closed and discard the response body", async () => {
+  for (const invalidDelay of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    let policyCalls = 0;
+    let cancelledBodies = 0;
+    const fetchImpl: FetchLike = async () =>
+      new Response(
+        new ReadableStream({
+          cancel() {
+            cancelledBodies += 1;
+          },
+        }),
+        { status: 503 },
+      );
+    const client = new FetchHttpClient({
+      baseUrl: "https://example.test",
+      logger: new JsonConsoleLogger({}, () => undefined),
+      fetchImpl,
+      retryPolicy: {
+        nextDelay: () => {
+          policyCalls += 1;
+          return invalidDelay;
+        },
+      },
+    });
+
+    await expect(
+      client.request({ method: "GET", path: "/resource" }, z.unknown()),
+    ).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      message: "Outbound HTTP retry policy returned an invalid delay",
+      diagnostics: { host: "example.test" },
+    });
+
+    expect(policyCalls).toBe(1);
+    expect(cancelledBodies).toBe(1);
+  }
+});
+
+test("custom retry policy exceptions are normalized once and discard the response body", async () => {
+  let policyCalls = 0;
+  let cancelledBodies = 0;
+  const failure = new Error("policy failed with private details");
+  const fetchImpl: FetchLike = async () =>
+    new Response(
+      new ReadableStream({
+        cancel() {
+          cancelledBodies += 1;
+        },
+      }),
+      { status: 503 },
+    );
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    retryPolicy: {
+      nextDelay: () => {
+        policyCalls += 1;
+        throw failure;
+      },
+    },
+  });
+
+  await expect(
+    client.request({ method: "GET", path: "/resource" }, z.unknown()),
+  ).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP retry policy failed",
+    diagnostics: { host: "example.test" },
+  });
+
+  expect(policyCalls).toBe(1);
+  expect(cancelledBodies).toBe(1);
+});
+
+test("invalid custom retry delays after network failures fail closed", async () => {
+  let policyCalls = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => {
+      throw new TypeError("connection reset");
+    },
+    retryPolicy: {
+      nextDelay: () => {
+        policyCalls += 1;
+        return -5;
+      },
+    },
+  });
+
+  await expect(
+    client.request({ method: "GET", path: "/resource" }, z.unknown()),
+  ).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP retry policy returned an invalid delay",
+  });
+  expect(policyCalls).toBe(1);
+});
+
 test("GET discards a retryable response body before the next attempt", async () => {
   let attempts = 0;
   let cancelledBodies = 0;
