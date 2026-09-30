@@ -335,12 +335,12 @@ export class FetchHttpClient implements HttpClient {
           try {
             if (attempt < this.maxAttempts) {
               retryDelay = this.nextRetryDelay(
-              request,
-              attempt,
-              {
-                kind: "response",
-                status: response.status,
-                headers: response.headers,
+                request,
+                attempt,
+                {
+                  kind: "response",
+                  status: response.status,
+                  headers: response.headers,
                 },
                 url,
               );
