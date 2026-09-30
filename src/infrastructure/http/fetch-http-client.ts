@@ -148,7 +148,7 @@ export interface FetchHttpClientOptions {
 
 export class FetchHttpClient implements HttpClient {
   private readonly baseUrl: URL;
-  private readonly fetchImpl: FetchLike;
+  private readonly fetchImpl: unknown;
   private readonly defaultTimeoutMs: number;
   private readonly defaultAttemptTimeoutMs: number;
   private readonly defaultMaxRequestBytes: number;
@@ -163,7 +163,7 @@ export class FetchHttpClient implements HttpClient {
 
   constructor(options: FetchHttpClientOptions) {
     this.baseUrl = parseBaseUrl(options.baseUrl);
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl === undefined ? fetch : options.fetchImpl;
     this.defaultTimeoutMs = positiveFiniteNumber(
       "defaultTimeoutMs",
       options.defaultTimeoutMs ?? 10_000,
@@ -199,6 +199,7 @@ export class FetchHttpClient implements HttpClient {
     const parseResponse = this.createResponseParser(responseSchema);
 
     const url = this.resolveUrl(request.path);
+    const fetchImpl = this.getFetchImplementation(url);
     const requestNow = this.createRequestNow(url);
     const startedAt = requestNow();
 
@@ -221,6 +222,7 @@ export class FetchHttpClient implements HttpClient {
           const response = await this.executeRequest(
             request,
             parseResponse,
+            fetchImpl,
             url,
             trace,
             startedAt,
@@ -259,6 +261,7 @@ export class FetchHttpClient implements HttpClient {
   private async executeRequest<TResponse>(
     request: HttpRequest,
     parseResponse: (value: unknown) => TResponse,
+    fetchImpl: FetchLike,
     url: URL,
     trace: TraceContext | undefined,
     startedAt: number,
@@ -310,7 +313,7 @@ export class FetchHttpClient implements HttpClient {
       );
 
       try {
-        const response = await this.fetchImpl(url, {
+        const response = await fetchImpl(url, {
           method: request.method,
           headers,
           ...(body === undefined ? {} : { body }),
@@ -454,6 +457,19 @@ export class FetchHttpClient implements HttpClient {
         );
       }
     }
+  }
+
+  private getFetchImplementation(url: URL): FetchLike {
+    if (typeof this.fetchImpl !== "function") {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Outbound HTTP fetch implementation was invalid",
+        500,
+        undefined,
+        { diagnostics: { host: url.host } },
+      );
+    }
+    return this.fetchImpl as FetchLike;
   }
 
   private createResponseParser<TResponse>(
