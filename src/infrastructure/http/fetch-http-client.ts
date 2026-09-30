@@ -59,6 +59,31 @@ function hasDotPathSegment(value: string): boolean {
     .some((segment) => /^(?:\.|%2e){1,2}$/i.test(segment));
 }
 
+function hasAmbiguousContentTypeValue(value: string): boolean {
+  let quoted = false;
+  let escaped = false;
+
+  for (const character of value) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (quoted && character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (character === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (!quoted && character === ",") {
+      return true;
+    }
+  }
+
+  return quoted || escaped;
+}
+
 function parseBaseUrl(value: string | URL): URL {
   const url = new URL(value);
   if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -470,7 +495,18 @@ export class FetchHttpClient implements HttpClient {
 
   private async assertJsonResponseContentType(response: Response, url: URL): Promise<void> {
     const contentType = response.headers.get("content-type");
-    const mediaType = contentType?.split(";", 1)[0]?.trim().toLowerCase();
+    if (contentType === null || hasAmbiguousContentTypeValue(contentType)) {
+      await this.discardResponseBody(response);
+      throw new AppError(
+        "UPSTREAM_RESPONSE_INVALID",
+        "Upstream response did not use a JSON media type",
+        502,
+        undefined,
+        { diagnostics: { host: url.host } },
+      );
+    }
+
+    const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
     const isJson =
       mediaType === "application/json" ||
       (mediaType !== undefined &&
