@@ -307,7 +307,7 @@ export class FetchHttpClient implements HttpClient {
           headers,
           ...(body === undefined ? {} : { body }),
           redirect: "manual",
-          signal: this.signalFactory(attemptTimeoutMs),
+          signal: this.createAttemptSignal(attemptTimeoutMs, url),
         });
 
         let retryDelay: number | null;
@@ -333,7 +333,7 @@ export class FetchHttpClient implements HttpClient {
             traceId: trace?.traceId,
           });
           if (retryDelay > 0) {
-            await this.sleep(retryDelay);
+            await this.waitBeforeRetry(retryDelay, url);
           }
           continue;
         }
@@ -411,7 +411,7 @@ export class FetchHttpClient implements HttpClient {
               traceId: trace?.traceId,
             });
             if (retryDelay > 0) {
-              await this.sleep(retryDelay);
+              await this.waitBeforeRetry(retryDelay, url);
             }
             continue;
           }
@@ -619,6 +619,46 @@ export class FetchHttpClient implements HttpClient {
       await response.body.cancel();
     } catch {
       // Body cleanup is best-effort and must not replace the upstream failure.
+    }
+  }
+
+  private createAttemptSignal(timeoutMs: number, url: URL): AbortSignal {
+    let signal: unknown;
+    try {
+      signal = this.signalFactory(timeoutMs);
+    } catch (error) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Outbound HTTP timeout signal factory failed",
+        500,
+        undefined,
+        { cause: error, diagnostics: { host: url.host } },
+      );
+    }
+
+    if (!(signal instanceof AbortSignal)) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Outbound HTTP timeout signal factory returned an invalid signal",
+        500,
+        undefined,
+        { diagnostics: { host: url.host } },
+      );
+    }
+    return signal;
+  }
+
+  private async waitBeforeRetry(delayMs: number, url: URL): Promise<void> {
+    try {
+      await this.sleep(delayMs);
+    } catch (error) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Outbound HTTP retry delay failed",
+        500,
+        undefined,
+        { cause: error, diagnostics: { host: url.host } },
+      );
     }
   }
 
