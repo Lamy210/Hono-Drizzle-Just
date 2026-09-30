@@ -192,7 +192,7 @@ export class FetchHttpClient implements HttpClient {
         ? (timeoutMs) => AbortSignal.timeout(timeoutMs)
         : options.signalFactory;
     this.logger = options.logger.child({ component: "http_client", upstreamHost: this.baseUrl.host });
-    this.tracer = options.tracer ?? new NoopTracer();
+    this.tracer = options.tracer === undefined ? new NoopTracer() : options.tracer;
     this.meter = options.meter ?? new NoopMeter();
   }
 
@@ -208,10 +208,11 @@ export class FetchHttpClient implements HttpClient {
     const url = this.resolveUrl(request.path);
     const fetchImpl = this.getFetchImplementation(url);
     this.assertRuntimeHooks(url);
+    const withSpan = this.getTracerWithSpan(url);
     const requestNow = this.createRequestNow(url);
     const startedAt = requestNow();
 
-    return this.tracer.withSpan(
+    return withSpan(
       "http.client.request",
       {
         kind: "client",
@@ -465,6 +466,28 @@ export class FetchHttpClient implements HttpClient {
         );
       }
     }
+  }
+
+  private getTracerWithSpan(url: URL): Tracer["withSpan"] {
+    const tracer = this.tracer as unknown;
+    if (
+      tracer === null ||
+      (typeof tracer !== "object" && typeof tracer !== "function")
+    ) {
+      throw this.invalidRuntimeHookError("Outbound HTTP tracer was invalid", url);
+    }
+
+    let withSpan: unknown;
+    try {
+      withSpan = Reflect.get(tracer, "withSpan");
+    } catch {
+      throw this.invalidRuntimeHookError("Outbound HTTP tracer was invalid", url);
+    }
+    if (typeof withSpan !== "function") {
+      throw this.invalidRuntimeHookError("Outbound HTTP tracer was invalid", url);
+    }
+
+    return withSpan.bind(tracer) as Tracer["withSpan"];
   }
 
   private assertRuntimeHooks(url: URL): void {
