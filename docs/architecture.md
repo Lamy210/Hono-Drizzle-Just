@@ -316,6 +316,7 @@ Retry eligibility and delay calculation live in `RetryPolicy`, not in services. 
 - Network failures and per-attempt timeout failures use the same retry budget.
 - Successful responses that fail JSON decoding or schema validation are not retried.
 - The default retry budget is one retry. A different `RetryPolicy` can change this without changing the `HttpClient` interface.
+- `RetryPolicy` is evaluated only after a failed HTTP response or a network/attempt failure. A successful 2xx response is never passed to custom retry code, so an extension policy cannot discard/replay a completed success by returning a delay or throwing.
 - `FetchHttpClient` treats injected runtime hooks as infrastructure extension points, not trusted behavior. Custom retry-policy exceptions are normalized to a stable `INTERNAL_ERROR`; non-null delays must be finite and non-negative. Timeout-signal factory exceptions and non-`AbortSignal` results are local `INTERNAL_ERROR` failures before fetch, while retry-sleep rejections are normalized without starting another network attempt. Invalid policy output never reaches retry logs/sleep, and when evaluation fails after receiving a response the adapter initiates non-blocking disposal of that response body before surfacing the local policy error.
 
 `Retry-After` is parsed as either delay-seconds or an HTTP-date. Without that header, `DefaultRetryPolicy` uses capped exponential backoff with full jitter. `Retry-After` is not clipped to the backoff cap; the caller's total deadline decides whether there is enough time to honor it.
