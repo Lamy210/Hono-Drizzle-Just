@@ -164,6 +164,46 @@ test("invalid runtime request context never reaches tracer, metrics, or fetch", 
   expect(meter.histograms).toEqual([]);
 });
 
+test("invalid fetch hook responses are recorded as local client errors without status", async () => {
+  const tracer = new ClientTracer();
+  const meter = new ClientMeter();
+  let attempts = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://api.example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: (async () => {
+      attempts += 1;
+      return { ok: true, status: 200 } as unknown as Response;
+    }) as typeof fetch,
+    tracer,
+    meter,
+  });
+
+  await expect(
+    client.request(
+      { method: "GET", path: "/resource" },
+      { parse: (value) => value },
+    ),
+  ).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    message: "Outbound HTTP fetch implementation returned an invalid response",
+  });
+
+  expect(attempts).toBe(1);
+  expect(tracer.calls).toHaveLength(1);
+  expect(tracer.calls[0]?.span.status).toBe("error");
+  expect(tracer.calls[0]?.span.attributes.has("http.response.status_code")).toBe(false);
+  expect(meter.counters).toContainEqual({
+    name: "http.client.requests",
+    value: 1,
+    attributes: {
+      method: "GET",
+      upstream: "api.example.test",
+      outcome: "error",
+    },
+  });
+});
+
 test("outbound HTTP uses one client span across retries and propagates its trace context", async () => {
   const tracer = new ClientTracer();
   const meter = new ClientMeter();
