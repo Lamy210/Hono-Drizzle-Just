@@ -7,6 +7,83 @@ import {
 } from "../../../src/infrastructure/http/fetch-http-client";
 import { JsonConsoleLogger } from "../../../src/infrastructure/logging/json-console-logger";
 
+test("constructor rejects invalid total attempt ceilings", () => {
+  for (const maxAttempts of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    expect(
+      () =>
+        new FetchHttpClient({
+          baseUrl: "https://example.test",
+          logger: new JsonConsoleLogger({}, () => undefined),
+          maxAttempts,
+        }),
+    ).toThrow(RangeError);
+  }
+});
+
+test("adapter attempt ceiling bounds zero-delay response retries even when time does not advance", async () => {
+  let attempts = 0;
+  let policyCalls = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => {
+      attempts += 1;
+      return new Response("busy", { status: 503 });
+    },
+    retryPolicy: {
+      nextDelay: () => {
+        policyCalls += 1;
+        return 0;
+      },
+    },
+    maxAttempts: 3,
+    now: () => 1_000,
+  });
+
+  await expect(
+    client.request({ method: "GET", path: "/resource" }, z.unknown()),
+  ).rejects.toMatchObject({
+    code: "UPSTREAM_REQUEST_FAILED",
+    status: 502,
+    diagnostics: { status: 503, host: "example.test" },
+  });
+
+  expect(attempts).toBe(3);
+  expect(policyCalls).toBe(2);
+});
+
+test("adapter attempt ceiling also bounds zero-delay network retries", async () => {
+  let attempts = 0;
+  let policyCalls = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => {
+      attempts += 1;
+      throw new TypeError("connection reset");
+    },
+    retryPolicy: {
+      nextDelay: () => {
+        policyCalls += 1;
+        return 0;
+      },
+    },
+    maxAttempts: 3,
+    now: () => 1_000,
+  });
+
+  await expect(
+    client.request({ method: "GET", path: "/resource" }, z.unknown()),
+  ).rejects.toMatchObject({
+    code: "UPSTREAM_REQUEST_FAILED",
+    status: 502,
+    diagnostics: { host: "example.test" },
+  });
+
+  expect(attempts).toBe(3);
+  expect(policyCalls).toBe(2);
+});
+
 test("invalid custom retry delays fail closed and discard the response body", async () => {
   for (const invalidDelay of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
     let policyCalls = 0;
