@@ -55,6 +55,58 @@ test("retry sleep failures are local adapter errors and do not trigger another f
   expect(sleepCalls).toBe(1);
 });
 
+test("non-callable fetch hooks fail locally before retry policy evaluation", async () => {
+  let policyCalls = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: logger(),
+    fetchImpl: {} as unknown as FetchLike,
+    retryPolicy: {
+      nextDelay: () => {
+        policyCalls += 1;
+        return 0;
+      },
+    },
+  });
+
+  await expect(
+    client.request({ method: "GET", path: "/resource" }, z.unknown()),
+  ).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP fetch implementation was invalid",
+    details: undefined,
+    diagnostics: { host: "example.test" },
+  });
+
+  expect(policyCalls).toBe(0);
+});
+
+test("null fetch hooks are rejected instead of falling back to global fetch", async () => {
+  let signalFactoryCalls = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: logger(),
+    fetchImpl: null as unknown as FetchLike,
+    signalFactory: () => {
+      signalFactoryCalls += 1;
+      throw new Error("signal factory should not be reached");
+    },
+  });
+
+  await expect(
+    client.request({ method: "GET", path: "/resource" }, z.unknown()),
+  ).rejects.toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP fetch implementation was invalid",
+    details: undefined,
+    diagnostics: { host: "example.test" },
+  });
+
+  expect(signalFactoryCalls).toBe(0);
+});
+
 test("invalid fetch hook responses fail locally without retrying", async () => {
   let attempts = 0;
   let policyCalls = 0;
