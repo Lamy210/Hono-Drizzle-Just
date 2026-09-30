@@ -180,10 +180,17 @@ export class FetchHttpClient implements HttpClient {
       "defaultMaxResponseBytes",
       options.defaultMaxResponseBytes ?? 1_048_576,
     );
-    this.retryPolicy = options.retryPolicy ?? new DefaultRetryPolicy();
-    this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
-    this.now = options.now ?? performance.now.bind(performance);
-    this.signalFactory = options.signalFactory ?? ((timeoutMs) => AbortSignal.timeout(timeoutMs));
+    this.retryPolicy =
+      options.retryPolicy === undefined ? new DefaultRetryPolicy() : options.retryPolicy;
+    this.sleep =
+      options.sleep === undefined
+        ? (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs))
+        : options.sleep;
+    this.now = options.now === undefined ? performance.now.bind(performance) : options.now;
+    this.signalFactory =
+      options.signalFactory === undefined
+        ? (timeoutMs) => AbortSignal.timeout(timeoutMs)
+        : options.signalFactory;
     this.logger = options.logger.child({ component: "http_client", upstreamHost: this.baseUrl.host });
     this.tracer = options.tracer ?? new NoopTracer();
     this.meter = options.meter ?? new NoopMeter();
@@ -200,6 +207,7 @@ export class FetchHttpClient implements HttpClient {
 
     const url = this.resolveUrl(request.path);
     const fetchImpl = this.getFetchImplementation(url);
+    this.assertRuntimeHooks(url);
     const requestNow = this.createRequestNow(url);
     const startedAt = requestNow();
 
@@ -457,6 +465,49 @@ export class FetchHttpClient implements HttpClient {
         );
       }
     }
+  }
+
+  private assertRuntimeHooks(url: URL): void {
+    const retryPolicy = this.retryPolicy as unknown;
+    if (
+      retryPolicy === null ||
+      (typeof retryPolicy !== "object" && typeof retryPolicy !== "function")
+    ) {
+      throw this.invalidRuntimeHookError("Outbound HTTP retry policy was invalid", url);
+    }
+
+    let nextDelay: unknown;
+    try {
+      nextDelay = Reflect.get(retryPolicy, "nextDelay");
+    } catch {
+      throw this.invalidRuntimeHookError("Outbound HTTP retry policy was invalid", url);
+    }
+    if (typeof nextDelay !== "function") {
+      throw this.invalidRuntimeHookError("Outbound HTTP retry policy was invalid", url);
+    }
+
+    if (typeof (this.sleep as unknown) !== "function") {
+      throw this.invalidRuntimeHookError("Outbound HTTP retry sleep hook was invalid", url);
+    }
+    if (typeof (this.now as unknown) !== "function") {
+      throw this.invalidRuntimeHookError("Outbound HTTP monotonic clock hook was invalid", url);
+    }
+    if (typeof (this.signalFactory as unknown) !== "function") {
+      throw this.invalidRuntimeHookError(
+        "Outbound HTTP timeout signal factory was invalid",
+        url,
+      );
+    }
+  }
+
+  private invalidRuntimeHookError(message: string, url: URL): AppError {
+    return new AppError(
+      "INTERNAL_ERROR",
+      message,
+      500,
+      undefined,
+      { diagnostics: { host: url.host } },
+    );
   }
 
   private getFetchImplementation(url: URL): FetchLike {

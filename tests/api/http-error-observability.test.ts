@@ -256,19 +256,17 @@ test("public AppError details remain serializable while internal diagnostics sta
 
   const response = await app.request("/diagnostics-boundary");
   const body = await response.json();
-  const serialized = JSON.stringify(body);
 
   expect(response.status).toBe(502);
-  expect(body).toMatchObject({
+  expect(body).toEqual({
     error: {
       code: "UPSTREAM_REQUEST_FAILED",
       message: "Upstream request failed",
       details: { retryable: false },
     },
+    requestId: expect.any(String),
+    traceId: expect.any(String),
   });
-  expect(serialized).not.toContain("internal.service.cluster.local");
-  expect(serialized).not.toContain("503");
-  expect(serialized).not.toContain("top-secret");
 
   expect(lines).toHaveLength(1);
   expect(lines[0]).not.toContain("internal.service.cluster.local");
