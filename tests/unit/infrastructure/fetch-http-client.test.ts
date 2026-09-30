@@ -366,6 +366,81 @@ test("fetch wrapper rejects successful JSON bodies with a missing content type",
   });
 });
 
+test("fetch wrapper rejects ambiguous combined Content-Type values", async () => {
+  const fetchImpl: FetchLike = async () =>
+    new Response('{"ok":true}', {
+      status: 200,
+      headers: {
+        "content-type": "application/json; charset=utf-8, text/html",
+      },
+    });
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  await expect(
+    client.request(
+      { method: "GET", path: "/ambiguous-media-type" },
+      z.object({ ok: z.boolean() }),
+    ),
+  ).rejects.toMatchObject({
+    code: "UPSTREAM_RESPONSE_INVALID",
+    status: 502,
+    message: "Upstream response did not use a JSON media type",
+    details: undefined,
+    diagnostics: { host: "example.test" },
+  });
+});
+
+test("fetch wrapper accepts commas inside quoted media-type parameters", async () => {
+  const fetchImpl: FetchLike = async () =>
+    new Response('{"ok":true}', {
+      status: 200,
+      headers: {
+        "content-type": 'application/problem+json; profile="urn:example:a,b"',
+      },
+    });
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  const response = await client.request(
+    { method: "GET", path: "/quoted-media-type-parameter" },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(response.data).toEqual({ ok: true });
+});
+
+test("fetch wrapper rejects malformed quoted Content-Type parameters", async () => {
+  const fetchImpl: FetchLike = async () =>
+    new Response('{"ok":true}', {
+      status: 200,
+      headers: {
+        "content-type": 'application/json; profile="unterminated',
+      },
+    });
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+  });
+
+  await expect(
+    client.request(
+      { method: "GET", path: "/malformed-media-type" },
+      z.object({ ok: z.boolean() }),
+    ),
+  ).rejects.toMatchObject({
+    code: "UPSTREAM_RESPONSE_INVALID",
+    status: 502,
+  });
+});
+
 test("fetch wrapper accepts structured syntax JSON media types", async () => {
   const fetchImpl: FetchLike = async () =>
     new Response('{"ok":true}', {
