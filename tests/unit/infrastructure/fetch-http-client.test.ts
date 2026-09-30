@@ -540,6 +540,61 @@ test("fetch wrapper rejects chunked successful responses that exceed the configu
   expect(cancelled).toBe(1);
 });
 
+test("oversized response cleanup does not wait for a hanging reader cancellation", async () => {
+  let releaseCancel: (() => void) | undefined;
+  let cancelStarted = false;
+  const encoder = new TextEncoder();
+  const fetchImpl: FetchLike = async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('{"value":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}'));
+        },
+        cancel() {
+          cancelStarted = true;
+          return new Promise<void>((resolve) => {
+            releaseCancel = resolve;
+          });
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    defaultMaxResponseBytes: 16,
+  });
+
+  const outcome = client
+    .request(
+      { method: "GET", path: "/large-hanging-cancel" },
+      z.object({ value: z.string() }),
+    )
+    .then(
+      () => ({ kind: "resolved" as const }),
+      (error: unknown) => ({ kind: "rejected" as const, error }),
+    );
+
+  const settledBeforeCancel = await Promise.race([
+    outcome.then(() => true),
+    Bun.sleep(25).then(() => false),
+  ]);
+  releaseCancel?.();
+  const result = await outcome;
+
+  expect(cancelStarted).toBe(true);
+  expect(settledBeforeCancel).toBe(true);
+  expect(result).toMatchObject({
+    kind: "rejected",
+    error: {
+      code: "UPSTREAM_RESPONSE_INVALID",
+      status: 502,
+      message: "Upstream response exceeded maximum size",
+    },
+  });
+});
+
 test("request response limit can be lower than the adapter default", async () => {
   const fetchImpl: FetchLike = async () => Response.json({ value: "1234567890" });
   const client = new FetchHttpClient({

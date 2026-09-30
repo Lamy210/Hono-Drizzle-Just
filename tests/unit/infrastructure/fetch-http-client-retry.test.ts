@@ -225,6 +225,63 @@ test("OPTIONS retries transient upstream responses by default", async () => {
   expect(attempts).toBe(2);
 });
 
+test("retry does not wait for a hanging response-body cancellation", async () => {
+  let attempts = 0;
+  let releaseCancel: (() => void) | undefined;
+  let cancelStarted = false;
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response(
+        new ReadableStream({
+          cancel() {
+            cancelStarted = true;
+            return new Promise<void>((resolve) => {
+              releaseCancel = resolve;
+            });
+          },
+        }),
+        { status: 503 },
+      );
+    }
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    retryPolicy: {
+      nextDelay: (_request, _attempt, failure) =>
+        failure.kind === "response" && failure.status === 503 ? 0 : null,
+    },
+  });
+
+  const outcome = client
+    .request(
+      { method: "GET", path: "/resource" },
+      z.object({ ok: z.boolean() }),
+    )
+    .then(
+      (response) => ({ kind: "resolved" as const, response }),
+      (error: unknown) => ({ kind: "rejected" as const, error }),
+    );
+
+  const settledBeforeCancel = await Promise.race([
+    outcome.then(() => true),
+    Bun.sleep(25).then(() => false),
+  ]);
+  releaseCancel?.();
+  const result = await outcome;
+
+  expect(cancelStarted).toBe(true);
+  expect(settledBeforeCancel).toBe(true);
+  expect(attempts).toBe(2);
+  expect(result).toMatchObject({
+    kind: "resolved",
+    response: { data: { ok: true } },
+  });
+});
+
 test("non-default methods retry only when the caller marks the request idempotent", async () => {
   let attempts = 0;
   const fetchImpl: FetchLike = async () => {
