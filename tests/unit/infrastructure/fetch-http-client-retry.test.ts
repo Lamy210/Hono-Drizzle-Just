@@ -110,6 +110,71 @@ test("invalid custom retry delays after network failures fail closed", async () 
   expect(policyCalls).toBe(1);
 });
 
+test("successful responses never enter custom retry policy", async () => {
+  let attempts = 0;
+  let policyCalls = 0;
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    return Response.json({ ok: true }, { status: 201 });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    retryPolicy: {
+      nextDelay: () => {
+        policyCalls += 1;
+        return 0;
+      },
+    },
+  });
+
+  const response = await client.request(
+    {
+      method: "POST",
+      path: "/resource",
+      body: { name: "Lamy" },
+      retry: "idempotent",
+    },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(response.status).toBe(201);
+  expect(response.data).toEqual({ ok: true });
+  expect(attempts).toBe(1);
+  expect(policyCalls).toBe(0);
+});
+
+test("successful responses are not failed by a throwing custom retry policy", async () => {
+  let attempts = 0;
+  let policyCalls = 0;
+  const fetchImpl: FetchLike = async () => {
+    attempts += 1;
+    return Response.json({ ok: true });
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl,
+    retryPolicy: {
+      nextDelay: () => {
+        policyCalls += 1;
+        throw new Error("policy should not observe successful responses");
+      },
+    },
+  });
+
+  const response = await client.request(
+    { method: "GET", path: "/resource" },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(response.data).toEqual({ ok: true });
+  expect(attempts).toBe(1);
+  expect(policyCalls).toBe(0);
+});
+
 test("GET discards a retryable response body before the next attempt", async () => {
   let attempts = 0;
   let cancelledBodies = 0;
