@@ -128,6 +128,68 @@ test("fetch wrapper normalizes non-string runtime paths before network access", 
   expect(fetchCalls).toBe(0);
 });
 
+test("fetch wrapper rejects invalid runtime request correlation context before network access", async () => {
+  let fetchCalls = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return Response.json({ ok: true });
+    },
+  });
+
+  const validTrace = {
+    traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+    spanId: "00f067aa0ba902b7",
+    traceFlags: "01",
+  };
+
+  const invalidContexts: unknown[] = [
+    null,
+    { requestId: "bad\r\nInjected: yes", trace: validTrace, startedAt: 0 },
+    { requestId: "x".repeat(129), trace: validTrace, startedAt: 0 },
+    {
+      requestId: "request-123",
+      trace: { ...validTrace, traceId: "4BF92F3577B34DA6A3CE929D0E0E4736" },
+      startedAt: 0,
+    },
+    {
+      requestId: "request-123",
+      trace: { ...validTrace, spanId: "0000000000000000" },
+      startedAt: 0,
+    },
+    {
+      requestId: "request-123",
+      trace: { ...validTrace, traceFlags: "zz" },
+      startedAt: 0,
+    },
+    {
+      requestId: "request-123",
+      trace: { ...validTrace, traceState: 42 },
+      startedAt: 0,
+    },
+  ];
+
+  for (const runtimeContext of invalidContexts) {
+    const request = {
+      method: "GET",
+      path: "/resource",
+      context: runtimeContext,
+    } as unknown as HttpRequest;
+
+    await expect(client.request(request, z.unknown())).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      message: "Outbound HTTP request context was invalid",
+      details: undefined,
+      diagnostics: { host: "example.test" },
+    });
+  }
+
+  expect(fetchCalls).toBe(0);
+});
+
 test("fetch wrapper rejects absolute paths so callers cannot override the configured host", async () => {
   const logger = new JsonConsoleLogger({}, () => undefined);
   const client = new FetchHttpClient({
