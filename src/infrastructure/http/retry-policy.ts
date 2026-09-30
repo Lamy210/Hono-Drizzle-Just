@@ -72,7 +72,11 @@ export class DefaultRetryPolicy implements RetryPolicy {
       return null;
     }
     if (/^\d+$/.test(retryAfter)) {
-      return Number(retryAfter) * 1_000;
+      const seconds = Number(retryAfter);
+      if (!Number.isFinite(seconds) || seconds > Number.MAX_SAFE_INTEGER / 1_000) {
+        return Number.MAX_SAFE_INTEGER;
+      }
+      return seconds * 1_000;
     }
 
     const retryAt = Date.parse(retryAfter);
