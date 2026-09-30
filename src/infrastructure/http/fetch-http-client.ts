@@ -310,35 +310,41 @@ export class FetchHttpClient implements HttpClient {
           signal: this.createAttemptSignal(attemptTimeoutMs, url),
         });
 
-        let retryDelay: number | null;
-        try {
-          retryDelay = this.nextRetryDelay(request, attempt, {
-            kind: "response",
-            status: response.status,
-            headers: response.headers,
-          }, url);
-        } catch (error) {
-          this.discardResponseBody(response);
-          throw error;
-        }
-        if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt)) {
-          this.discardResponseBody(response);
-          this.logger.warn("http.client.retry", {
-            method: request.method,
-            statusCode: response.status,
-            attempt,
-            nextAttempt: attempt + 1,
-            delayMs: retryDelay,
-            reason: "status",
-            traceId: trace?.traceId,
-          });
-          if (retryDelay > 0) {
-            await this.waitBeforeRetry(retryDelay, url);
-          }
-          continue;
-        }
-
         if (!response.ok) {
+          let retryDelay: number | null;
+          try {
+            retryDelay = this.nextRetryDelay(
+              request,
+              attempt,
+              {
+                kind: "response",
+                status: response.status,
+                headers: response.headers,
+              },
+              url,
+            );
+          } catch (error) {
+            this.discardResponseBody(response);
+            throw error;
+          }
+
+          if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt)) {
+            this.discardResponseBody(response);
+            this.logger.warn("http.client.retry", {
+              method: request.method,
+              statusCode: response.status,
+              attempt,
+              nextAttempt: attempt + 1,
+              delayMs: retryDelay,
+              reason: "status",
+              traceId: trace?.traceId,
+            });
+            if (retryDelay > 0) {
+              await this.waitBeforeRetry(retryDelay, url);
+            }
+            continue;
+          }
+
           this.discardResponseBody(response);
           throw new AppError(
             "UPSTREAM_REQUEST_FAILED",

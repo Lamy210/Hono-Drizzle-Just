@@ -344,7 +344,7 @@ Retry behavior is deliberately conservative:
 - JSON decoding and response-schema validation failures are never retried.
 - `x-request-id`, `traceparent`, and any validated `tracestate` remain stable across attempts for the same outbound request; invalid application-provided `tracestate` is omitted rather than forwarded.
 
-Retry eligibility and delay calculation live in `RetryPolicy`, so an application can replace the default policy without changing service code or the `HttpClient` port. Injected runtime hooks are treated as local infrastructure dependencies: retry-policy exceptions/invalid delays, timeout-signal factory exceptions or non-`AbortSignal` results, and retry-sleep rejections are normalized to stable `INTERNAL_ERROR` failures and do not trigger an additional network attempt.
+Retry eligibility and delay calculation live in `RetryPolicy`, so an application can replace the default policy without changing service code or the `HttpClient` port. The adapter invokes the policy only for failed upstream responses or network failures; successful 2xx responses are authoritative and are never offered to custom retry policy code. Injected runtime hooks are treated as local infrastructure dependencies: retry-policy exceptions/invalid delays, timeout-signal factory exceptions or non-`AbortSignal` results, and retry-sleep rejections are normalized to stable `INTERNAL_ERROR` failures and do not trigger an additional network attempt.
 
 ## Common commands
 
