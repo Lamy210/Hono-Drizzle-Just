@@ -207,12 +207,13 @@ export class FetchHttpClient implements HttpClient {
     request: HttpRequest,
     responseSchema: SchemaParser<TResponse>,
   ): Promise<HttpResponse<TResponse>> {
-    this.assertHttpMethod(request.method);
-    this.assertRequestControls(request);
-    this.assertRequestContext(request.context);
+    const normalizedRequest = this.snapshotRequest(request);
+    this.assertHttpMethod(normalizedRequest.method);
+    this.assertRequestControls(normalizedRequest);
+    this.assertRequestContext(normalizedRequest.context);
     const parseResponse = this.createResponseParser(responseSchema);
 
-    const url = this.resolveUrl(request.path);
+    const url = this.resolveUrl(normalizedRequest.path);
     const fetchImpl = this.getFetchImplementation(url);
     this.assertRuntimeHooks(url);
     const withSpan = this.getTracerWithSpan(url);
@@ -224,19 +225,23 @@ export class FetchHttpClient implements HttpClient {
       {
         kind: "client",
         attributes: {
-          "http.request.method": request.method,
+          "http.request.method": normalizedRequest.method,
           "server.address": url.hostname,
           ...(url.port === "" ? {} : { "server.port": Number(url.port) }),
         },
-        ...(request.context === undefined
+        ...(normalizedRequest.context === undefined
           ? {}
-          : { parent: request.context.trace, parentIsRemote: false }),
+          : { parent: normalizedRequest.context.trace, parentIsRemote: false }),
       },
       async (span) => {
-        const trace = this.getSpanTraceContext(span, request.context?.trace, url);
+        const trace = this.getSpanTraceContext(
+          span,
+          normalizedRequest.context?.trace,
+          url,
+        );
         try {
           const response = await this.executeRequest(
-            request,
+            normalizedRequest,
             parseResponse,
             fetchImpl,
             url,
@@ -250,7 +255,7 @@ export class FetchHttpClient implements HttpClient {
             response.status,
           );
           this.recordClientMetrics(
-            request.method,
+            normalizedRequest.method,
             url.host,
             "success",
             startedAt,
@@ -269,7 +274,7 @@ export class FetchHttpClient implements HttpClient {
           }
           this.setSpanStatusBestEffort(span, "error");
           this.recordClientMetrics(
-            request.method,
+            normalizedRequest.method,
             url.host,
             "error",
             startedAt,
@@ -694,6 +699,48 @@ export class FetchHttpClient implements HttpClient {
     return new AppError(
       "INTERNAL_ERROR",
       "Outbound HTTP response schema was invalid",
+      500,
+      undefined,
+      { diagnostics: { host: this.baseUrl.host } },
+    );
+  }
+
+  private snapshotRequest(request: unknown): HttpRequest {
+    if (typeof request !== "object" || request === null || Array.isArray(request)) {
+      throw this.invalidRequestShapeError();
+    }
+
+    try {
+      return {
+        method: Reflect.get(request, "method") as HttpRequest["method"],
+        path: Reflect.get(request, "path") as HttpRequest["path"],
+        headers: Reflect.get(request, "headers") as HttpRequest["headers"],
+        body: Reflect.get(request, "body"),
+        maxRequestBytes: Reflect.get(
+          request,
+          "maxRequestBytes",
+        ) as HttpRequest["maxRequestBytes"],
+        timeoutMs: Reflect.get(request, "timeoutMs") as HttpRequest["timeoutMs"],
+        attemptTimeoutMs: Reflect.get(
+          request,
+          "attemptTimeoutMs",
+        ) as HttpRequest["attemptTimeoutMs"],
+        maxResponseBytes: Reflect.get(
+          request,
+          "maxResponseBytes",
+        ) as HttpRequest["maxResponseBytes"],
+        retry: Reflect.get(request, "retry") as HttpRequest["retry"],
+        context: Reflect.get(request, "context") as HttpRequest["context"],
+      };
+    } catch {
+      throw this.invalidRequestShapeError();
+    }
+  }
+
+  private invalidRequestShapeError(): AppError {
+    return new AppError(
+      "INTERNAL_ERROR",
+      "Outbound HTTP request was invalid",
       500,
       undefined,
       { diagnostics: { host: this.baseUrl.host } },
