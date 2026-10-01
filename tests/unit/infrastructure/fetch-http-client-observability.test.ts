@@ -106,7 +106,11 @@ test("invalid tracer span trace contexts fail locally before network access", as
   for (const span of invalidSpans) {
     let fetchCalls = 0;
     const tracer: Tracer = {
-      async withSpan<T>(_name, _options, operation): Promise<T> {
+      async withSpan<T>(
+        _name: string,
+        _options: SpanOptions,
+        operation: (span: Span) => Promise<T>,
+      ): Promise<T> {
         return operation(span as Span);
       },
     };
@@ -181,19 +185,23 @@ test("tracer span trace context is normalized before outbound propagation", asyn
     traceContext: () => runtimeTrace as unknown as TraceContext,
   };
   const tracer: Tracer = {
-    async withSpan<T>(_name, _options, operation): Promise<T> {
+    async withSpan<T>(
+      _name: string,
+      _options: SpanOptions,
+      operation: (span: Span) => Promise<T>,
+    ): Promise<T> {
       return operation(span);
     },
   };
-  let traceparent: string | null = null;
-  let tracestate: string | null = null;
+  let traceparent = "";
+  let tracestate = "";
   const client = new FetchHttpClient({
     baseUrl: "https://api.example.test",
     logger: new JsonConsoleLogger({}, () => undefined),
     fetchImpl: async (_input, init) => {
       const headers = new Headers(init?.headers);
-      traceparent = headers.get("traceparent");
-      tracestate = headers.get("tracestate");
+      traceparent = headers.get("traceparent") ?? "";
+      tracestate = headers.get("tracestate") ?? "";
       return Response.json({ ok: true });
     },
     tracer,
