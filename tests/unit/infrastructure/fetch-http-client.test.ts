@@ -104,6 +104,114 @@ test("response-body cleanup failures do not replace the upstream HTTP failure", 
   });
 });
 
+test("fetch wrapper rejects invalid top-level runtime request shapes before network access", async () => {
+  let fetchCalls = 0;
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return Response.json({ ok: true });
+    },
+  });
+  const throwingRequest = Object.defineProperty({}, "method", {
+    get() {
+      throw new Error("private request getter failure");
+    },
+  });
+  const throwingHeadersRequest = Object.defineProperties(
+    {},
+    {
+      method: { value: "GET" },
+      path: { value: "/resource" },
+      headers: {
+        get() {
+          throw new Error("private headers getter failure");
+        },
+      },
+    },
+  );
+  const invalidRequests: unknown[] = [
+    null,
+    undefined,
+    "GET /resource",
+    42,
+    true,
+    () => undefined,
+    [],
+    throwingRequest,
+    throwingHeadersRequest,
+  ];
+
+  for (const request of invalidRequests) {
+    await expect(
+      client.request(request as HttpRequest, z.unknown()),
+    ).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      message: "Outbound HTTP request was invalid",
+      details: undefined,
+      diagnostics: { host: "example.test" },
+    });
+  }
+
+  expect(fetchCalls).toBe(0);
+});
+
+test("fetch wrapper snapshots runtime request properties exactly once", async () => {
+  let methodReads = 0;
+  let pathReads = 0;
+  let contextReads = 0;
+  const runtimeRequest = Object.defineProperties(
+    {},
+    {
+      method: {
+        get() {
+          methodReads += 1;
+          if (methodReads > 1) {
+            throw new Error("method getter evaluated twice");
+          }
+          return "GET";
+        },
+      },
+      path: {
+        get() {
+          pathReads += 1;
+          if (pathReads > 1) {
+            throw new Error("path getter evaluated twice");
+          }
+          return "/resource";
+        },
+      },
+      context: {
+        get() {
+          contextReads += 1;
+          if (contextReads > 1) {
+            throw new Error("context getter evaluated twice");
+          }
+          return undefined;
+        },
+      },
+    },
+  ) as unknown as HttpRequest;
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => Response.json({ ok: true }),
+  });
+
+  const response = await client.request(
+    runtimeRequest,
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(response.data).toEqual({ ok: true });
+  expect(methodReads).toBe(1);
+  expect(pathReads).toBe(1);
+  expect(contextReads).toBe(1);
+});
+
 test("fetch wrapper normalizes non-string runtime paths before network access", async () => {
   let fetchCalls = 0;
   const client = new FetchHttpClient({
