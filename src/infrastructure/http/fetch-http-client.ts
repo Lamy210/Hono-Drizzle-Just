@@ -711,26 +711,37 @@ export class FetchHttpClient implements HttpClient {
     }
 
     try {
+      const method = Reflect.get(request, "method") as HttpRequest["method"];
+      const path = Reflect.get(request, "path") as HttpRequest["path"];
+      const headers = Reflect.get(request, "headers") as HttpRequest["headers"];
+      const body = Reflect.get(request, "body") as unknown;
+      const maxRequestBytes = Reflect.get(
+        request,
+        "maxRequestBytes",
+      ) as HttpRequest["maxRequestBytes"];
+      const timeoutMs = Reflect.get(request, "timeoutMs") as HttpRequest["timeoutMs"];
+      const attemptTimeoutMs = Reflect.get(
+        request,
+        "attemptTimeoutMs",
+      ) as HttpRequest["attemptTimeoutMs"];
+      const maxResponseBytes = Reflect.get(
+        request,
+        "maxResponseBytes",
+      ) as HttpRequest["maxResponseBytes"];
+      const retry = Reflect.get(request, "retry") as HttpRequest["retry"];
+      const context = Reflect.get(request, "context") as HttpRequest["context"];
+
       return {
-        method: Reflect.get(request, "method") as HttpRequest["method"],
-        path: Reflect.get(request, "path") as HttpRequest["path"],
-        headers: Reflect.get(request, "headers") as HttpRequest["headers"],
-        body: Reflect.get(request, "body"),
-        maxRequestBytes: Reflect.get(
-          request,
-          "maxRequestBytes",
-        ) as HttpRequest["maxRequestBytes"],
-        timeoutMs: Reflect.get(request, "timeoutMs") as HttpRequest["timeoutMs"],
-        attemptTimeoutMs: Reflect.get(
-          request,
-          "attemptTimeoutMs",
-        ) as HttpRequest["attemptTimeoutMs"],
-        maxResponseBytes: Reflect.get(
-          request,
-          "maxResponseBytes",
-        ) as HttpRequest["maxResponseBytes"],
-        retry: Reflect.get(request, "retry") as HttpRequest["retry"],
-        context: Reflect.get(request, "context") as HttpRequest["context"],
+        method,
+        path,
+        ...(headers === undefined ? {} : { headers }),
+        ...(body === undefined ? {} : { body }),
+        ...(maxRequestBytes === undefined ? {} : { maxRequestBytes }),
+        ...(timeoutMs === undefined ? {} : { timeoutMs }),
+        ...(attemptTimeoutMs === undefined ? {} : { attemptTimeoutMs }),
+        ...(maxResponseBytes === undefined ? {} : { maxResponseBytes }),
+        ...(retry === undefined ? {} : { retry }),
+        ...(context === undefined ? {} : { context }),
       };
     } catch {
       throw this.invalidRequestShapeError();
