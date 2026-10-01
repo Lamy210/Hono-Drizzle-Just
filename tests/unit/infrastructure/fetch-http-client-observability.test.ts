@@ -74,6 +74,149 @@ class ThrowingMeter implements Meter {
   }
 }
 
+test("invalid tracer span trace contexts fail locally before network access", async () => {
+  const throwingTraceContext = Object.defineProperty({}, "traceContext", {
+    get() {
+      throw new Error("private span traceContext getter failure");
+    },
+  });
+  const invalidSpans: unknown[] = [
+    null,
+    {},
+    { traceContext: "not-callable" },
+    throwingTraceContext,
+    { traceContext: () => null },
+    {
+      traceContext: () => ({
+        traceId: "not-a-trace-id",
+        spanId: "cccccccccccccccc",
+        traceFlags: "01",
+      }),
+    },
+    {
+      traceContext: () => ({
+        traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+        spanId: "cccccccccccccccc",
+        traceFlags: "01",
+        traceState: 42,
+      }),
+    },
+  ];
+
+  for (const span of invalidSpans) {
+    let fetchCalls = 0;
+    const tracer: Tracer = {
+      async withSpan<T>(_name, _options, operation): Promise<T> {
+        return operation(span as Span);
+      },
+    };
+    const client = new FetchHttpClient({
+      baseUrl: "https://api.example.test",
+      logger: new JsonConsoleLogger({}, () => undefined),
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        return Response.json({ ok: true });
+      },
+      tracer,
+    });
+
+    await expect(
+      client.request(
+        { method: "GET", path: "/resource" },
+        { parse: (value) => value },
+      ),
+    ).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      diagnostics: { host: "api.example.test" },
+    });
+
+    expect(fetchCalls).toBe(0);
+  }
+});
+
+test("tracer span trace context is normalized before outbound propagation", async () => {
+  const reads = {
+    traceId: 0,
+    spanId: 0,
+    traceFlags: 0,
+    traceState: 0,
+  };
+  const runtimeTrace = Object.create(null) as Record<string, unknown>;
+  Object.defineProperties(runtimeTrace, {
+    traceId: {
+      get() {
+        reads.traceId += 1;
+        if (reads.traceId > 1) throw new Error("traceId read twice");
+        return "4bf92f3577b34da6a3ce929d0e0e4736";
+      },
+    },
+    spanId: {
+      get() {
+        reads.spanId += 1;
+        if (reads.spanId > 1) throw new Error("spanId read twice");
+        return "cccccccccccccccc";
+      },
+    },
+    traceFlags: {
+      get() {
+        reads.traceFlags += 1;
+        if (reads.traceFlags > 1) throw new Error("traceFlags read twice");
+        return "01";
+      },
+    },
+    traceState: {
+      get() {
+        reads.traceState += 1;
+        if (reads.traceState > 1) throw new Error("traceState read twice");
+        return "vendor=value";
+      },
+    },
+  });
+
+  const span: Span = {
+    setAttribute: () => undefined,
+    setStatus: () => undefined,
+    recordException: () => undefined,
+    traceContext: () => runtimeTrace as unknown as TraceContext,
+  };
+  const tracer: Tracer = {
+    async withSpan<T>(_name, _options, operation): Promise<T> {
+      return operation(span);
+    },
+  };
+  let traceparent: string | null = null;
+  let tracestate: string | null = null;
+  const client = new FetchHttpClient({
+    baseUrl: "https://api.example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async (_input, init) => {
+      const headers = new Headers(init?.headers);
+      traceparent = headers.get("traceparent");
+      tracestate = headers.get("tracestate");
+      return Response.json({ ok: true });
+    },
+    tracer,
+  });
+
+  const response = await client.request(
+    { method: "GET", path: "/resource" },
+    { parse: (value) => value as { ok: boolean } },
+  );
+
+  expect(response.data).toEqual({ ok: true });
+  expect(traceparent).toBe(
+    "00-4bf92f3577b34da6a3ce929d0e0e4736-cccccccccccccccc-01",
+  );
+  expect(tracestate).toBe("vendor=value");
+  expect(reads).toEqual({
+    traceId: 1,
+    spanId: 1,
+    traceFlags: 1,
+    traceState: 1,
+  });
+});
+
 test("invalid runtime tracer shapes fail locally before clocks or network access", async () => {
   const throwingTracer = Object.defineProperty({}, "withSpan", {
     get() {

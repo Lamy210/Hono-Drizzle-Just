@@ -226,7 +226,7 @@ export class FetchHttpClient implements HttpClient {
           : { parent: request.context.trace, parentIsRemote: false }),
       },
       async (span) => {
-        const trace = span.traceContext() ?? request.context?.trace;
+        const trace = this.getSpanTraceContext(span, request.context?.trace, url);
         try {
           const response = await this.executeRequest(
             request,
@@ -465,6 +465,79 @@ export class FetchHttpClient implements HttpClient {
           { cause: error, diagnostics: { host: url.host } },
         );
       }
+    }
+  }
+
+  private getSpanTraceContext(
+    span: unknown,
+    fallback: TraceContext | undefined,
+    url: URL,
+  ): TraceContext | undefined {
+    if (span === null || (typeof span !== "object" && typeof span !== "function")) {
+      throw this.invalidRuntimeHookError("Outbound HTTP tracer span was invalid", url);
+    }
+
+    let traceContext: unknown;
+    try {
+      traceContext = Reflect.get(span, "traceContext");
+    } catch {
+      throw this.invalidRuntimeHookError("Outbound HTTP tracer span was invalid", url);
+    }
+    if (typeof traceContext !== "function") {
+      throw this.invalidRuntimeHookError("Outbound HTTP tracer span was invalid", url);
+    }
+
+    let runtimeTrace: unknown;
+    try {
+      runtimeTrace = Reflect.apply(traceContext, span, []);
+    } catch {
+      throw this.invalidRuntimeHookError(
+        "Outbound HTTP tracer span trace context was invalid",
+        url,
+      );
+    }
+    if (runtimeTrace === undefined) {
+      return fallback;
+    }
+
+    const normalized = this.normalizeTraceContext(runtimeTrace);
+    if (normalized === null) {
+      throw this.invalidRuntimeHookError(
+        "Outbound HTTP tracer span trace context was invalid",
+        url,
+      );
+    }
+    return normalized;
+  }
+
+  private normalizeTraceContext(value: unknown): TraceContext | null {
+    if (value === null || (typeof value !== "object" && typeof value !== "function")) {
+      return null;
+    }
+
+    try {
+      const traceId = Reflect.get(value, "traceId");
+      const spanId = Reflect.get(value, "spanId");
+      const traceFlags = Reflect.get(value, "traceFlags");
+      const traceState = Reflect.get(value, "traceState");
+      if (
+        typeof traceId !== "string" ||
+        typeof spanId !== "string" ||
+        typeof traceFlags !== "string" ||
+        (traceState !== undefined && typeof traceState !== "string")
+      ) {
+        return null;
+      }
+
+      if (parseTraceParent(`00-${traceId}-${spanId}-${traceFlags}`) === null) {
+        return null;
+      }
+
+      return traceState === undefined
+        ? { traceId, spanId, traceFlags }
+        : { traceId, spanId, traceFlags, traceState };
+    } catch {
+      return null;
     }
   }
 
