@@ -26,6 +26,108 @@ class ThrowingLogger implements Logger {
   }
 }
 
+test("logger child wiring is validated with stable constructor errors", () => {
+  const throwingChildGetter = Object.defineProperty({}, "child", {
+    get() {
+      throw new Error("private child getter failure");
+    },
+  });
+  const invalidParents: unknown[] = [
+    null,
+    {},
+    { child: "not-callable" },
+    throwingChildGetter,
+  ];
+
+  for (const logger of invalidParents) {
+    expect(
+      () =>
+        new FetchHttpClient({
+          baseUrl: "https://example.test",
+          logger: logger as Logger,
+        }),
+    ).toThrow(
+      new TypeError("FetchHttpClient logger must provide a callable child() method"),
+    );
+  }
+
+  expect(
+    () =>
+      new FetchHttpClient({
+        baseUrl: "https://example.test",
+        logger: {
+          child() {
+            throw new Error("private child creation failure");
+          },
+        } as unknown as Logger,
+      }),
+  ).toThrow(new TypeError("FetchHttpClient logger.child() failed"));
+
+  const throwingInfoGetter = Object.defineProperty({}, "info", {
+    get() {
+      throw new Error("private info getter failure");
+    },
+  });
+  const invalidChildren: unknown[] = [
+    null,
+    {},
+    { info: () => undefined, warn: "not-callable" },
+    throwingInfoGetter,
+  ];
+  for (const childLogger of invalidChildren) {
+    expect(
+      () =>
+        new FetchHttpClient({
+          baseUrl: "https://example.test",
+          logger: {
+            child() {
+              return childLogger as Logger;
+            },
+          } as unknown as Logger,
+        }),
+    ).toThrow(
+      new TypeError(
+        "FetchHttpClient logger.child() must return callable info() and warn() methods",
+      ),
+    );
+  }
+});
+
+test("logger child is resolved once with its original receiver", () => {
+  let childReads = 0;
+  let childCalls = 0;
+  let receivedContext: LogContext | undefined;
+  let receivedReceiver: unknown;
+  const childLogger = new JsonConsoleLogger({}, () => undefined);
+  const parent = Object.defineProperty({}, "child", {
+    get() {
+      childReads += 1;
+      if (childReads > 1) {
+        throw new Error("child getter must not be evaluated twice");
+      }
+      return function (this: unknown, context: LogContext): Logger {
+        childCalls += 1;
+        receivedReceiver = this;
+        receivedContext = context;
+        return childLogger;
+      };
+    },
+  }) as Logger;
+
+  new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: parent,
+  });
+
+  expect(childReads).toBe(1);
+  expect(childCalls).toBe(1);
+  expect(receivedReceiver).toBe(parent);
+  expect(receivedContext).toEqual({
+    component: "http_client",
+    upstreamHost: "example.test",
+  });
+});
+
 test("retry and response logs keep upstream paths and resource identifiers out of structured context", async () => {
   let attempts = 0;
   const lines: string[] = [];

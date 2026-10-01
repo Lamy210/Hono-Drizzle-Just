@@ -195,7 +195,10 @@ export class FetchHttpClient implements HttpClient {
       options.signalFactory === undefined
         ? (timeoutMs) => AbortSignal.timeout(timeoutMs)
         : options.signalFactory;
-    this.logger = options.logger.child({ component: "http_client", upstreamHost: this.baseUrl.host });
+    this.logger = this.createChildLogger(options.logger, {
+      component: "http_client",
+      upstreamHost: this.baseUrl.host,
+    });
     this.tracer = options.tracer === undefined ? new NoopTracer() : options.tracer;
     this.meter = options.meter ?? new NoopMeter();
   }
@@ -1082,6 +1085,60 @@ export class FetchHttpClient implements HttpClient {
     } catch {
       // Observability is best-effort and must not replace the HTTP result.
     }
+  }
+
+  private createChildLogger(logger: unknown, context: LogContext): Logger {
+    if (logger === null || (typeof logger !== "object" && typeof logger !== "function")) {
+      throw new TypeError(
+        "FetchHttpClient logger must provide a callable child() method",
+      );
+    }
+
+    let childFactory: unknown;
+    try {
+      childFactory = Reflect.get(logger, "child");
+    } catch {
+      throw new TypeError(
+        "FetchHttpClient logger must provide a callable child() method",
+      );
+    }
+    if (typeof childFactory !== "function") {
+      throw new TypeError(
+        "FetchHttpClient logger must provide a callable child() method",
+      );
+    }
+
+    let child: unknown;
+    try {
+      child = Reflect.apply(childFactory, logger, [context]);
+    } catch {
+      throw new TypeError("FetchHttpClient logger.child() failed");
+    }
+
+    if (child === null || (typeof child !== "object" && typeof child !== "function")) {
+      throw new TypeError(
+        "FetchHttpClient logger.child() must return callable info() and warn() methods",
+      );
+    }
+
+    try {
+      const info = Reflect.get(child, "info");
+      const warn = Reflect.get(child, "warn");
+      if (typeof info !== "function" || typeof warn !== "function") {
+        throw new TypeError(
+          "FetchHttpClient logger.child() must return callable info() and warn() methods",
+        );
+      }
+    } catch (error) {
+      if (error instanceof TypeError && error.message.startsWith("FetchHttpClient logger.child()")) {
+        throw error;
+      }
+      throw new TypeError(
+        "FetchHttpClient logger.child() must return callable info() and warn() methods",
+      );
+    }
+
+    return child as Logger;
   }
 
   private infoBestEffort(message: string, context: LogContext): void {
