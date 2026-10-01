@@ -74,6 +74,111 @@ class ThrowingMeter implements Meter {
   }
 }
 
+test("span attribute mutation failures do not discard successful upstream responses", async () => {
+  const traceContext = () => ({
+    traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+    spanId: "cccccccccccccccc",
+    traceFlags: "01",
+  });
+  const throwingAttributeGetter = Object.defineProperties(
+    { traceContext },
+    {
+      setAttribute: {
+        get() {
+          throw new Error("attribute getter unavailable");
+        },
+      },
+    },
+  );
+  const spans: unknown[] = [
+    { traceContext },
+    { traceContext, setAttribute: "not-callable" },
+    throwingAttributeGetter,
+    {
+      traceContext,
+      setAttribute() {
+        throw new Error("attribute exporter unavailable");
+      },
+    },
+  ];
+
+  for (const runtimeSpan of spans) {
+    let fetchCalls = 0;
+    const tracer: Tracer = {
+      async withSpan<T>(
+        _name: string,
+        _options: SpanOptions,
+        operation: (span: Span) => Promise<T>,
+      ): Promise<T> {
+        return operation(runtimeSpan as Span);
+      },
+    };
+    const client = new FetchHttpClient({
+      baseUrl: "https://api.example.test",
+      logger: new JsonConsoleLogger({}, () => undefined),
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        return Response.json({ ok: true });
+      },
+      tracer,
+    });
+
+    const response = await client.request(
+      { method: "GET", path: "/resource" },
+      { parse: (value) => value as { ok: boolean } },
+    );
+
+    expect(response.data).toEqual({ ok: true });
+    expect(fetchCalls).toBe(1);
+  }
+});
+
+test("span mutation failures do not replace authoritative upstream failures", async () => {
+  const span = {
+    traceContext: () => ({
+      traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+      spanId: "cccccccccccccccc",
+      traceFlags: "01",
+    }),
+    setAttribute() {
+      throw new Error("attribute exporter unavailable");
+    },
+    setStatus() {
+      throw new Error("status exporter unavailable");
+    },
+  } as unknown as Span;
+  const tracer: Tracer = {
+    async withSpan<T>(
+      _name: string,
+      _options: SpanOptions,
+      operation: (span: Span) => Promise<T>,
+    ): Promise<T> {
+      return operation(span);
+    },
+  };
+  const client = new FetchHttpClient({
+    baseUrl: "https://api.example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => new Response("unavailable", { status: 503 }),
+    retryPolicy: { nextDelay: () => null },
+    tracer,
+  });
+
+  await expect(
+    client.request(
+      { method: "GET", path: "/resource" },
+      { parse: (value) => value },
+    ),
+  ).rejects.toMatchObject({
+    code: "UPSTREAM_REQUEST_FAILED",
+    status: 502,
+    diagnostics: {
+      host: "api.example.test",
+      status: 503,
+    },
+  });
+});
+
 test("invalid tracer span trace contexts fail locally before network access", async () => {
   const throwingTraceContext = Object.defineProperty({}, "traceContext", {
     get() {
