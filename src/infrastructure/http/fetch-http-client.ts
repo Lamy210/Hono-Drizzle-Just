@@ -11,7 +11,11 @@ import type { LogContext, Logger } from "../../core/logging/logger";
 import type { Meter } from "../../core/observability/meter";
 import { NoopMeter } from "../../core/observability/noop-meter";
 import { NoopTracer } from "../../core/observability/noop-tracer";
-import type { Tracer } from "../../core/observability/tracer";
+import type {
+  SpanStatus,
+  TelemetryAttributeValue,
+  Tracer,
+} from "../../core/observability/tracer";
 import { DefaultRetryPolicy, type RetryPolicy } from "./retry-policy";
 import { formatTraceParent, parseTraceParent, parseTraceState } from "../tracing/w3c-trace-context";
 
@@ -237,7 +241,11 @@ export class FetchHttpClient implements HttpClient {
             startedAt,
             requestNow,
           );
-          span.setAttribute("http.response.status_code", response.status);
+          this.setSpanAttributeBestEffort(
+            span,
+            "http.response.status_code",
+            response.status,
+          );
           this.recordClientMetrics(
             request.method,
             url.host,
@@ -250,9 +258,13 @@ export class FetchHttpClient implements HttpClient {
         } catch (error) {
           const statusCode = this.statusFromError(error);
           if (statusCode !== undefined) {
-            span.setAttribute("http.response.status_code", statusCode);
+            this.setSpanAttributeBestEffort(
+              span,
+              "http.response.status_code",
+              statusCode,
+            );
           }
-          span.setStatus("error");
+          this.setSpanStatusBestEffort(span, "error");
           this.recordClientMetrics(
             request.method,
             url.host,
@@ -538,6 +550,38 @@ export class FetchHttpClient implements HttpClient {
         : { traceId, spanId, traceFlags, traceState };
     } catch {
       return null;
+    }
+  }
+
+  private setSpanAttributeBestEffort(
+    span: unknown,
+    name: string,
+    value: TelemetryAttributeValue,
+  ): void {
+    this.invokeSpanMutationBestEffort(span, "setAttribute", [name, value]);
+  }
+
+  private setSpanStatusBestEffort(span: unknown, status: SpanStatus): void {
+    this.invokeSpanMutationBestEffort(span, "setStatus", [status]);
+  }
+
+  private invokeSpanMutationBestEffort(
+    span: unknown,
+    method: "setAttribute" | "setStatus",
+    args: readonly unknown[],
+  ): void {
+    if (span === null || (typeof span !== "object" && typeof span !== "function")) {
+      return;
+    }
+
+    try {
+      const mutation = Reflect.get(span, method);
+      if (typeof mutation !== "function") {
+        return;
+      }
+      Reflect.apply(mutation, span, args);
+    } catch {
+      // Telemetry annotation is observational and must not replace the HTTP result.
     }
   }
 
