@@ -119,14 +119,28 @@ test("fetch wrapper rejects invalid top-level runtime request shapes before netw
       throw new Error("private request getter failure");
     },
   });
+  const throwingHeadersRequest = Object.defineProperties(
+    {},
+    {
+      method: { value: "GET" },
+      path: { value: "/resource" },
+      headers: {
+        get() {
+          throw new Error("private headers getter failure");
+        },
+      },
+    },
+  );
   const invalidRequests: unknown[] = [
     null,
     undefined,
     "GET /resource",
     42,
     true,
+    () => undefined,
     [],
     throwingRequest,
+    throwingHeadersRequest,
   ];
 
   for (const request of invalidRequests) {
@@ -179,7 +193,7 @@ test("fetch wrapper snapshots runtime request properties exactly once", async ()
         },
       },
     },
-  ) as HttpRequest;
+  ) as unknown as HttpRequest;
 
   const client = new FetchHttpClient({
     baseUrl: "https://example.test",
