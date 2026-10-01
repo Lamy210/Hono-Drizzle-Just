@@ -1121,18 +1121,17 @@ export class FetchHttpClient implements HttpClient {
       );
     }
 
+    let info: unknown;
+    let warn: unknown;
     try {
-      const info = Reflect.get(child, "info");
-      const warn = Reflect.get(child, "warn");
-      if (typeof info !== "function" || typeof warn !== "function") {
-        throw new TypeError(
-          "FetchHttpClient logger.child() must return callable info() and warn() methods",
-        );
-      }
-    } catch (error) {
-      if (error instanceof TypeError && error.message.startsWith("FetchHttpClient logger.child()")) {
-        throw error;
-      }
+      info = Reflect.get(child, "info");
+      warn = Reflect.get(child, "warn");
+    } catch {
+      throw new TypeError(
+        "FetchHttpClient logger.child() must return callable info() and warn() methods",
+      );
+    }
+    if (typeof info !== "function" || typeof warn !== "function") {
       throw new TypeError(
         "FetchHttpClient logger.child() must return callable info() and warn() methods",
       );
