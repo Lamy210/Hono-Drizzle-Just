@@ -128,6 +128,10 @@ export type FetchLike = (
 export type SleepLike = (delayMs: number) => Promise<void>;
 export type MonotonicNow = () => number;
 type RequestNow = () => number;
+type OutboundRequestContext = {
+  readonly requestId: string;
+  readonly trace: TraceContext;
+};
 export type TimeoutSignalFactory = (timeoutMs: number) => AbortSignal;
 
 export interface FetchHttpClientOptions {
@@ -210,7 +214,7 @@ export class FetchHttpClient implements HttpClient {
     const normalizedRequest = this.snapshotRequest(request);
     this.assertHttpMethod(normalizedRequest.method);
     this.assertRequestControls(normalizedRequest);
-    this.assertRequestContext(normalizedRequest.context);
+    const requestContext = this.normalizeRequestContext(normalizedRequest.context);
     const parseResponse = this.createResponseParser(responseSchema);
 
     const url = this.resolveUrl(normalizedRequest.path);
@@ -229,19 +233,20 @@ export class FetchHttpClient implements HttpClient {
           "server.address": url.hostname,
           ...(url.port === "" ? {} : { "server.port": Number(url.port) }),
         },
-        ...(normalizedRequest.context === undefined
+        ...(requestContext === undefined
           ? {}
-          : { parent: normalizedRequest.context.trace, parentIsRemote: false }),
+          : { parent: requestContext.trace, parentIsRemote: false }),
       },
       async (span) => {
         const trace = this.getSpanTraceContext(
           span,
-          normalizedRequest.context?.trace,
+          requestContext?.trace,
           url,
         );
         try {
           const response = await this.executeRequest(
             normalizedRequest,
+            requestContext,
             parseResponse,
             fetchImpl,
             url,
@@ -289,6 +294,7 @@ export class FetchHttpClient implements HttpClient {
 
   private async executeRequest<TResponse>(
     request: HttpRequest,
+    requestContext: OutboundRequestContext | undefined,
     parseResponse: (value: unknown) => TResponse,
     fetchImpl: FetchLike,
     url: URL,
@@ -301,8 +307,8 @@ export class FetchHttpClient implements HttpClient {
     this.assertApplicationHeaders(headers, url);
     headers.set("accept", "application/json");
 
-    if (request.context) {
-      headers.set("x-request-id", request.context.requestId);
+    if (requestContext !== undefined) {
+      headers.set("x-request-id", requestContext.requestId);
     }
     if (trace) {
       headers.set("traceparent", formatTraceParent(trace));
@@ -768,47 +774,67 @@ export class FetchHttpClient implements HttpClient {
     }
   }
 
-  private assertRequestContext(context: unknown): void {
+  private normalizeRequestContext(context: unknown): OutboundRequestContext | undefined {
     if (context === undefined) {
-      return;
+      return undefined;
     }
 
-    if (typeof context !== "object" || context === null) {
+    if (typeof context !== "object" || context === null || Array.isArray(context)) {
       throw this.invalidRequestContextError();
     }
 
-    const candidate = context as {
-      requestId?: unknown;
-      trace?: unknown;
-    };
+    let requestId: unknown;
+    let runtimeTrace: unknown;
+    try {
+      requestId = Reflect.get(context, "requestId");
+      runtimeTrace = Reflect.get(context, "trace");
+    } catch {
+      throw this.invalidRequestContextError();
+    }
+
     if (
-      typeof candidate.requestId !== "string" ||
-      !/^[\x21-\x7e]{1,128}$/.test(candidate.requestId) ||
-      typeof candidate.trace !== "object" ||
-      candidate.trace === null
+      typeof requestId !== "string" ||
+      !/^[\x21-\x7e]{1,128}$/.test(requestId) ||
+      typeof runtimeTrace !== "object" ||
+      runtimeTrace === null ||
+      Array.isArray(runtimeTrace)
     ) {
       throw this.invalidRequestContextError();
     }
 
-    const trace = candidate.trace as {
-      traceId?: unknown;
-      spanId?: unknown;
-      traceFlags?: unknown;
-      traceState?: unknown;
-    };
+    let traceId: unknown;
+    let spanId: unknown;
+    let traceFlags: unknown;
+    let traceState: unknown;
+    try {
+      traceId = Reflect.get(runtimeTrace, "traceId");
+      spanId = Reflect.get(runtimeTrace, "spanId");
+      traceFlags = Reflect.get(runtimeTrace, "traceFlags");
+      traceState = Reflect.get(runtimeTrace, "traceState");
+    } catch {
+      throw this.invalidRequestContextError();
+    }
+
     if (
-      typeof trace.traceId !== "string" ||
-      typeof trace.spanId !== "string" ||
-      typeof trace.traceFlags !== "string" ||
-      (trace.traceState !== undefined && typeof trace.traceState !== "string")
+      typeof traceId !== "string" ||
+      typeof spanId !== "string" ||
+      typeof traceFlags !== "string" ||
+      (traceState !== undefined && typeof traceState !== "string")
     ) {
       throw this.invalidRequestContextError();
     }
 
-    const traceParent = `00-${trace.traceId}-${trace.spanId}-${trace.traceFlags}`;
-    if (parseTraceParent(traceParent) === null) {
+    if (parseTraceParent(`00-${traceId}-${spanId}-${traceFlags}`) === null) {
       throw this.invalidRequestContextError();
     }
+
+    return {
+      requestId,
+      trace:
+        traceState === undefined
+          ? { traceId, spanId, traceFlags }
+          : { traceId, spanId, traceFlags, traceState },
+    };
   }
 
   private invalidRequestContextError(): AppError {
