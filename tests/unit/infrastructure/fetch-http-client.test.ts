@@ -253,8 +253,53 @@ test("fetch wrapper rejects invalid runtime request correlation context before n
     traceFlags: "01",
   };
 
+  const throwingRequestIdContext = Object.defineProperty(
+    { trace: validTrace, startedAt: 0 },
+    "requestId",
+    {
+      get() {
+        throw new Error("private request id getter failure");
+      },
+    },
+  );
+  const throwingTraceContext = Object.defineProperty(
+    { requestId: "request-123", startedAt: 0 },
+    "trace",
+    {
+      get() {
+        throw new Error("private trace getter failure");
+      },
+    },
+  );
+  const throwingTraceId = Object.defineProperty(
+    { spanId: validTrace.spanId, traceFlags: validTrace.traceFlags },
+    "traceId",
+    {
+      get() {
+        throw new Error("private trace id getter failure");
+      },
+    },
+  );
+  const throwingTraceState = Object.defineProperty(
+    {
+      traceId: validTrace.traceId,
+      spanId: validTrace.spanId,
+      traceFlags: validTrace.traceFlags,
+    },
+    "traceState",
+    {
+      get() {
+        throw new Error("private trace state getter failure");
+      },
+    },
+  );
+
   const invalidContexts: unknown[] = [
     null,
+    throwingRequestIdContext,
+    throwingTraceContext,
+    { requestId: "request-123", trace: throwingTraceId, startedAt: 0 },
+    { requestId: "request-123", trace: throwingTraceState, startedAt: 0 },
     { requestId: "bad\r\nInjected: yes", trace: validTrace, startedAt: 0 },
     { requestId: "x".repeat(129), trace: validTrace, startedAt: 0 },
     {
@@ -296,6 +341,103 @@ test("fetch wrapper rejects invalid runtime request correlation context before n
   }
 
   expect(fetchCalls).toBe(0);
+});
+
+test("fetch wrapper snapshots runtime correlation context fields exactly once", async () => {
+  const reads = {
+    requestId: 0,
+    trace: 0,
+    traceId: 0,
+    spanId: 0,
+    traceFlags: 0,
+    traceState: 0,
+  };
+  const runtimeTrace = Object.defineProperties(
+    {},
+    {
+      traceId: {
+        get() {
+          reads.traceId += 1;
+          if (reads.traceId > 1) throw new Error("traceId getter evaluated twice");
+          return "4bf92f3577b34da6a3ce929d0e0e4736";
+        },
+      },
+      spanId: {
+        get() {
+          reads.spanId += 1;
+          if (reads.spanId > 1) throw new Error("spanId getter evaluated twice");
+          return "00f067aa0ba902b7";
+        },
+      },
+      traceFlags: {
+        get() {
+          reads.traceFlags += 1;
+          if (reads.traceFlags > 1) throw new Error("traceFlags getter evaluated twice");
+          return "01";
+        },
+      },
+      traceState: {
+        get() {
+          reads.traceState += 1;
+          if (reads.traceState > 1) throw new Error("traceState getter evaluated twice");
+          return "vendor=value";
+        },
+      },
+    },
+  );
+  const runtimeContext = Object.defineProperties(
+    { startedAt: 0 },
+    {
+      requestId: {
+        get() {
+          reads.requestId += 1;
+          if (reads.requestId > 1) throw new Error("requestId getter evaluated twice");
+          return "request-123";
+        },
+      },
+      trace: {
+        get() {
+          reads.trace += 1;
+          if (reads.trace > 1) throw new Error("trace getter evaluated twice");
+          return runtimeTrace;
+        },
+      },
+    },
+  ) as unknown as RequestContext;
+
+  let capturedHeaders: Headers | undefined;
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async (_input, init) => {
+      capturedHeaders = new Headers(init?.headers);
+      return Response.json({ ok: true });
+    },
+  });
+
+  const response = await client.request(
+    {
+      method: "GET",
+      path: "/resource",
+      context: runtimeContext,
+    },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(response.data).toEqual({ ok: true });
+  expect(capturedHeaders?.get("x-request-id")).toBe("request-123");
+  expect(capturedHeaders?.get("traceparent")).toBe(
+    "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  );
+  expect(capturedHeaders?.get("tracestate")).toBe("vendor=value");
+  expect(reads).toEqual({
+    requestId: 1,
+    trace: 1,
+    traceId: 1,
+    spanId: 1,
+    traceFlags: 1,
+    traceState: 1,
+  });
 });
 
 test("fetch wrapper rejects absolute paths so callers cannot override the configured host", async () => {
