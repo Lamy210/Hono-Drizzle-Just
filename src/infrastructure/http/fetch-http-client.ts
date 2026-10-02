@@ -1069,13 +1069,13 @@ export class FetchHttpClient implements HttpClient {
     let serialized: string | undefined;
     try {
       serialized = JSON.stringify(body);
-    } catch (error) {
+    } catch {
       throw new AppError(
         "INTERNAL_ERROR",
         "Outbound HTTP request body could not be serialized",
         500,
         undefined,
-        { cause: error, diagnostics: { host: url.host } },
+        { diagnostics: { host: url.host } },
       );
     }
 
