@@ -62,14 +62,18 @@ function snapshotTransactionManagerOptions(
   }
 }
 
-function requireHook<T extends (...args: never[]) => unknown>(
-  name: "random" | "sleep",
-  value: unknown,
-): T {
+function requireRandomHook(value: unknown): () => number {
   if (typeof value !== "function") {
-    throw new TypeError(`DrizzleTransactionManager ${name} must be callable`);
+    throw new TypeError("DrizzleTransactionManager random must be callable");
   }
-  return value as T;
+  return value as () => number;
+}
+
+function requireSleepHook(value: unknown): TransactionRetrySleep {
+  if (typeof value !== "function") {
+    throw new TypeError("DrizzleTransactionManager sleep must be callable");
+  }
+  return value as TransactionRetrySleep;
 }
 
 function defaultSleep(delayMs: number): Promise<void> {
@@ -116,11 +120,11 @@ export class DrizzleTransactionManager<TUnitOfWork>
     this.random =
       normalizedOptions.random === undefined
         ? Math.random
-        : requireHook<() => number>("random", normalizedOptions.random);
+        : requireRandomHook(normalizedOptions.random);
     this.sleep =
       normalizedOptions.sleep === undefined
         ? defaultSleep
-        : requireHook<TransactionRetrySleep>("sleep", normalizedOptions.sleep);
+        : requireSleepHook(normalizedOptions.sleep);
 
     requireInteger("maxAttempts", this.maxAttempts, 1, 10);
     requireInteger("baseDelayMs", this.baseDelayMs, 0, 10_000);

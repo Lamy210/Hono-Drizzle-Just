@@ -7,7 +7,10 @@ import type {
   DatabaseSession,
 } from "../../../src/infrastructure/database/database";
 import { DatabaseObserver } from "../../../src/infrastructure/database/database-observer";
-import { DrizzleTransactionManager } from "../../../src/infrastructure/database/drizzle-transaction-manager";
+import {
+  DrizzleTransactionManager,
+  type DrizzleTransactionManagerOptions,
+} from "../../../src/infrastructure/database/drizzle-transaction-manager";
 
 function codedError(code: string): Error {
   return Object.assign(new Error(`database failure ${code}`), { code });
@@ -279,7 +282,7 @@ test("constructor rejects invalid runtime option containers", () => {
           database,
           () => ({}),
           undefined,
-          options as unknown as import("../../../src/infrastructure/database/drizzle-transaction-manager").DrizzleTransactionManagerOptions,
+          options as unknown as DrizzleTransactionManagerOptions,
         ),
     ).toThrow("DrizzleTransactionManager options must be a non-array object");
   }
@@ -381,7 +384,7 @@ test("constructor rejects null numeric options instead of selecting defaults", (
           database,
           () => ({}),
           undefined,
-          { [key]: null } as unknown as import("../../../src/infrastructure/database/drizzle-transaction-manager").DrizzleTransactionManagerOptions,
+          { [key]: null } as unknown as DrizzleTransactionManagerOptions,
         ),
     ).toThrow(RangeError);
   }
@@ -400,7 +403,7 @@ test("constructor requires explicitly configured hooks to be callable", () => {
           database,
           () => ({}),
           undefined,
-          { [key]: null } as unknown as import("../../../src/infrastructure/database/drizzle-transaction-manager").DrizzleTransactionManagerOptions,
+          { [key]: null } as unknown as DrizzleTransactionManagerOptions,
         ),
     ).toThrow(message);
   }
