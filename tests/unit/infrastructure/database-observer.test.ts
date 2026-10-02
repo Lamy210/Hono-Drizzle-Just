@@ -113,7 +113,7 @@ test("DatabaseObserver keeps successful operations authoritative over observabil
 
 test("DatabaseObserver executes database work when the observability start clock fails", async () => {
   const observer = new DatabaseObserver({
-    tracer: new RecordingTracer(),
+    tracer: new ThrowingStatusTracer(),
     meter: new ThrowingMeter(),
     now: () => {
       throw new Error("clock failed");
@@ -128,6 +128,25 @@ test("DatabaseObserver executes database work when the observability start clock
 
   expect(result).toBe("committed");
   expect(executions).toBe(1);
+});
+
+test("DatabaseObserver preserves transaction errors over observability failures", async () => {
+  const raw = Object.assign(new Error("private serialization failure"), { code: "40001" });
+  const observer = new DatabaseObserver({
+    tracer: new ThrowingStatusTracer(),
+    meter: new ThrowingMeter(),
+    now: () => 1_000,
+  });
+
+  await expect(
+    observer.transaction(async () => {
+      throw raw;
+    }),
+  ).rejects.toMatchObject({
+    code: "DATABASE_BUSY",
+    status: 503,
+    cause: raw,
+  });
 });
 
 test("DatabaseObserver preserves classified database errors over observability failures", async () => {

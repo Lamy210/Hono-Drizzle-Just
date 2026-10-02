@@ -164,10 +164,10 @@ export class DatabaseObserver {
       async (span) => {
         try {
           const result = await execute();
-          span.setStatus("ok");
+          this.setStatusBestEffort(span, "ok");
           return result;
         } catch (error) {
-          span.setStatus("error");
+          this.setStatusBestEffort(span, "error");
           throw normalizeDatabaseError(error);
         } finally {
           this.recordDurationBestEffort("db.transaction.duration", startedAt, attributes);
