@@ -1030,6 +1030,74 @@ test("fetch wrapper rejects successful JSON bodies with invalid UTF-8", async ()
   });
 });
 
+test("invalid upstream JSON does not retain response-derived parser errors", async () => {
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () =>
+      new Response('{"secret":"private-upstream-value"', {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+  });
+
+  const error = await client
+    .request(
+      { method: "GET", path: "/invalid-json" },
+      z.object({ secret: z.string() }),
+    )
+    .then(
+      () => {
+        throw new Error("request unexpectedly succeeded");
+      },
+      (caught: unknown) => caught,
+    );
+
+  expect(error).toBeInstanceOf(AppError);
+  expect(error).toMatchObject({
+    code: "UPSTREAM_RESPONSE_INVALID",
+    status: 502,
+    message: "Upstream returned invalid JSON",
+    details: undefined,
+    diagnostics: { host: "example.test" },
+  });
+  expect((error as Error).cause).toBeUndefined();
+});
+
+test("schema validation failures do not retain response-derived exception details", async () => {
+  const secret = "private-upstream-response-value";
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => Response.json({ secret }),
+  });
+  const schema: SchemaParser<unknown> = {
+    parse() {
+      throw new Error(`schema rejected ${secret}`);
+    },
+  };
+
+  const error = await client
+    .request({ method: "GET", path: "/schema-mismatch" }, schema)
+    .then(
+      () => {
+        throw new Error("request unexpectedly succeeded");
+      },
+      (caught: unknown) => caught,
+    );
+
+  expect(error).toBeInstanceOf(AppError);
+  expect(error).toMatchObject({
+    code: "UPSTREAM_RESPONSE_INVALID",
+    status: 502,
+    message: "Upstream response did not match the expected schema",
+    details: undefined,
+    diagnostics: { host: "example.test" },
+  });
+  expect((error as Error).cause).toBeUndefined();
+  expect(String(error)).not.toContain(secret);
+});
+
 test("fetch wrapper parses chunked JSON within the configured byte limit", async () => {
   const encoder = new TextEncoder();
   const fetchImpl: FetchLike = async () =>

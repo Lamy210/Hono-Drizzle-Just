@@ -542,20 +542,20 @@ export class FetchHttpClient implements HttpClient {
             "Upstream returned invalid JSON",
             502,
             undefined,
-            { cause: error, diagnostics: { host: url.host } },
+            { diagnostics: { host: url.host } },
           );
         }
 
         let data: TResponse;
         try {
           data = parseResponse(raw);
-        } catch (error) {
+        } catch {
           throw new AppError(
             "UPSTREAM_RESPONSE_INVALID",
             "Upstream response did not match the expected schema",
             502,
             undefined,
-            { cause: error, diagnostics: { host: url.host } },
+            { diagnostics: { host: url.host } },
           );
         }
 
