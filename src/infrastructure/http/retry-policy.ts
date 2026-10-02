@@ -33,6 +33,46 @@ export interface DefaultRetryPolicyOptions {
   readonly random?: () => number;
 }
 
+function snapshotDefaultRetryPolicyOptions(options: unknown): DefaultRetryPolicyOptions {
+  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+    throw new TypeError("DefaultRetryPolicy options must be a non-array object");
+  }
+
+  try {
+    const maxRetries = Reflect.get(
+      options,
+      "maxRetries",
+    ) as DefaultRetryPolicyOptions["maxRetries"];
+    const baseDelayMs = Reflect.get(
+      options,
+      "baseDelayMs",
+    ) as DefaultRetryPolicyOptions["baseDelayMs"];
+    const maxDelayMs = Reflect.get(
+      options,
+      "maxDelayMs",
+    ) as DefaultRetryPolicyOptions["maxDelayMs"];
+    const now = Reflect.get(options, "now") as DefaultRetryPolicyOptions["now"];
+    const random = Reflect.get(options, "random") as DefaultRetryPolicyOptions["random"];
+
+    return {
+      ...(maxRetries === undefined ? {} : { maxRetries }),
+      ...(baseDelayMs === undefined ? {} : { baseDelayMs }),
+      ...(maxDelayMs === undefined ? {} : { maxDelayMs }),
+      ...(now === undefined ? {} : { now }),
+      ...(random === undefined ? {} : { random }),
+    };
+  } catch {
+    throw new TypeError("DefaultRetryPolicy options could not be read");
+  }
+}
+
+function requireNumberHook(name: "now" | "random", value: unknown): () => number {
+  if (typeof value !== "function") {
+    throw new TypeError(`DefaultRetryPolicy ${name} must be callable`);
+  }
+  return value as () => number;
+}
+
 export class DefaultRetryPolicy implements RetryPolicy {
   private readonly maxRetries: number;
   private readonly baseDelayMs: number;
@@ -41,11 +81,27 @@ export class DefaultRetryPolicy implements RetryPolicy {
   private readonly random: () => number;
 
   constructor(options: DefaultRetryPolicyOptions = {}) {
-    this.maxRetries = nonNegativeInteger("maxRetries", options.maxRetries ?? 1);
-    this.baseDelayMs = nonNegativeFiniteNumber("baseDelayMs", options.baseDelayMs ?? 100);
-    this.maxDelayMs = nonNegativeFiniteNumber("maxDelayMs", options.maxDelayMs ?? 2_000);
-    this.now = options.now ?? Date.now;
-    this.random = options.random ?? Math.random;
+    const normalizedOptions = snapshotDefaultRetryPolicyOptions(options);
+    this.maxRetries = nonNegativeInteger(
+      "maxRetries",
+      normalizedOptions.maxRetries === undefined ? 1 : normalizedOptions.maxRetries,
+    );
+    this.baseDelayMs = nonNegativeFiniteNumber(
+      "baseDelayMs",
+      normalizedOptions.baseDelayMs === undefined ? 100 : normalizedOptions.baseDelayMs,
+    );
+    this.maxDelayMs = nonNegativeFiniteNumber(
+      "maxDelayMs",
+      normalizedOptions.maxDelayMs === undefined ? 2_000 : normalizedOptions.maxDelayMs,
+    );
+    this.now =
+      normalizedOptions.now === undefined
+        ? Date.now
+        : requireNumberHook("now", normalizedOptions.now);
+    this.random =
+      normalizedOptions.random === undefined
+        ? Math.random
+        : requireNumberHook("random", normalizedOptions.random);
   }
 
   nextDelay(request: HttpRequest, failedAttempt: number, failure: RetryFailure): number | null {

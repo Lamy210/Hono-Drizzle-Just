@@ -63,6 +63,109 @@ test("fallback retry delay uses capped exponential backoff with jitter", () => {
   expect(policy.nextDelay(getRequest, 3, failure)).toBeNull();
 });
 
+test("constructor rejects invalid runtime option containers", () => {
+  for (const options of [null, "options", 1, true, [], () => undefined]) {
+    expect(
+      () => new DefaultRetryPolicy(options as unknown as DefaultRetryPolicyOptions),
+    ).toThrow("DefaultRetryPolicy options must be a non-array object");
+  }
+});
+
+test("constructor normalizes throwing option getters", () => {
+  const options = {
+    get maxRetries() {
+      return 2;
+    },
+    get random(): () => number {
+      throw new Error("provider-private-detail");
+    },
+  } as DefaultRetryPolicyOptions;
+
+  expect(() => new DefaultRetryPolicy(options)).toThrow(
+    "DefaultRetryPolicy options could not be read",
+  );
+});
+
+test("constructor snapshots runtime options exactly once", () => {
+  const reads = {
+    maxRetries: 0,
+    baseDelayMs: 0,
+    maxDelayMs: 0,
+    now: 0,
+    random: 0,
+  };
+  const nowMs = Date.parse("2026-09-14T00:00:00.000Z");
+  const options = {
+    get maxRetries() {
+      reads.maxRetries += 1;
+      return 2;
+    },
+    get baseDelayMs() {
+      reads.baseDelayMs += 1;
+      return 100;
+    },
+    get maxDelayMs() {
+      reads.maxDelayMs += 1;
+      return 1_000;
+    },
+    get now() {
+      reads.now += 1;
+      return () => nowMs;
+    },
+    get random() {
+      reads.random += 1;
+      return () => 0.5;
+    },
+  } satisfies DefaultRetryPolicyOptions;
+
+  const policy = new DefaultRetryPolicy(options);
+
+  expect(
+    policy.nextDelay(getRequest, 1, {
+      kind: "response",
+      status: 503,
+      headers: new Headers({
+        "retry-after": new Date(nowMs + 3_000).toUTCString(),
+      }),
+    }),
+  ).toBe(3_000);
+  expect(policy.nextDelay(getRequest, 1, { kind: "network" })).toBe(50);
+  expect(reads).toEqual({
+    maxRetries: 1,
+    baseDelayMs: 1,
+    maxDelayMs: 1,
+    now: 1,
+    random: 1,
+  });
+});
+
+test("constructor rejects null numeric options instead of selecting defaults", () => {
+  for (const key of ["maxRetries", "baseDelayMs", "maxDelayMs"] as const) {
+    expect(
+      () =>
+        new DefaultRetryPolicy({
+          [key]: null,
+        } as unknown as DefaultRetryPolicyOptions),
+    ).toThrow(RangeError);
+  }
+});
+
+test("constructor requires explicitly configured hooks to be callable", () => {
+  const cases = [
+    ["now", "DefaultRetryPolicy now must be callable"],
+    ["random", "DefaultRetryPolicy random must be callable"],
+  ] as const;
+
+  for (const [key, message] of cases) {
+    expect(
+      () =>
+        new DefaultRetryPolicy({
+          [key]: null,
+        } as unknown as DefaultRetryPolicyOptions),
+    ).toThrow(message);
+  }
+});
+
 test("constructor rejects invalid maxRetries values", () => {
   for (const maxRetries of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
     expect(() => new DefaultRetryPolicy({ maxRetries })).toThrow(RangeError);
