@@ -69,6 +69,28 @@ test("constructor normalizes throwing option getters before composition side eff
   expect(childCalls).toBe(0);
 });
 
+test("constructor rejects null body-size defaults instead of silently using fallbacks", () => {
+  const logger = new JsonConsoleLogger({}, () => undefined);
+
+  expect(
+    () =>
+      new FetchHttpClient({
+        baseUrl: "https://example.test",
+        logger,
+        defaultMaxRequestBytes: null as unknown as number,
+      }),
+  ).toThrow(RangeError);
+
+  expect(
+    () =>
+      new FetchHttpClient({
+        baseUrl: "https://example.test",
+        logger,
+        defaultMaxResponseBytes: null as unknown as number,
+      }),
+  ).toThrow(RangeError);
+});
+
 test("fetch wrapper propagates tracing headers and validates the response", async () => {
   let captured: Request | undefined;
   let capturedRedirect: RequestRedirect | undefined;

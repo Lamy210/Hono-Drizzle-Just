@@ -35,6 +35,26 @@ test("constructor rejects invalid default timeout values", () => {
   }
 });
 
+test("constructor rejects null timeout defaults instead of silently using fallbacks", () => {
+  expect(
+    () =>
+      new FetchHttpClient({
+        baseUrl: "https://example.test",
+        logger: logger(),
+        defaultTimeoutMs: null as unknown as number,
+      }),
+  ).toThrow(RangeError);
+
+  expect(
+    () =>
+      new FetchHttpClient({
+        baseUrl: "https://example.test",
+        logger: logger(),
+        defaultAttemptTimeoutMs: null as unknown as number,
+      }),
+  ).toThrow(RangeError);
+});
+
 test("request rejects invalid timeout overrides before calling fetch", async () => {
   let attempts = 0;
   const fetchImpl: FetchLike = async () => {
