@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
 import type { RequestContext } from "../../../src/core/context/request-context";
+import type { HttpRequest } from "../../../src/core/http/http-client";
 import {
   FetchHttpClient,
   type FetchHttpClientOptions,
