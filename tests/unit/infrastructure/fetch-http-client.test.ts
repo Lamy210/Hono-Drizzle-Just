@@ -5,6 +5,7 @@ import type { HttpRequest, SchemaParser } from "../../../src/core/http/http-clie
 import { AppError } from "../../../src/core/errors/app-error";
 import {
   FetchHttpClient,
+  type FetchHttpClientOptions,
   type FetchLike,
 } from "../../../src/infrastructure/http/fetch-http-client";
 import { JsonConsoleLogger } from "../../../src/infrastructure/logging/json-console-logger";
@@ -19,6 +20,54 @@ const context: RequestContext = {
   },
   startedAt: 0,
 };
+
+test("constructor rejects invalid runtime option containers with a stable error", () => {
+  const invalidOptions: unknown[] = [
+    null,
+    undefined,
+    "https://example.test",
+    42,
+    true,
+    [],
+    () => undefined,
+  ];
+
+  for (const options of invalidOptions) {
+    expect(
+      () => new FetchHttpClient(options as FetchHttpClientOptions),
+    ).toThrow(
+      new TypeError("FetchHttpClient options must be a non-array object"),
+    );
+  }
+});
+
+test("constructor normalizes throwing option getters before composition side effects", () => {
+  let childCalls = 0;
+  const childLogger = new JsonConsoleLogger({}, () => undefined);
+  const rootLogger = {
+    child() {
+      childCalls += 1;
+      return childLogger;
+    },
+  };
+  const options = Object.defineProperties(
+    {},
+    {
+      baseUrl: { value: "https://example.test" },
+      logger: { value: rootLogger },
+      meter: {
+        get() {
+          throw new Error("private meter getter failure");
+        },
+      },
+    },
+  ) as unknown as FetchHttpClientOptions;
+
+  expect(() => new FetchHttpClient(options)).toThrow(
+    new TypeError("FetchHttpClient options could not be read"),
+  );
+  expect(childCalls).toBe(0);
+});
 
 test("fetch wrapper propagates tracing headers and validates the response", async () => {
   let captured: Request | undefined;

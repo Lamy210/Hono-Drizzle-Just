@@ -155,6 +155,64 @@ export interface FetchHttpClientOptions {
   readonly meter?: Meter;
 }
 
+function snapshotFetchHttpClientOptions(options: unknown): FetchHttpClientOptions {
+  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+    throw new TypeError("FetchHttpClient options must be a non-array object");
+  }
+
+  try {
+    const baseUrl = Reflect.get(options, "baseUrl") as FetchHttpClientOptions["baseUrl"];
+    const logger = Reflect.get(options, "logger") as FetchHttpClientOptions["logger"];
+    const fetchImpl = Reflect.get(options, "fetchImpl") as FetchHttpClientOptions["fetchImpl"];
+    const defaultTimeoutMs = Reflect.get(
+      options,
+      "defaultTimeoutMs",
+    ) as FetchHttpClientOptions["defaultTimeoutMs"];
+    const defaultAttemptTimeoutMs = Reflect.get(
+      options,
+      "defaultAttemptTimeoutMs",
+    ) as FetchHttpClientOptions["defaultAttemptTimeoutMs"];
+    const defaultMaxRequestBytes = Reflect.get(
+      options,
+      "defaultMaxRequestBytes",
+    ) as FetchHttpClientOptions["defaultMaxRequestBytes"];
+    const defaultMaxResponseBytes = Reflect.get(
+      options,
+      "defaultMaxResponseBytes",
+    ) as FetchHttpClientOptions["defaultMaxResponseBytes"];
+    const retryPolicy = Reflect.get(
+      options,
+      "retryPolicy",
+    ) as FetchHttpClientOptions["retryPolicy"];
+    const sleep = Reflect.get(options, "sleep") as FetchHttpClientOptions["sleep"];
+    const now = Reflect.get(options, "now") as FetchHttpClientOptions["now"];
+    const signalFactory = Reflect.get(
+      options,
+      "signalFactory",
+    ) as FetchHttpClientOptions["signalFactory"];
+    const tracer = Reflect.get(options, "tracer") as FetchHttpClientOptions["tracer"];
+    const meter = Reflect.get(options, "meter") as FetchHttpClientOptions["meter"];
+
+    return {
+      baseUrl,
+      logger,
+      ...(fetchImpl === undefined ? {} : { fetchImpl }),
+      ...(defaultTimeoutMs === undefined ? {} : { defaultTimeoutMs }),
+      ...(defaultAttemptTimeoutMs === undefined ? {} : { defaultAttemptTimeoutMs }),
+      ...(defaultMaxRequestBytes === undefined ? {} : { defaultMaxRequestBytes }),
+      ...(defaultMaxResponseBytes === undefined ? {} : { defaultMaxResponseBytes }),
+      ...(retryPolicy === undefined ? {} : { retryPolicy }),
+      ...(sleep === undefined ? {} : { sleep }),
+      ...(now === undefined ? {} : { now }),
+      ...(signalFactory === undefined ? {} : { signalFactory }),
+      ...(tracer === undefined ? {} : { tracer }),
+      ...(meter === undefined ? {} : { meter }),
+    };
+  } catch {
+    throw new TypeError("FetchHttpClient options could not be read");
+  }
+}
+
 export class FetchHttpClient implements HttpClient {
   private readonly baseUrl: URL;
   private readonly fetchImpl: unknown;
@@ -171,41 +229,49 @@ export class FetchHttpClient implements HttpClient {
   private readonly meter: Meter;
 
   constructor(options: FetchHttpClientOptions) {
-    this.baseUrl = parseBaseUrl(options.baseUrl);
-    this.fetchImpl = options.fetchImpl === undefined ? fetch : options.fetchImpl;
+    const normalizedOptions = snapshotFetchHttpClientOptions(options);
+    this.baseUrl = parseBaseUrl(normalizedOptions.baseUrl);
+    this.fetchImpl =
+      normalizedOptions.fetchImpl === undefined ? fetch : normalizedOptions.fetchImpl;
     this.defaultTimeoutMs = positiveFiniteNumber(
       "defaultTimeoutMs",
-      options.defaultTimeoutMs ?? 10_000,
+      normalizedOptions.defaultTimeoutMs ?? 10_000,
     );
     this.defaultAttemptTimeoutMs = positiveFiniteNumber(
       "defaultAttemptTimeoutMs",
-      options.defaultAttemptTimeoutMs ?? 3_000,
+      normalizedOptions.defaultAttemptTimeoutMs ?? 3_000,
     );
     this.defaultMaxRequestBytes = positiveSafeInteger(
       "defaultMaxRequestBytes",
-      options.defaultMaxRequestBytes ?? 1_048_576,
+      normalizedOptions.defaultMaxRequestBytes ?? 1_048_576,
     );
     this.defaultMaxResponseBytes = positiveSafeInteger(
       "defaultMaxResponseBytes",
-      options.defaultMaxResponseBytes ?? 1_048_576,
+      normalizedOptions.defaultMaxResponseBytes ?? 1_048_576,
     );
     this.retryPolicy =
-      options.retryPolicy === undefined ? new DefaultRetryPolicy() : options.retryPolicy;
+      normalizedOptions.retryPolicy === undefined
+        ? new DefaultRetryPolicy()
+        : normalizedOptions.retryPolicy;
     this.sleep =
-      options.sleep === undefined
+      normalizedOptions.sleep === undefined
         ? (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs))
-        : options.sleep;
-    this.now = options.now === undefined ? performance.now.bind(performance) : options.now;
+        : normalizedOptions.sleep;
+    this.now =
+      normalizedOptions.now === undefined
+        ? performance.now.bind(performance)
+        : normalizedOptions.now;
     this.signalFactory =
-      options.signalFactory === undefined
+      normalizedOptions.signalFactory === undefined
         ? (timeoutMs) => AbortSignal.timeout(timeoutMs)
-        : options.signalFactory;
-    this.logger = this.createChildLogger(options.logger, {
+        : normalizedOptions.signalFactory;
+    this.logger = this.createChildLogger(normalizedOptions.logger, {
       component: "http_client",
       upstreamHost: this.baseUrl.host,
     });
-    this.tracer = options.tracer === undefined ? new NoopTracer() : options.tracer;
-    this.meter = options.meter ?? new NoopMeter();
+    this.tracer =
+      normalizedOptions.tracer === undefined ? new NoopTracer() : normalizedOptions.tracer;
+    this.meter = normalizedOptions.meter ?? new NoopMeter();
   }
 
   async request<TResponse>(
