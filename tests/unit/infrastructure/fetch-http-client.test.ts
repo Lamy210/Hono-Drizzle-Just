@@ -1193,6 +1193,53 @@ test("request serialization failures are normalized without attempting fetch", a
   expect(fetchCalls).toBe(0);
 });
 
+test("request serialization failures do not retain body-derived exception details", async () => {
+  let fetchCalls = 0;
+  const secret = "super-private-request-body-value";
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return Response.json({ ok: true });
+    },
+  });
+  const body = {
+    toJSON() {
+      throw new Error(`serialization failed for ${secret}`);
+    },
+  };
+
+  const outcome = client.request(
+    {
+      method: "POST",
+      path: "/invalid-request",
+      body,
+      retry: "never",
+    },
+    z.object({ ok: z.boolean() }),
+  );
+
+  const error = await outcome.then(
+    () => {
+      throw new Error("request unexpectedly succeeded");
+    },
+    (caught: unknown) => caught,
+  );
+
+  expect(error).toBeInstanceOf(AppError);
+  expect(error).toMatchObject({
+    code: "INTERNAL_ERROR",
+    status: 500,
+    message: "Outbound HTTP request body could not be serialized",
+    details: undefined,
+    diagnostics: { host: "example.test" },
+  });
+  expect((error as Error).cause).toBeUndefined();
+  expect(String(error)).not.toContain(secret);
+  expect(fetchCalls).toBe(0);
+});
+
 test("fetch wrapper rejects invalid outbound request byte limits", async () => {
   const logger = new JsonConsoleLogger({}, () => undefined);
 
