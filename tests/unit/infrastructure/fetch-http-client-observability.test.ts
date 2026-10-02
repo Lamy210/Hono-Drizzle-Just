@@ -330,6 +330,53 @@ test("tracer span trace context is normalized before outbound propagation", asyn
   });
 });
 
+test("invalid span tracestate is removed at the tracer boundary", async () => {
+  const span: Span = {
+    setAttribute: () => undefined,
+    setStatus: () => undefined,
+    recordException: () => undefined,
+    traceContext: () => ({
+      traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+      spanId: "cccccccccccccccc",
+      traceFlags: "01",
+      traceState: "vendor=value,vendor=duplicate",
+    }),
+  };
+  const tracer: Tracer = {
+    async withSpan<T>(
+      _name: string,
+      _options: SpanOptions,
+      operation: (span: Span) => Promise<T>,
+    ): Promise<T> {
+      return operation(span);
+    },
+  };
+  let traceparent = "";
+  let tracestate: string | null = "not-read";
+  const client = new FetchHttpClient({
+    baseUrl: "https://api.example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async (_input, init) => {
+      const headers = new Headers(init?.headers);
+      traceparent = headers.get("traceparent") ?? "";
+      tracestate = headers.get("tracestate");
+      return Response.json({ ok: true });
+    },
+    tracer,
+  });
+
+  const response = await client.request(
+    { method: "GET", path: "/resource" },
+    { parse: (value) => value as { ok: boolean } },
+  );
+
+  expect(response.data).toEqual({ ok: true });
+  expect(traceparent).toBe(
+    "00-4bf92f3577b34da6a3ce929d0e0e4736-cccccccccccccccc-01",
+  );
+  expect(tracestate).toBeNull();
+});
+
 test("invalid runtime tracer shapes fail locally before clocks or network access", async () => {
   const throwingTracer = Object.defineProperty({}, "withSpan", {
     get() {

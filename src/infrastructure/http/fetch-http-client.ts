@@ -422,9 +422,8 @@ export class FetchHttpClient implements HttpClient {
     }
     if (trace) {
       headers.set("traceparent", formatTraceParent(trace));
-      const traceState = parseTraceState(trace.traceState);
-      if (traceState !== undefined) {
-        headers.set("tracestate", traceState);
+      if (trace.traceState !== undefined) {
+        headers.set("tracestate", trace.traceState);
       }
     }
 
@@ -677,9 +676,11 @@ export class FetchHttpClient implements HttpClient {
         return null;
       }
 
-      return traceState === undefined
+      const normalizedTraceState =
+        traceState === undefined ? undefined : parseTraceState(traceState);
+      return normalizedTraceState === undefined
         ? { traceId, spanId, traceFlags }
-        : { traceId, spanId, traceFlags, traceState };
+        : { traceId, spanId, traceFlags, traceState: normalizedTraceState };
     } catch {
       return null;
     }
