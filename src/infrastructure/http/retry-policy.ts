@@ -68,7 +68,7 @@ function snapshotDefaultRetryPolicyOptions(options: unknown): DefaultRetryPolicy
 
 function requireNumberHook(name: "now" | "random", value: unknown): () => number {
   if (typeof value !== "function") {
-    throw new TypeError("DefaultRetryPolicy " + name + " must be callable");
+    throw new TypeError(`DefaultRetryPolicy ${name} must be callable`);
   }
   return value as () => number;
 }
