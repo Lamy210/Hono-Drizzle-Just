@@ -1204,13 +1204,13 @@ export class FetchHttpClient implements HttpClient {
     let signal: unknown;
     try {
       signal = this.signalFactory(timeoutMs);
-    } catch (error) {
+    } catch {
       throw new AppError(
         "INTERNAL_ERROR",
         "Outbound HTTP timeout signal factory failed",
         500,
         undefined,
-        { cause: error, diagnostics: { host: url.host } },
+        { diagnostics: { host: url.host } },
       );
     }
 
@@ -1229,13 +1229,13 @@ export class FetchHttpClient implements HttpClient {
   private async waitBeforeRetry(delayMs: number, url: URL): Promise<void> {
     try {
       await this.sleep(delayMs);
-    } catch (error) {
+    } catch {
       throw new AppError(
         "INTERNAL_ERROR",
         "Outbound HTTP retry delay failed",
         500,
         undefined,
-        { cause: error, diagnostics: { host: url.host } },
+        { diagnostics: { host: url.host } },
       );
     }
   }
@@ -1250,13 +1250,13 @@ export class FetchHttpClient implements HttpClient {
     let delay: number | null;
     try {
       delay = retryNextDelay(request, attempt, failure);
-    } catch (error) {
+    } catch {
       throw new AppError(
         "INTERNAL_ERROR",
         "Outbound HTTP retry policy failed",
         500,
         undefined,
-        { cause: error, diagnostics: { host: url.host } },
+        { diagnostics: { host: url.host } },
       );
     }
 
@@ -1422,13 +1422,13 @@ export class FetchHttpClient implements HttpClient {
       let current: number;
       try {
         current = this.now();
-      } catch (error) {
+      } catch {
         throw new AppError(
           "INTERNAL_ERROR",
           "Outbound HTTP monotonic clock failed",
           500,
           undefined,
-          { cause: error, diagnostics: { host: url.host } },
+          { diagnostics: { host: url.host } },
         );
       }
 

@@ -27,6 +27,89 @@ function logger() {
   return new JsonConsoleLogger({}, () => undefined);
 }
 
+test("extension hook failures do not retain provider-private exceptions", async () => {
+  const secret = "private-extension-hook-detail";
+
+  const cases: Array<{
+    createClient: () => FetchHttpClient;
+    expectedMessage: string;
+  }> = [
+    {
+      createClient: () =>
+        new FetchHttpClient({
+          baseUrl: "https://example.test",
+          logger: logger(),
+          fetchImpl: async () => Response.json({ ok: true }),
+          now: () => {
+            throw new Error(`clock failed with ${secret}`);
+          },
+        }),
+      expectedMessage: "Outbound HTTP monotonic clock failed",
+    },
+    {
+      createClient: () =>
+        new FetchHttpClient({
+          baseUrl: "https://example.test",
+          logger: logger(),
+          fetchImpl: async () => Response.json({ ok: true }),
+          signalFactory: () => {
+            throw new Error(`signal factory failed with ${secret}`);
+          },
+        }),
+      expectedMessage: "Outbound HTTP timeout signal factory failed",
+    },
+    {
+      createClient: () =>
+        new FetchHttpClient({
+          baseUrl: "https://example.test",
+          logger: logger(),
+          fetchImpl: async () => new Response("busy", { status: 503 }),
+          retryPolicy: {
+            nextDelay: () => {
+              throw new Error(`retry policy failed with ${secret}`);
+            },
+          },
+        }),
+      expectedMessage: "Outbound HTTP retry policy failed",
+    },
+    {
+      createClient: () =>
+        new FetchHttpClient({
+          baseUrl: "https://example.test",
+          logger: logger(),
+          fetchImpl: async () => new Response("busy", { status: 503 }),
+          retryPolicy: { nextDelay: () => 1 },
+          sleep: async () => {
+            throw new Error(`retry sleep failed with ${secret}`);
+          },
+        }),
+      expectedMessage: "Outbound HTTP retry delay failed",
+    },
+  ];
+
+  for (const { createClient, expectedMessage } of cases) {
+    const error = await createClient()
+      .request({ method: "GET", path: "/resource" }, z.unknown())
+      .then(
+        () => {
+          throw new Error("request unexpectedly succeeded");
+        },
+        (caught: unknown) => caught,
+      );
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      message: expectedMessage,
+      details: undefined,
+      diagnostics: { host: "example.test" },
+    });
+    expect((error as Error).cause).toBeUndefined();
+    expect(String(error)).not.toContain(secret);
+  }
+});
+
 test("retry sleep failures are local adapter errors and do not trigger another fetch", async () => {
   let attempts = 0;
   let sleepCalls = 0;
