@@ -2,8 +2,13 @@ import {
   normalizeDatabaseError,
   type RetryableTransactionFailureReason,
 } from "./database-error";
-import type { Meter } from "../../core/observability/meter";
-import type { Tracer } from "../../core/observability/tracer";
+import type { Meter, MetricOptions } from "../../core/observability/meter";
+import type {
+  Span,
+  SpanStatus,
+  TelemetryAttributes,
+  Tracer,
+} from "../../core/observability/tracer";
 
 export type DatabaseNow = () => number;
 
@@ -25,11 +30,68 @@ export class DatabaseObserver {
     this.now = options.now ?? performance.now.bind(performance);
   }
 
+  private readNowBestEffort(): number | undefined {
+    try {
+      const value = this.now();
+      return Number.isFinite(value) ? value : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private setStatusBestEffort(span: Span, status: SpanStatus): void {
+    try {
+      span.setStatus(status);
+    } catch {
+      // Database results and errors are authoritative over observability mutations.
+    }
+  }
+
+  private incrementBestEffort(
+    name: string,
+    value: number,
+    attributes: TelemetryAttributes,
+  ): void {
+    try {
+      this.options.meter.increment(name, value, attributes);
+    } catch {
+      // Metrics are observational and must not change database control flow.
+    }
+  }
+
+  private recordBestEffort(
+    name: string,
+    value: number,
+    attributes: TelemetryAttributes,
+    options?: MetricOptions,
+  ): void {
+    try {
+      this.options.meter.record(name, value, attributes, options);
+    } catch {
+      // Metrics are observational and must not change database control flow.
+    }
+  }
+
+  private recordDurationBestEffort(
+    name: string,
+    startedAt: number | undefined,
+    attributes: TelemetryAttributes,
+  ): void {
+    if (startedAt === undefined) {
+      return;
+    }
+    const endedAt = this.readNowBestEffort();
+    if (endedAt === undefined) {
+      return;
+    }
+    this.recordBestEffort(name, Math.max(0, endedAt - startedAt) / 1_000, attributes);
+  }
+
   async operation<TResult>(
     descriptor: DatabaseOperationDescriptor,
     execute: () => Promise<TResult>,
   ): Promise<TResult> {
-    const startedAt = this.now();
+    const startedAt = this.readNowBestEffort();
     const attributes = {
       "db.system.name": "postgresql",
       "db.operation.name": descriptor.operation,
@@ -48,15 +110,15 @@ export class DatabaseObserver {
       async (span) => {
         try {
           const result = await execute();
-          span.setStatus("ok");
+          this.setStatusBestEffort(span, "ok");
           return result;
         } catch (error) {
-          span.setStatus("error");
+          this.setStatusBestEffort(span, "error");
           throw normalizeDatabaseError(error);
         } finally {
-          this.options.meter.record(
+          this.recordDurationBestEffort(
             "db.client.operation.duration",
-            Math.max(0, this.now() - startedAt) / 1_000,
+            startedAt,
             attributes,
           );
         }
@@ -72,8 +134,8 @@ export class DatabaseObserver {
       "db.system.name": "postgresql",
       "db.transaction.retry.reason": reason,
     } as const;
-    this.options.meter.increment("db.transaction.retries", 1, attributes);
-    this.options.meter.record(
+    this.incrementBestEffort("db.transaction.retries", 1, attributes);
+    this.recordBestEffort(
       "db.transaction.retry.delay",
       Math.max(0, delayMs) / 1_000,
       attributes,
@@ -82,7 +144,7 @@ export class DatabaseObserver {
   }
 
   transactionRetryExhausted(reason: RetryableTransactionFailureReason): void {
-    this.options.meter.increment(
+    this.incrementBestEffort(
       "db.transaction.retry.exhausted",
       1,
       {
@@ -93,7 +155,7 @@ export class DatabaseObserver {
   }
 
   async transaction<TResult>(execute: () => Promise<TResult>): Promise<TResult> {
-    const startedAt = this.now();
+    const startedAt = this.readNowBestEffort();
     const attributes = { "db.system.name": "postgresql" } as const;
 
     return this.options.tracer.withSpan(
@@ -102,17 +164,13 @@ export class DatabaseObserver {
       async (span) => {
         try {
           const result = await execute();
-          span.setStatus("ok");
+          this.setStatusBestEffort(span, "ok");
           return result;
         } catch (error) {
-          span.setStatus("error");
+          this.setStatusBestEffort(span, "error");
           throw normalizeDatabaseError(error);
         } finally {
-          this.options.meter.record(
-            "db.transaction.duration",
-            Math.max(0, this.now() - startedAt) / 1_000,
-            attributes,
-          );
+          this.recordDurationBestEffort("db.transaction.duration", startedAt, attributes);
         }
       },
     );

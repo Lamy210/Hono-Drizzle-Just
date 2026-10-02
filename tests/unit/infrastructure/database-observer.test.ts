@@ -59,6 +59,115 @@ class RecordingMeter implements Meter {
   }
 }
 
+class ThrowingMeter implements Meter {
+  increment(): void {
+    throw new Error("meter increment failed");
+  }
+
+  record(): void {
+    throw new Error("meter record failed");
+  }
+}
+
+class ThrowingStatusSpan extends RecordingSpan {
+  override setStatus(): void {
+    throw new Error("span status failed");
+  }
+}
+
+class ThrowingStatusTracer implements Tracer {
+  async withSpan<T>(
+    _name: string,
+    _options: SpanOptions,
+    operation: (span: Span) => Promise<T>,
+  ): Promise<T> {
+    return operation(new ThrowingStatusSpan());
+  }
+}
+
+test("DatabaseObserver keeps successful operations authoritative over observability failures", async () => {
+  const observer = new DatabaseObserver({
+    tracer: new ThrowingStatusTracer(),
+    meter: new ThrowingMeter(),
+    now: (() => {
+      let reads = 0;
+      return () => {
+        reads += 1;
+        if (reads === 2) {
+          throw new Error("duration clock failed");
+        }
+        return 1_000;
+      };
+    })(),
+  });
+  let executions = 0;
+
+  const result = await observer.operation({ operation: "SELECT" }, async () => {
+    executions += 1;
+    return "ok";
+  });
+
+  expect(result).toBe("ok");
+  expect(executions).toBe(1);
+});
+
+test("DatabaseObserver executes database work when the observability start clock fails", async () => {
+  const observer = new DatabaseObserver({
+    tracer: new ThrowingStatusTracer(),
+    meter: new ThrowingMeter(),
+    now: () => {
+      throw new Error("clock failed");
+    },
+  });
+  let executions = 0;
+
+  const result = await observer.transaction(async () => {
+    executions += 1;
+    return "committed";
+  });
+
+  expect(result).toBe("committed");
+  expect(executions).toBe(1);
+});
+
+test("DatabaseObserver preserves transaction errors over observability failures", async () => {
+  const raw = Object.assign(new Error("private serialization failure"), { code: "40001" });
+  const observer = new DatabaseObserver({
+    tracer: new ThrowingStatusTracer(),
+    meter: new ThrowingMeter(),
+    now: () => 1_000,
+  });
+
+  await expect(
+    observer.transaction(async () => {
+      throw raw;
+    }),
+  ).rejects.toMatchObject({
+    code: "DATABASE_BUSY",
+    status: 503,
+    cause: raw,
+  });
+});
+
+test("DatabaseObserver preserves classified database errors over observability failures", async () => {
+  const raw = Object.assign(new Error("private statement timeout"), { code: "57014" });
+  const observer = new DatabaseObserver({
+    tracer: new ThrowingStatusTracer(),
+    meter: new ThrowingMeter(),
+    now: () => 1_000,
+  });
+
+  await expect(
+    observer.operation({ operation: "SELECT", collection: "users" }, async () => {
+      throw raw;
+    }),
+  ).rejects.toMatchObject({
+    code: "DATABASE_TIMEOUT",
+    status: 504,
+    cause: raw,
+  });
+});
+
 test("DatabaseObserver records a low-cardinality successful database operation", async () => {
   const tracer = new RecordingTracer();
   const meter = new RecordingMeter();

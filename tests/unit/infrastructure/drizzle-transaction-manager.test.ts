@@ -150,6 +150,62 @@ test("stops after the configured attempt budget is exhausted", async () => {
   expect(sleep).toHaveBeenCalledTimes(2);
 });
 
+test("observer metric failures do not change transaction retry control flow", async () => {
+  const { database, transaction } = fakeDatabase();
+  const meter: Meter = {
+    increment() {
+      throw new Error("retry increment failed");
+    },
+    record() {
+      throw new Error("retry record failed");
+    },
+  };
+  const observer = new DatabaseObserver({ tracer: new NoopTracer(), meter });
+  const sleep = mock(async () => undefined);
+  const manager = new DrizzleTransactionManager(
+    database,
+    () => ({}),
+    observer,
+    { maxAttempts: 2, baseDelayMs: 0, maxDelayMs: 0, sleep },
+  );
+  let attempts = 0;
+
+  const result = await manager.run(
+    async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw codedError("40001");
+      }
+      return "committed";
+    },
+    { retry: "safe" },
+  );
+
+  expect(result).toBe("committed");
+  expect(transaction).toHaveBeenCalledTimes(2);
+  expect(sleep).toHaveBeenCalledTimes(1);
+
+  const exhausted = new DrizzleTransactionManager(
+    database,
+    () => ({}),
+    observer,
+    { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0, sleep },
+  );
+
+  await expect(
+    exhausted.run(
+      async () => {
+        throw codedError("40001");
+      },
+      { retry: "safe" },
+    ),
+  ).rejects.toMatchObject({
+    code: "DATABASE_BUSY",
+    status: 503,
+    cause: { code: "40001" },
+  });
+});
+
 test("records bounded retry and exhaustion telemetry after observer normalization", async () => {
   const { database } = fakeDatabase();
   const meter = new RecordingMeter();
