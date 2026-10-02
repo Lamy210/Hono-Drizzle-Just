@@ -437,14 +437,22 @@ test("update maps tenant-local email uniqueness violations to conflict", async (
     name: "Second",
   });
 
-  await expect(
-    repository.update(
+  const updateError = await repository
+    .update(
       "tenant-a",
       second.id,
       { email: first.email },
       { kind: "versions", versions: [second.version] },
-    ),
-  ).rejects.toMatchObject({ code: "CONFLICT", status: 409 });
+    )
+    .then(
+      () => {
+        throw new Error("update unexpectedly succeeded");
+      },
+      (caught: unknown) => caught,
+    );
+
+  expect(updateError).toMatchObject({ code: "CONFLICT", status: 409 });
+  expect((updateError as Error).cause).toBeUndefined();
 
   expect(await repository.findById("tenant-a", second.id)).toMatchObject({
     id: second.id,
@@ -468,12 +476,20 @@ test("repository maps a wrapped PostgreSQL tenant-local unique violation to a co
   const email = `duplicate-${crypto.randomUUID()}@example.com`;
   await repository.create({ tenantId: "tenant-a", email, name: "First" });
 
-  await expect(
-    repository.create({ tenantId: "tenant-a", email, name: "Duplicate" }),
-  ).rejects.toMatchObject({
+  const createError = await repository
+    .create({ tenantId: "tenant-a", email, name: "Duplicate" })
+    .then(
+      () => {
+        throw new Error("create unexpectedly succeeded");
+      },
+      (caught: unknown) => caught,
+    );
+
+  expect(createError).toMatchObject({
     code: "CONFLICT",
     status: 409,
   });
+  expect((createError as Error).cause).toBeUndefined();
 });
 
 test("users created_at precision matches JavaScript Date cursor precision", async () => {

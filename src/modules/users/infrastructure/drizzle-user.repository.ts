@@ -368,9 +368,7 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
         : await execute();
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new AppError("CONFLICT", "A user with this email already exists", 409, undefined, {
-          cause: error,
-        });
+        throw new AppError("CONFLICT", "A user with this email already exists", 409);
       }
       throw error;
     }
@@ -391,9 +389,7 @@ export class DrizzleUserRepository implements UserRepository, UserListRepository
         : await execute();
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new AppError("CONFLICT", "A user with this email already exists", 409, undefined, {
-          cause: error,
-        });
+        throw new AppError("CONFLICT", "A user with this email already exists", 409);
       }
       throw error;
     }

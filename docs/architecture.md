@@ -82,7 +82,7 @@ Each feature defines the narrow unit of work needed by its use cases. For the sa
 
 Returning from the operation commits. Throwing propagates the error and causes Drizzle/PostgreSQL to roll back the transaction. Nested savepoints, serialization/deadlock retries, and implicit AsyncLocalStorage transaction state are intentionally outside the default template.
 
-PostgreSQL constraints remain authoritative. Drizzle wraps driver errors in `DrizzleQueryError`, so repository adapters inspect the error `cause` chain when mapping stable PostgreSQL error codes such as `23505` into application errors.
+PostgreSQL constraints remain authoritative. Drizzle wraps driver errors in `DrizzleQueryError`, so repository adapters inspect the error `cause` chain when mapping stable PostgreSQL error codes such as `23505` into application errors. Cause-chain inspection is classification-only for tenant-local uniqueness conflicts: once `23505` has been mapped to the stable 409 `CONFLICT` contract, the raw Drizzle/PostgreSQL error is not retained because it may carry constraint/detail/value metadata. Transient database availability/timeout errors remain a separate diagnostic class and may retain their database cause.
 
 The idempotent create path hashes the raw key before entering persistence, claims `(tenant_id, key_hash)` in PostgreSQL, and relies on the primary-key conflict wait to serialize concurrent first use of the same tenant/key. A matching completed claim replays the user through the tenant-scoped `findById`; a different fingerprint fails with `422`. Claim, duplicate-email check, user insert, and claim completion all share one transaction, so rollback removes a failed fresh claim together with the failed create.
 
