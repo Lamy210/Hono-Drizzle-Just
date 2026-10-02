@@ -69,6 +69,10 @@ function hasCode(error: unknown, predicate: (code: string) => boolean): boolean 
   });
 }
 
+export function hasDatabaseErrorCode(error: unknown, expectedCode: string): boolean {
+  return hasCode(error, (code) => code === expectedCode);
+}
+
 export function isDatabaseAcquireTimeout(error: unknown): boolean {
   return walkErrorChain(error).some((candidate) => {
     const code = errorCode(candidate);

@@ -2,6 +2,7 @@ import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import { AppError } from "../../../core/errors/app-error";
 import { users } from "../../../db/schema";
 import type { DatabaseSession } from "../../../infrastructure/database/database";
+import { hasDatabaseErrorCode } from "../../../infrastructure/database/database-error";
 import type { DatabaseObserver } from "../../../infrastructure/database/database-observer";
 import type { UserCursorListRepository } from "../application/user-cursor-list.repository";
 import type { UserDeleteRepository, UserDeleteResult } from "../application/user-delete.repository";
@@ -15,23 +16,8 @@ import type { UserVersionPrecondition } from "../application/user-version-precon
 import type { TenantScopedCreateUserInput, User } from "../domain/user";
 import type { UserRepository } from "../domain/user.repository";
 
-function hasErrorCode(error: unknown, code: string): boolean {
-  const visited = new Set<object>();
-  let current: unknown = error;
-
-  while (typeof current === "object" && current !== null && !visited.has(current)) {
-    visited.add(current);
-    if ("code" in current && current.code === code) {
-      return true;
-    }
-    current = "cause" in current ? current.cause : undefined;
-  }
-
-  return false;
-}
-
 function isUniqueViolation(error: unknown): boolean {
-  return hasErrorCode(error, "23505");
+  return hasDatabaseErrorCode(error, "23505");
 }
 
 function versionPreconditionSql(precondition: UserVersionPrecondition): SQL {

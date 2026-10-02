@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { AppError } from "../../../src/core/errors/app-error";
 import {
+  hasDatabaseErrorCode,
   isDatabaseAcquireTimeout,
   isRetryableTransactionFailure,
   normalizeDatabaseError,
@@ -111,6 +112,7 @@ test("database error classification tolerates throwing metadata getters", () => 
     },
   );
 
+  expect(hasDatabaseErrorCode(hostile, "23505")).toBe(false);
   expect(isDatabaseAcquireTimeout(hostile)).toBe(false);
   expect(isRetryableTransactionFailure(hostile)).toBe(false);
   expect(retryableTransactionFailureReason(hostile)).toBeUndefined();
@@ -135,6 +137,7 @@ test("database error classification keeps traversing readable causes when outer 
     },
   );
 
+  expect(hasDatabaseErrorCode(wrapped, "40001")).toBe(true);
   expect(retryableTransactionFailureReason(wrapped)).toBe("serialization_failure");
   expect(normalizeDatabaseError(wrapped)).toMatchObject({
     code: "DATABASE_BUSY",
@@ -147,6 +150,7 @@ test("database error classification tolerates revoked proxies", () => {
   const { proxy, revoke } = Proxy.revocable({}, {});
   revoke();
 
+  expect(hasDatabaseErrorCode(proxy, "23505")).toBe(false);
   expect(isDatabaseAcquireTimeout(proxy)).toBe(false);
   expect(isRetryableTransactionFailure(proxy)).toBe(false);
   expect(retryableTransactionFailureReason(proxy)).toBeUndefined();
@@ -158,6 +162,7 @@ test("preserves AppError, domain-significant SQLSTATEs, unknown errors, and cycl
   expect(normalizeDatabaseError(appError)).toBe(appError);
 
   const unique = codedError("23505", "duplicate key value violates unique constraint secret_name");
+  expect(hasDatabaseErrorCode(unique, "23505")).toBe(true);
   expect(normalizeDatabaseError(unique)).toBe(unique);
 
   const unknown = new Error("unknown database adapter failure");
