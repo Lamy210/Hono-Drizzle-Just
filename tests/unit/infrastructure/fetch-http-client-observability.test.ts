@@ -473,6 +473,43 @@ test("invalid runtime retry controls never become outbound telemetry dimensions"
   expect(meter.histograms).toEqual([]);
 });
 
+test("invalid request tracestate is removed before tracer parentage", async () => {
+  const tracer = new ClientTracer();
+  const client = new FetchHttpClient({
+    baseUrl: "https://api.example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => Response.json({ ok: true }),
+    tracer,
+  });
+
+  const response = await client.request(
+    {
+      method: "GET",
+      path: "/resource",
+      context: {
+        requestId: "request-123",
+        trace: {
+          traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+          spanId: "00f067aa0ba902b7",
+          traceFlags: "01",
+          traceState: "vendor=value,vendor=duplicate",
+        },
+        startedAt: 0,
+      },
+    },
+    { parse: (value) => value as { ok: boolean } },
+  );
+
+  expect(response.data).toEqual({ ok: true });
+  expect(tracer.calls).toHaveLength(1);
+  expect(tracer.calls[0]?.options.parent).toEqual({
+    traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+    spanId: "00f067aa0ba902b7",
+    traceFlags: "01",
+  });
+  expect(tracer.calls[0]?.options.parentIsRemote).toBe(false);
+});
+
 test("invalid runtime request context never reaches tracer, metrics, or fetch", async () => {
   const tracer = new ClientTracer();
   const meter = new ClientMeter();
