@@ -21,6 +21,57 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BASE_DELAY_MS = 10;
 const DEFAULT_MAX_DELAY_MS = 100;
 
+function snapshotTransactionManagerOptions(
+  options: unknown,
+): DrizzleTransactionManagerOptions {
+  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+    throw new TypeError("DrizzleTransactionManager options must be a non-array object");
+  }
+
+  try {
+    const maxAttempts = Reflect.get(
+      options,
+      "maxAttempts",
+    ) as DrizzleTransactionManagerOptions["maxAttempts"];
+    const baseDelayMs = Reflect.get(
+      options,
+      "baseDelayMs",
+    ) as DrizzleTransactionManagerOptions["baseDelayMs"];
+    const maxDelayMs = Reflect.get(
+      options,
+      "maxDelayMs",
+    ) as DrizzleTransactionManagerOptions["maxDelayMs"];
+    const random = Reflect.get(
+      options,
+      "random",
+    ) as DrizzleTransactionManagerOptions["random"];
+    const sleep = Reflect.get(
+      options,
+      "sleep",
+    ) as DrizzleTransactionManagerOptions["sleep"];
+
+    return {
+      ...(maxAttempts === undefined ? {} : { maxAttempts }),
+      ...(baseDelayMs === undefined ? {} : { baseDelayMs }),
+      ...(maxDelayMs === undefined ? {} : { maxDelayMs }),
+      ...(random === undefined ? {} : { random }),
+      ...(sleep === undefined ? {} : { sleep }),
+    };
+  } catch {
+    throw new TypeError("DrizzleTransactionManager options could not be read");
+  }
+}
+
+function requireHook<T extends (...args: never[]) => unknown>(
+  name: "random" | "sleep",
+  value: unknown,
+): T {
+  if (typeof value !== "function") {
+    throw new TypeError(`DrizzleTransactionManager ${name} must be callable`);
+  }
+  return value as T;
+}
+
 function defaultSleep(delayMs: number): Promise<void> {
   if (delayMs <= 0) {
     return Promise.resolve();
@@ -49,11 +100,27 @@ export class DrizzleTransactionManager<TUnitOfWork>
     private readonly observer?: DatabaseObserver,
     options: DrizzleTransactionManagerOptions = {},
   ) {
-    this.maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
-    this.baseDelayMs = options.baseDelayMs ?? DEFAULT_BASE_DELAY_MS;
-    this.maxDelayMs = options.maxDelayMs ?? DEFAULT_MAX_DELAY_MS;
-    this.random = options.random ?? Math.random;
-    this.sleep = options.sleep ?? defaultSleep;
+    const normalizedOptions = snapshotTransactionManagerOptions(options);
+    this.maxAttempts =
+      normalizedOptions.maxAttempts === undefined
+        ? DEFAULT_MAX_ATTEMPTS
+        : normalizedOptions.maxAttempts;
+    this.baseDelayMs =
+      normalizedOptions.baseDelayMs === undefined
+        ? DEFAULT_BASE_DELAY_MS
+        : normalizedOptions.baseDelayMs;
+    this.maxDelayMs =
+      normalizedOptions.maxDelayMs === undefined
+        ? DEFAULT_MAX_DELAY_MS
+        : normalizedOptions.maxDelayMs;
+    this.random =
+      normalizedOptions.random === undefined
+        ? Math.random
+        : requireHook<() => number>("random", normalizedOptions.random);
+    this.sleep =
+      normalizedOptions.sleep === undefined
+        ? defaultSleep
+        : requireHook<TransactionRetrySleep>("sleep", normalizedOptions.sleep);
 
     requireInteger("maxAttempts", this.maxAttempts, 1, 10);
     requireInteger("baseDelayMs", this.baseDelayMs, 0, 10_000);

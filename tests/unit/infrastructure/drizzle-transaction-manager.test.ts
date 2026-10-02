@@ -269,6 +269,143 @@ test("records bounded retry and exhaustion telemetry after observer normalizatio
   ]);
 });
 
+test("constructor rejects invalid runtime option containers", () => {
+  const { database } = fakeDatabase();
+
+  for (const options of [null, "options", 1, true, [], () => undefined]) {
+    expect(
+      () =>
+        new DrizzleTransactionManager(
+          database,
+          () => ({}),
+          undefined,
+          options as unknown as import("../../../src/infrastructure/database/drizzle-transaction-manager").DrizzleTransactionManagerOptions,
+        ),
+    ).toThrow("DrizzleTransactionManager options must be a non-array object");
+  }
+});
+
+test("constructor normalizes throwing option getters", () => {
+  const { database } = fakeDatabase();
+  const options = {
+    get maxAttempts() {
+      return 2;
+    },
+    get random(): () => number {
+      throw new Error("provider-private-detail");
+    },
+  };
+
+  expect(
+    () =>
+      new DrizzleTransactionManager(
+        database,
+        () => ({}),
+        undefined,
+        options,
+      ),
+  ).toThrow("DrizzleTransactionManager options could not be read");
+});
+
+test("constructor snapshots runtime options exactly once", async () => {
+  const { database, transaction } = fakeDatabase();
+  const reads = {
+    maxAttempts: 0,
+    baseDelayMs: 0,
+    maxDelayMs: 0,
+    random: 0,
+    sleep: 0,
+  };
+  const sleep = mock(async (_delayMs: number) => undefined);
+  const options = {
+    get maxAttempts() {
+      reads.maxAttempts += 1;
+      return 2;
+    },
+    get baseDelayMs() {
+      reads.baseDelayMs += 1;
+      return 10;
+    },
+    get maxDelayMs() {
+      reads.maxDelayMs += 1;
+      return 100;
+    },
+    get random() {
+      reads.random += 1;
+      return () => 0.5;
+    },
+    get sleep() {
+      reads.sleep += 1;
+      return sleep;
+    },
+  };
+  const manager = new DrizzleTransactionManager(
+    database,
+    () => ({}),
+    undefined,
+    options,
+  );
+  let attempts = 0;
+
+  const result = await manager.run(
+    async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw codedError("40001");
+      }
+      return "committed";
+    },
+    { retry: "safe" },
+  );
+
+  expect(result).toBe("committed");
+  expect(transaction).toHaveBeenCalledTimes(2);
+  expect(sleep).toHaveBeenCalledTimes(1);
+  expect(sleep).toHaveBeenCalledWith(5);
+  expect(reads).toEqual({
+    maxAttempts: 1,
+    baseDelayMs: 1,
+    maxDelayMs: 1,
+    random: 1,
+    sleep: 1,
+  });
+});
+
+test("constructor rejects null numeric options instead of selecting defaults", () => {
+  const { database } = fakeDatabase();
+
+  for (const key of ["maxAttempts", "baseDelayMs", "maxDelayMs"] as const) {
+    expect(
+      () =>
+        new DrizzleTransactionManager(
+          database,
+          () => ({}),
+          undefined,
+          { [key]: null } as unknown as import("../../../src/infrastructure/database/drizzle-transaction-manager").DrizzleTransactionManagerOptions,
+        ),
+    ).toThrow(RangeError);
+  }
+});
+
+test("constructor requires explicitly configured hooks to be callable", () => {
+  const { database } = fakeDatabase();
+
+  for (const [key, message] of [
+    ["random", "DrizzleTransactionManager random must be callable"],
+    ["sleep", "DrizzleTransactionManager sleep must be callable"],
+  ] as const) {
+    expect(
+      () =>
+        new DrizzleTransactionManager(
+          database,
+          () => ({}),
+          undefined,
+          { [key]: null } as unknown as import("../../../src/infrastructure/database/drizzle-transaction-manager").DrizzleTransactionManagerOptions,
+        ),
+    ).toThrow(message);
+  }
+});
+
 test("rejects invalid retry configuration at composition time", () => {
   const { database } = fakeDatabase();
 
