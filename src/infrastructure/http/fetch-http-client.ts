@@ -448,10 +448,11 @@ export class FetchHttpClient implements HttpClient {
           );
         }
 
+        const durationMs = this.readDurationMsBestEffort(startedAt, requestNow);
         this.infoBestEffort("http.client.response", {
           method: request.method,
           statusCode: response.status,
-          durationMs: Number((requestNow() - startedAt).toFixed(2)),
+          ...(durationMs === undefined ? {} : { durationMs }),
           attempt,
           traceId: trace?.traceId,
         });
@@ -1166,11 +1167,25 @@ export class FetchHttpClient implements HttpClient {
       // Observability is best-effort and must not replace the HTTP result.
     }
 
-    const durationSeconds = (requestNow() - startedAt) / 1_000;
+    const durationMs = this.readDurationMsBestEffort(startedAt, requestNow);
+    if (durationMs === undefined) {
+      return;
+    }
     try {
-      this.meter.record("http.client.duration", durationSeconds, attributes);
+      this.meter.record("http.client.duration", durationMs / 1_000, attributes);
     } catch {
       // Observability is best-effort and must not replace the HTTP result.
+    }
+  }
+
+  private readDurationMsBestEffort(
+    startedAt: number,
+    requestNow: RequestNow,
+  ): number | undefined {
+    try {
+      return Number((requestNow() - startedAt).toFixed(2));
+    } catch {
+      return undefined;
     }
   }
 

@@ -707,6 +707,89 @@ test("final upstream status remains available to client metrics through internal
   });
 });
 
+test("post-response clock failures do not discard successful upstream responses", async () => {
+  let nowCalls = 0;
+  const meter = new ClientMeter();
+  const client = new FetchHttpClient({
+    baseUrl: "https://api.example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => Response.json({ ok: true }),
+    now: () => {
+      nowCalls += 1;
+      if (nowCalls <= 2) {
+        return nowCalls - 1;
+      }
+      throw new Error("clock unavailable after authoritative result");
+    },
+    meter,
+  });
+
+  const response = await client.request(
+    { method: "GET", path: "/resource" },
+    { parse: (value) => value as { ok: boolean } },
+  );
+
+  expect(response.data).toEqual({ ok: true });
+  expect(nowCalls).toBe(4);
+  expect(meter.counters).toContainEqual({
+    name: "http.client.requests",
+    value: 1,
+    attributes: {
+      method: "GET",
+      upstream: "api.example.test",
+      outcome: "success",
+      status_code: 200,
+    },
+  });
+  expect(meter.histograms).toEqual([]);
+});
+
+test("post-error clock failures do not replace authoritative upstream failures", async () => {
+  let nowCalls = 0;
+  const meter = new ClientMeter();
+  const client = new FetchHttpClient({
+    baseUrl: "https://api.example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => new Response("unavailable", { status: 503 }),
+    retryPolicy: { nextDelay: () => null },
+    now: () => {
+      nowCalls += 1;
+      if (nowCalls <= 2) {
+        return nowCalls - 1;
+      }
+      throw new Error("clock unavailable during error telemetry");
+    },
+    meter,
+  });
+
+  await expect(
+    client.request(
+      { method: "GET", path: "/resource" },
+      { parse: (value) => value },
+    ),
+  ).rejects.toMatchObject({
+    code: "UPSTREAM_REQUEST_FAILED",
+    status: 502,
+    diagnostics: {
+      host: "api.example.test",
+      status: 503,
+    },
+  });
+
+  expect(nowCalls).toBe(3);
+  expect(meter.counters).toContainEqual({
+    name: "http.client.requests",
+    value: 1,
+    attributes: {
+      method: "GET",
+      upstream: "api.example.test",
+      outcome: "error",
+      status_code: 503,
+    },
+  });
+  expect(meter.histograms).toEqual([]);
+});
+
 test("meter failures do not discard successful upstream responses", async () => {
   let fetchCalls = 0;
   const client = new FetchHttpClient({
