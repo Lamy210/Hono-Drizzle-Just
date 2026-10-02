@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
 import type { RequestContext } from "../../../src/core/context/request-context";
+import type { HttpRequest } from "../../../src/core/http/http-client";
 import {
   FetchHttpClient,
   type FetchHttpClientOptions,
@@ -205,6 +206,59 @@ test("retry policy nextDelay getters are validated before network access", async
   });
 
   expect(fetchCalls).toBe(0);
+});
+
+test("retry policy nextDelay is resolved once and keeps its receiver across retries", async () => {
+  let getterReads = 0;
+  let policyCalls = 0;
+  let attempts = 0;
+  let receivedReceiver: unknown;
+  const retryPolicy = Object.defineProperty(
+    { marker: "retry-policy" },
+    "nextDelay",
+    {
+      get() {
+        getterReads += 1;
+        if (getterReads > 1) {
+          throw new Error("nextDelay getter must not be evaluated twice");
+        }
+        return function (
+          this: unknown,
+          _request: HttpRequest,
+          currentAttempt: number,
+        ): number | null {
+          policyCalls += 1;
+          receivedReceiver = this;
+          return currentAttempt < 3 ? 0 : null;
+        };
+      },
+    },
+  ) as unknown as RetryPolicy;
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://example.test",
+    logger: logger(),
+    fetchImpl: async () => {
+      attempts += 1;
+      if (attempts < 3) {
+        return new Response("busy", { status: 503 });
+      }
+      return Response.json({ ok: true });
+    },
+    retryPolicy,
+    sleep: async () => undefined,
+  });
+
+  const response = await client.request(
+    { method: "GET", path: "/resource" },
+    z.object({ ok: z.boolean() }),
+  );
+
+  expect(response.data).toEqual({ ok: true });
+  expect(attempts).toBe(3);
+  expect(getterReads).toBe(1);
+  expect(policyCalls).toBe(2);
+  expect(receivedReceiver).toBe(retryPolicy);
 });
 
 test("invalid fetch hook responses fail locally without retrying", async () => {

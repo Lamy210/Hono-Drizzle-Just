@@ -128,6 +128,7 @@ export type FetchLike = (
 export type SleepLike = (delayMs: number) => Promise<void>;
 export type MonotonicNow = () => number;
 type RequestNow = () => number;
+type RetryNextDelay = RetryPolicy["nextDelay"];
 type OutboundRequestContext = {
   readonly requestId: string;
   readonly trace: TraceContext;
@@ -219,6 +220,7 @@ export class FetchHttpClient implements HttpClient {
 
     const url = this.resolveUrl(normalizedRequest.path);
     const fetchImpl = this.getFetchImplementation(url);
+    const retryNextDelay = this.getRetryNextDelay(url);
     this.assertRuntimeHooks(url);
     const withSpan = this.getTracerWithSpan(url);
     const requestNow = this.createRequestNow(url);
@@ -249,6 +251,7 @@ export class FetchHttpClient implements HttpClient {
             requestContext,
             parseResponse,
             fetchImpl,
+            retryNextDelay,
             url,
             trace,
             startedAt,
@@ -297,6 +300,7 @@ export class FetchHttpClient implements HttpClient {
     requestContext: OutboundRequestContext | undefined,
     parseResponse: (value: unknown) => TResponse,
     fetchImpl: FetchLike,
+    retryNextDelay: RetryNextDelay,
     url: URL,
     trace: TraceContext | undefined,
     startedAt: number,
@@ -369,6 +373,7 @@ export class FetchHttpClient implements HttpClient {
           let retryDelay: number | null;
           try {
             retryDelay = this.nextRetryDelay(
+              retryNextDelay,
               request,
               attempt,
               {
@@ -459,7 +464,13 @@ export class FetchHttpClient implements HttpClient {
         return { status: response.status, headers: response.headers, data };
       } catch (error) {
         if (!(error instanceof AppError)) {
-          const retryDelay = this.nextRetryDelay(request, attempt, { kind: "network" }, url);
+          const retryDelay = this.nextRetryDelay(
+            retryNextDelay,
+            request,
+            attempt,
+            { kind: "network" },
+            url,
+          );
           if (retryDelay !== null && retryDelay < this.remainingMs(deadlineAt, requestNow)) {
             this.warnBestEffort("http.client.retry", {
               method: request.method,
@@ -622,7 +633,7 @@ export class FetchHttpClient implements HttpClient {
     return withSpan.bind(tracer) as Tracer["withSpan"];
   }
 
-  private assertRuntimeHooks(url: URL): void {
+  private getRetryNextDelay(url: URL): RetryNextDelay {
     const retryPolicy = this.retryPolicy as unknown;
     if (
       retryPolicy === null ||
@@ -641,6 +652,15 @@ export class FetchHttpClient implements HttpClient {
       throw this.invalidRuntimeHookError("Outbound HTTP retry policy was invalid", url);
     }
 
+    return ((request, attempt, failure) =>
+      Reflect.apply(nextDelay, retryPolicy, [
+        request,
+        attempt,
+        failure,
+      ])) as RetryNextDelay;
+  }
+
+  private assertRuntimeHooks(url: URL): void {
     if (typeof (this.sleep as unknown) !== "function") {
       throw this.invalidRuntimeHookError("Outbound HTTP retry sleep hook was invalid", url);
     }
@@ -1114,14 +1134,15 @@ export class FetchHttpClient implements HttpClient {
   }
 
   private nextRetryDelay(
+    retryNextDelay: RetryNextDelay,
     request: HttpRequest,
     attempt: number,
-    failure: Parameters<RetryPolicy["nextDelay"]>[2],
+    failure: Parameters<RetryNextDelay>[2],
     url: URL,
   ): number | null {
     let delay: number | null;
     try {
-      delay = this.retryPolicy.nextDelay(request, attempt, failure);
+      delay = retryNextDelay(request, attempt, failure);
     } catch (error) {
       throw new AppError(
         "INTERNAL_ERROR",
