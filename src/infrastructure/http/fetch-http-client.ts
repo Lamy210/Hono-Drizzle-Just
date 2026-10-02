@@ -213,6 +213,43 @@ function snapshotFetchHttpClientOptions(options: unknown): FetchHttpClientOption
   }
 }
 
+function normalizeMeter(meter: unknown): Meter {
+  if (
+    meter === null ||
+    (typeof meter !== "object" && typeof meter !== "function")
+  ) {
+    throw new TypeError(
+      "FetchHttpClient meter must provide callable increment() and record() methods",
+    );
+  }
+
+  let increment: unknown;
+  let record: unknown;
+  try {
+    increment = Reflect.get(meter, "increment");
+    record = Reflect.get(meter, "record");
+  } catch {
+    throw new TypeError(
+      "FetchHttpClient meter must provide callable increment() and record() methods",
+    );
+  }
+
+  if (typeof increment !== "function" || typeof record !== "function") {
+    throw new TypeError(
+      "FetchHttpClient meter must provide callable increment() and record() methods",
+    );
+  }
+
+  return {
+    increment(name, value, attributes, options) {
+      Reflect.apply(increment, meter, [name, value, attributes, options]);
+    },
+    record(name, value, attributes, options) {
+      Reflect.apply(record, meter, [name, value, attributes, options]);
+    },
+  };
+}
+
 export class FetchHttpClient implements HttpClient {
   private readonly baseUrl: URL;
   private readonly fetchImpl: unknown;
@@ -271,7 +308,10 @@ export class FetchHttpClient implements HttpClient {
     });
     this.tracer =
       normalizedOptions.tracer === undefined ? new NoopTracer() : normalizedOptions.tracer;
-    this.meter = normalizedOptions.meter ?? new NoopMeter();
+    this.meter =
+      normalizedOptions.meter === undefined
+        ? new NoopMeter()
+        : normalizeMeter(normalizedOptions.meter);
   }
 
   async request<TResponse>(

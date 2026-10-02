@@ -790,6 +790,107 @@ test("post-error clock failures do not replace authoritative upstream failures",
   expect(meter.histograms).toEqual([]);
 });
 
+test("configured meter wiring is validated at construction", () => {
+  const throwingIncrementGetter = Object.defineProperty({}, "increment", {
+    get() {
+      throw new Error("private increment getter failure");
+    },
+  });
+  const throwingRecordGetter = Object.defineProperties(
+    {},
+    {
+      increment: { value: () => undefined },
+      record: {
+        get() {
+          throw new Error("private record getter failure");
+        },
+      },
+    },
+  );
+  const invalidMeters: unknown[] = [
+    null,
+    {},
+    { increment: () => undefined },
+    { increment: "not-callable", record: () => undefined },
+    { increment: () => undefined, record: "not-callable" },
+    throwingIncrementGetter,
+    throwingRecordGetter,
+  ];
+
+  for (const meter of invalidMeters) {
+    expect(
+      () =>
+        new FetchHttpClient({
+          baseUrl: "https://api.example.test",
+          logger: new JsonConsoleLogger({}, () => undefined),
+          meter: meter as Meter,
+        }),
+    ).toThrow(
+      new TypeError(
+        "FetchHttpClient meter must provide callable increment() and record() methods",
+      ),
+    );
+  }
+});
+
+test("configured meter methods are resolved once with their original receiver", async () => {
+  let incrementReads = 0;
+  let recordReads = 0;
+  let incrementCalls = 0;
+  let recordCalls = 0;
+  let incrementReceiver: unknown;
+  let recordReceiver: unknown;
+  const meter = Object.defineProperties(
+    { marker: "meter" },
+    {
+      increment: {
+        get() {
+          incrementReads += 1;
+          if (incrementReads > 1) {
+            throw new Error("increment getter must not be evaluated twice");
+          }
+          return function (this: unknown): void {
+            incrementCalls += 1;
+            incrementReceiver = this;
+          };
+        },
+      },
+      record: {
+        get() {
+          recordReads += 1;
+          if (recordReads > 1) {
+            throw new Error("record getter must not be evaluated twice");
+          }
+          return function (this: unknown): void {
+            recordCalls += 1;
+            recordReceiver = this;
+          };
+        },
+      },
+    },
+  ) as unknown as Meter;
+
+  const client = new FetchHttpClient({
+    baseUrl: "https://api.example.test",
+    logger: new JsonConsoleLogger({}, () => undefined),
+    fetchImpl: async () => Response.json({ ok: true }),
+    meter,
+  });
+
+  const response = await client.request(
+    { method: "GET", path: "/resource" },
+    { parse: (value) => value as { ok: boolean } },
+  );
+
+  expect(response.data).toEqual({ ok: true });
+  expect(incrementReads).toBe(1);
+  expect(recordReads).toBe(1);
+  expect(incrementCalls).toBe(1);
+  expect(recordCalls).toBe(1);
+  expect(incrementReceiver).toBe(meter);
+  expect(recordReceiver).toBe(meter);
+});
+
 test("meter failures do not discard successful upstream responses", async () => {
   let fetchCalls = 0;
   const client = new FetchHttpClient({
