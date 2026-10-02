@@ -828,12 +828,15 @@ export class FetchHttpClient implements HttpClient {
       throw this.invalidRequestContextError();
     }
 
+    const normalizedTraceState =
+      traceState === undefined ? undefined : parseTraceState(traceState);
+
     return {
       requestId,
       trace:
-        traceState === undefined
+        normalizedTraceState === undefined
           ? { traceId, spanId, traceFlags }
-          : { traceId, spanId, traceFlags, traceState },
+          : { traceId, spanId, traceFlags, traceState: normalizedTraceState },
     };
   }
 
