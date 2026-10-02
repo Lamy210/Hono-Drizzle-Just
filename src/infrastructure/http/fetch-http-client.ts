@@ -235,19 +235,19 @@ export class FetchHttpClient implements HttpClient {
       normalizedOptions.fetchImpl === undefined ? fetch : normalizedOptions.fetchImpl;
     this.defaultTimeoutMs = positiveFiniteNumber(
       "defaultTimeoutMs",
-      normalizedOptions.defaultTimeoutMs ?? 10_000,
+      normalizedOptions.defaultTimeoutMs === undefined ? 10_000 : normalizedOptions.defaultTimeoutMs,
     );
     this.defaultAttemptTimeoutMs = positiveFiniteNumber(
       "defaultAttemptTimeoutMs",
-      normalizedOptions.defaultAttemptTimeoutMs ?? 3_000,
+      normalizedOptions.defaultAttemptTimeoutMs === undefined ? 3_000 : normalizedOptions.defaultAttemptTimeoutMs,
     );
     this.defaultMaxRequestBytes = positiveSafeInteger(
       "defaultMaxRequestBytes",
-      normalizedOptions.defaultMaxRequestBytes ?? 1_048_576,
+      normalizedOptions.defaultMaxRequestBytes === undefined ? 1_048_576 : normalizedOptions.defaultMaxRequestBytes,
     );
     this.defaultMaxResponseBytes = positiveSafeInteger(
       "defaultMaxResponseBytes",
-      normalizedOptions.defaultMaxResponseBytes ?? 1_048_576,
+      normalizedOptions.defaultMaxResponseBytes === undefined ? 1_048_576 : normalizedOptions.defaultMaxResponseBytes,
     );
     this.retryPolicy =
       normalizedOptions.retryPolicy === undefined
