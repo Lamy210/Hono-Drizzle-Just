@@ -151,13 +151,18 @@ test("constructor rejects null numeric options instead of selecting defaults", (
 });
 
 test("constructor requires explicitly configured hooks to be callable", () => {
-  for (const key of ["now", "random"] as const) {
+  const cases = [
+    ["now", "DefaultRetryPolicy now must be callable"],
+    ["random", "DefaultRetryPolicy random must be callable"],
+  ] as const;
+
+  for (const [key, message] of cases) {
     expect(
       () =>
         new DefaultRetryPolicy({
           [key]: null,
         } as unknown as DefaultRetryPolicyOptions),
-    ).toThrow("DefaultRetryPolicy " + key + " must be callable");
+    ).toThrow(message);
   }
 });
 
