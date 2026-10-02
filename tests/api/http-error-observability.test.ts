@@ -188,6 +188,53 @@ test("unknown exceptions are normalized to 500 and log only their type", async (
   expect(lines[0]).not.toContain("stack");
 });
 
+test("error classification tolerates throwing name and cause getters", async () => {
+  const { app, tracer, lines } = createObservedApp();
+  const error = new Error("private unexpected failure");
+  Object.defineProperties(error, {
+    name: {
+      get() {
+        throw new Error("private name getter failure");
+      },
+    },
+    cause: {
+      get() {
+        throw new Error("private cause getter failure");
+      },
+    },
+  });
+
+  app.get("/hostile-error-shape", () => {
+    throw error;
+  });
+
+  const response = await app.request("/hostile-error-shape");
+  const body = await response.json();
+
+  expect(response.status).toBe(500);
+  expect(body).toMatchObject({
+    error: {
+      code: "INTERNAL_ERROR",
+      message: "Internal server error",
+    },
+  });
+  expect(tracer.spans[0]?.status).toBe("error");
+  expect(lines).toHaveLength(1);
+
+  const log = JSON.parse(lines[0] ?? "{}");
+  expect(log).toMatchObject({
+    level: "error",
+    message: "http.request.error",
+    errorCode: "INTERNAL_ERROR",
+    statusCode: 500,
+    errorType: "Error",
+  });
+  expect(log.causeType).toBeUndefined();
+  expect(lines[0]).not.toContain("private unexpected failure");
+  expect(lines[0]).not.toContain("private name getter failure");
+  expect(lines[0]).not.toContain("private cause getter failure");
+});
+
 test("classified database failures expose only stable sanitized HTTP errors", async () => {
   const { app, tracer, meter, lines } = createObservedApp();
   const raw = Object.assign(
