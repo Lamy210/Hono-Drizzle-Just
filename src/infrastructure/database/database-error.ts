@@ -17,29 +17,49 @@ const ACQUIRE_TIMEOUT_MESSAGES = new Set([
   "connection terminated due to connection timeout",
 ]);
 
-interface ErrorLike {
-  readonly code?: unknown;
-  readonly cause?: unknown;
-  readonly message?: unknown;
+interface ErrorMetadata {
+  readonly code: unknown;
+  readonly message: unknown;
 }
 
-function walkErrorChain(error: unknown): readonly ErrorLike[] {
-  const chain: ErrorLike[] = [];
+function readErrorProperty(
+  candidate: object,
+  property: "cause" | "code" | "message",
+): unknown {
+  try {
+    return Reflect.get(candidate, property);
+  } catch {
+    return undefined;
+  }
+}
+
+function walkErrorChain(error: unknown): readonly ErrorMetadata[] {
+  const chain: ErrorMetadata[] = [];
   const visited = new Set<object>();
   let current: unknown = error;
 
   while (typeof current === "object" && current !== null && !visited.has(current)) {
     visited.add(current);
-    const candidate = current as ErrorLike;
-    chain.push(candidate);
-    current = candidate.cause;
+    chain.push({
+      code: readErrorProperty(current, "code"),
+      message: readErrorProperty(current, "message"),
+    });
+    current = readErrorProperty(current, "cause");
   }
 
   return chain;
 }
 
-function errorCode(candidate: ErrorLike): string | undefined {
+function errorCode(candidate: ErrorMetadata): string | undefined {
   return typeof candidate.code === "string" ? candidate.code : undefined;
+}
+
+function isAppError(error: unknown): error is AppError {
+  try {
+    return error instanceof AppError;
+  } catch {
+    return false;
+  }
 }
 
 function hasCode(error: unknown, predicate: (code: string) => boolean): boolean {
@@ -106,7 +126,7 @@ function unavailable(error: unknown): boolean {
 }
 
 export function normalizeDatabaseError(error: unknown): unknown {
-  if (error instanceof AppError) {
+  if (isAppError(error)) {
     return error;
   }
 

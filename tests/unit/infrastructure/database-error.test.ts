@@ -89,6 +89,70 @@ test("classifies node-postgres acquisition timeout messages without broad timeou
   expect(isDatabaseAcquireTimeout(new Error("statement timeout from unrelated layer"))).toBe(false);
 });
 
+test("database error classification tolerates throwing metadata getters", () => {
+  const hostile = Object.defineProperties(
+    {},
+    {
+      code: {
+        get() {
+          throw new Error("private code getter failure");
+        },
+      },
+      message: {
+        get() {
+          throw new Error("private message getter failure");
+        },
+      },
+      cause: {
+        get() {
+          throw new Error("private cause getter failure");
+        },
+      },
+    },
+  );
+
+  expect(isDatabaseAcquireTimeout(hostile)).toBe(false);
+  expect(isRetryableTransactionFailure(hostile)).toBe(false);
+  expect(retryableTransactionFailureReason(hostile)).toBeUndefined();
+  expect(normalizeDatabaseError(hostile)).toBe(hostile);
+});
+
+test("database error classification keeps traversing readable causes when outer metadata throws", () => {
+  const inner = codedError("40001", "private serialization details");
+  const wrapped = Object.defineProperties(
+    { cause: inner },
+    {
+      code: {
+        get() {
+          throw new Error("outer code getter failure");
+        },
+      },
+      message: {
+        get() {
+          throw new Error("outer message getter failure");
+        },
+      },
+    },
+  );
+
+  expect(retryableTransactionFailureReason(wrapped)).toBe("serialization_failure");
+  expect(normalizeDatabaseError(wrapped)).toMatchObject({
+    code: "DATABASE_BUSY",
+    status: 503,
+    cause: wrapped,
+  });
+});
+
+test("database error classification tolerates revoked proxies", () => {
+  const { proxy, revoke } = Proxy.revocable({}, {});
+  revoke();
+
+  expect(isDatabaseAcquireTimeout(proxy)).toBe(false);
+  expect(isRetryableTransactionFailure(proxy)).toBe(false);
+  expect(retryableTransactionFailureReason(proxy)).toBeUndefined();
+  expect(normalizeDatabaseError(proxy)).toBe(proxy);
+});
+
 test("preserves AppError, domain-significant SQLSTATEs, unknown errors, and cyclic causes", () => {
   const appError = new AppError("CONFLICT", "Already exists", 409);
   expect(normalizeDatabaseError(appError)).toBe(appError);
