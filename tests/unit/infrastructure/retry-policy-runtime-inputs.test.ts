@@ -34,6 +34,16 @@ test("nextDelay rejects invalid runtime request containers with a stable error",
   }
 });
 
+test("nextDelay normalizes revoked request proxies", () => {
+  const policy = new DefaultRetryPolicy({ random: () => 0.5 });
+  const { proxy, revoke } = Proxy.revocable({}, {});
+  revoke();
+
+  expect(() =>
+    policy.nextDelay(proxy as HttpRequest, 1, { kind: "network" }),
+  ).toThrow("DefaultRetryPolicy request could not be read");
+});
+
 test("nextDelay normalizes throwing request getters", () => {
   const policy = new DefaultRetryPolicy({ random: () => 0.5 });
   const runtimeRequest = {

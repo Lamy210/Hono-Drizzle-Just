@@ -71,6 +71,15 @@ test("constructor rejects invalid runtime option containers", () => {
   }
 });
 
+test("constructor normalizes revoked option proxies", () => {
+  const { proxy, revoke } = Proxy.revocable({}, {});
+  revoke();
+
+  expect(() => new DefaultRetryPolicy(proxy as DefaultRetryPolicyOptions)).toThrow(
+    "DefaultRetryPolicy options could not be read",
+  );
+});
+
 test("constructor normalizes throwing option getters", () => {
   const options = {
     get maxRetries() {
