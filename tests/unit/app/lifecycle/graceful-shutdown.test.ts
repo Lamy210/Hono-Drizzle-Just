@@ -51,6 +51,45 @@ describe("GracefulShutdownCoordinator", () => {
     expect(calls).toEqual(["drain", "stop:false", "close"]);
   });
 
+  test("rejects invalid runtime shutdown timing values", () => {
+    const server = { stop: mock(async () => undefined) };
+    const lifecycle = { close: mock(async () => undefined) };
+    const invalidTimeouts = [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      -1,
+      null,
+      undefined,
+      "1000",
+    ];
+
+    for (const timeoutMs of invalidTimeouts) {
+      expect(
+        () =>
+          new GracefulShutdownCoordinator({
+            server,
+            lifecycle,
+            logger: logger(),
+            timeoutMs: timeoutMs as unknown as number,
+          }),
+      ).toThrow("timeoutMs must be a finite number greater than or equal to 0");
+    }
+
+    const invalidDrainDelays = [Number.NaN, Number.POSITIVE_INFINITY, -1, null, "250"];
+    for (const drainDelayMs of invalidDrainDelays) {
+      expect(
+        () =>
+          new GracefulShutdownCoordinator({
+            server,
+            lifecycle,
+            logger: logger(),
+            timeoutMs: 1_000,
+            drainDelayMs: drainDelayMs as unknown as number,
+          }),
+      ).toThrow("drainDelayMs must be a finite number greater than or equal to 0");
+    }
+  });
+
   test("forces active connections closed after the graceful deadline", async () => {
     let first = true;
     const server = {
