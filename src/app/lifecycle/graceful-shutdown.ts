@@ -32,6 +32,64 @@ function defaultSleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+function snapshotGracefulShutdownOptions(options: unknown): GracefulShutdownOptions {
+  if (typeof options !== "object" || options === null) {
+    throw new TypeError("GracefulShutdownCoordinator options must be a non-array object");
+  }
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(options);
+  } catch {
+    throw new TypeError("GracefulShutdownCoordinator options could not be read");
+  }
+  if (isArray) {
+    throw new TypeError("GracefulShutdownCoordinator options must be a non-array object");
+  }
+
+  try {
+    const server = Reflect.get(options, "server") as GracefulShutdownOptions["server"];
+    const lifecycle = Reflect.get(options, "lifecycle") as GracefulShutdownOptions["lifecycle"];
+    const logger = Reflect.get(options, "logger") as GracefulShutdownOptions["logger"];
+    const timeoutMs = Reflect.get(options, "timeoutMs") as GracefulShutdownOptions["timeoutMs"];
+    const drainDelayMs = Reflect.get(
+      options,
+      "drainDelayMs",
+    ) as GracefulShutdownOptions["drainDelayMs"];
+    const beginDrain = Reflect.get(
+      options,
+      "beginDrain",
+    ) as GracefulShutdownOptions["beginDrain"];
+    const sleep = Reflect.get(options, "sleep") as GracefulShutdownOptions["sleep"];
+
+    return {
+      server,
+      lifecycle,
+      logger,
+      timeoutMs,
+      ...(drainDelayMs === undefined ? {} : { drainDelayMs }),
+      ...(beginDrain === undefined ? {} : { beginDrain }),
+      ...(sleep === undefined ? {} : { sleep }),
+    };
+  } catch {
+    throw new TypeError("GracefulShutdownCoordinator options could not be read");
+  }
+}
+
+function requireBeginDrain(value: unknown): () => void {
+  if (typeof value !== "function") {
+    throw new TypeError("GracefulShutdownCoordinator beginDrain must be callable");
+  }
+  return value as () => void;
+}
+
+function requireSleep(value: unknown): (delayMs: number) => Promise<void> {
+  if (typeof value !== "function") {
+    throw new TypeError("GracefulShutdownCoordinator sleep must be callable");
+  }
+  return value as (delayMs: number) => Promise<void>;
+}
+
 export class GracefulShutdownCoordinator {
   private readonly server: StoppableServer;
   private readonly lifecycle: ClosableLifecycle;
@@ -43,16 +101,21 @@ export class GracefulShutdownCoordinator {
   private shutdownPromise: Promise<void> | undefined;
 
   constructor(options: GracefulShutdownOptions) {
-    this.server = options.server;
-    this.lifecycle = options.lifecycle;
-    this.logger = options.logger;
-    this.timeoutMs = nonNegativeFiniteNumber("timeoutMs", options.timeoutMs);
+    const normalizedOptions = snapshotGracefulShutdownOptions(options);
+    this.server = normalizedOptions.server;
+    this.lifecycle = normalizedOptions.lifecycle;
+    this.logger = normalizedOptions.logger;
+    this.timeoutMs = nonNegativeFiniteNumber("timeoutMs", normalizedOptions.timeoutMs);
     this.drainDelayMs =
-      options.drainDelayMs === undefined
+      normalizedOptions.drainDelayMs === undefined
         ? 0
-        : nonNegativeFiniteNumber("drainDelayMs", options.drainDelayMs);
-    this.beginDrain = options.beginDrain ?? (() => undefined);
-    this.sleep = options.sleep ?? defaultSleep;
+        : nonNegativeFiniteNumber("drainDelayMs", normalizedOptions.drainDelayMs);
+    this.beginDrain =
+      normalizedOptions.beginDrain === undefined
+        ? () => undefined
+        : requireBeginDrain(normalizedOptions.beginDrain);
+    this.sleep =
+      normalizedOptions.sleep === undefined ? defaultSleep : requireSleep(normalizedOptions.sleep);
   }
 
   shutdown(signal: string): Promise<void> {
