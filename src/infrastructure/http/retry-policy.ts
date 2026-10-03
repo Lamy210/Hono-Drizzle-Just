@@ -93,6 +93,43 @@ function snapshotRetryRequest(request: unknown): RetryRequest {
   }
 }
 
+function snapshotRetryFailure(failure: unknown): RetryFailure {
+  if (typeof failure !== "object" || failure === null) {
+    throw new TypeError("DefaultRetryPolicy failure must be a non-array object");
+  }
+
+  let kind: unknown;
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(failure);
+    kind = Reflect.get(failure, "kind");
+  } catch {
+    throw new TypeError("DefaultRetryPolicy failure could not be read");
+  }
+
+  if (isArray) {
+    throw new TypeError("DefaultRetryPolicy failure must be a non-array object");
+  }
+  if (kind === "network") {
+    return { kind: "network" };
+  }
+  if (kind !== "response") {
+    throw new TypeError("DefaultRetryPolicy failure kind must be network or response");
+  }
+
+  try {
+    const status = Reflect.get(failure, "status") as number;
+    const headers = Reflect.get(failure, "headers") as Headers | undefined;
+    return {
+      kind: "response",
+      status,
+      ...(headers === undefined ? {} : { headers }),
+    };
+  } catch {
+    throw new TypeError("DefaultRetryPolicy failure could not be read");
+  }
+}
+
 function requireNumberHook(name: "now" | "random", value: unknown): () => number {
   if (typeof value !== "function") {
     throw new TypeError(`DefaultRetryPolicy ${name} must be callable`);
@@ -155,12 +192,16 @@ export class DefaultRetryPolicy implements RetryPolicy {
     if (!this.canRetryMethod(normalizedRequest)) {
       return null;
     }
-    if (failure.kind === "response") {
-      if (!RETRYABLE_STATUS_CODES.has(failure.status)) {
+
+    const normalizedFailure = snapshotRetryFailure(failure);
+    if (normalizedFailure.kind === "response") {
+      if (!RETRYABLE_STATUS_CODES.has(normalizedFailure.status)) {
         return null;
       }
 
-      const retryAfterDelay = this.parseRetryAfter(failure.headers?.get("retry-after"));
+      const retryAfterDelay = this.parseRetryAfter(
+        normalizedFailure.headers?.get("retry-after"),
+      );
       if (retryAfterDelay !== null) {
         return retryAfterDelay;
       }
