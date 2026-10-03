@@ -1,5 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
-import { GracefulShutdownCoordinator } from "../../../../src/app/lifecycle/graceful-shutdown";
+import {
+  GracefulShutdownCoordinator,
+  type GracefulShutdownOptions,
+} from "../../../../src/app/lifecycle/graceful-shutdown";
 import { JsonConsoleLogger } from "../../../../src/infrastructure/logging/json-console-logger";
 
 function logger() {
@@ -88,6 +91,134 @@ describe("GracefulShutdownCoordinator", () => {
           }),
       ).toThrow("drainDelayMs must be a finite number greater than or equal to 0");
     }
+  });
+
+  test("rejects invalid runtime option containers", () => {
+    for (const options of [null, "options", 1, true, [], () => undefined]) {
+      expect(
+        () => new GracefulShutdownCoordinator(options as unknown as GracefulShutdownOptions),
+      ).toThrow("GracefulShutdownCoordinator options must be a non-array object");
+    }
+  });
+
+  test("normalizes throwing option getters before construction continues", () => {
+    const secret = "private-shutdown-option-detail";
+    const options = {
+      server: { stop: mock(async () => undefined) },
+      lifecycle: { close: mock(async () => undefined) },
+      logger: logger(),
+      timeoutMs: 1_000,
+      get sleep(): (delayMs: number) => Promise<void> {
+        throw new Error(secret);
+      },
+    } as GracefulShutdownOptions;
+
+    let caught: unknown;
+    try {
+      new GracefulShutdownCoordinator(options);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(TypeError);
+    expect(caught).toMatchObject({
+      message: "GracefulShutdownCoordinator options could not be read",
+      cause: undefined,
+    });
+    expect(String(caught)).not.toContain(secret);
+  });
+
+  test("snapshots constructor options exactly once", async () => {
+    const reads = {
+      server: 0,
+      lifecycle: 0,
+      logger: 0,
+      timeoutMs: 0,
+      drainDelayMs: 0,
+      beginDrain: 0,
+      sleep: 0,
+    };
+    const calls: string[] = [];
+    const server = {
+      stop: mock(async (force?: boolean) => void calls.push(`stop:${String(force)}`)),
+    };
+    const lifecycle = {
+      close: mock(async () => void calls.push("close")),
+    };
+    const runtimeOptions = {
+      get server() {
+        reads.server += 1;
+        return server;
+      },
+      get lifecycle() {
+        reads.lifecycle += 1;
+        return lifecycle;
+      },
+      get logger() {
+        reads.logger += 1;
+        return logger();
+      },
+      get timeoutMs() {
+        reads.timeoutMs += 1;
+        return 1_000;
+      },
+      get drainDelayMs() {
+        reads.drainDelayMs += 1;
+        if (reads.drainDelayMs > 1) {
+          throw new Error("drainDelayMs read more than once");
+        }
+        return 25;
+      },
+      get beginDrain() {
+        reads.beginDrain += 1;
+        return () => void calls.push("drain");
+      },
+      get sleep() {
+        reads.sleep += 1;
+        return async (delayMs: number) => void calls.push(`sleep:${delayMs}`);
+      },
+    } satisfies GracefulShutdownOptions;
+
+    const coordinator = new GracefulShutdownCoordinator(runtimeOptions);
+    await coordinator.shutdown("SIGTERM");
+
+    expect(reads).toEqual({
+      server: 1,
+      lifecycle: 1,
+      logger: 1,
+      timeoutMs: 1,
+      drainDelayMs: 1,
+      beginDrain: 1,
+      sleep: 1,
+    });
+    expect(calls).toEqual(["drain", "sleep:25", "stop:false", "close"]);
+  });
+
+  test("requires explicitly configured shutdown hooks to be callable", () => {
+    const server = { stop: mock(async () => undefined) };
+    const lifecycle = { close: mock(async () => undefined) };
+    const base = {
+      server,
+      lifecycle,
+      logger: logger(),
+      timeoutMs: 1_000,
+    };
+
+    expect(
+      () =>
+        new GracefulShutdownCoordinator({
+          ...base,
+          beginDrain: null,
+        } as unknown as GracefulShutdownOptions),
+    ).toThrow("GracefulShutdownCoordinator beginDrain must be callable");
+
+    expect(
+      () =>
+        new GracefulShutdownCoordinator({
+          ...base,
+          sleep: null,
+        } as unknown as GracefulShutdownOptions),
+    ).toThrow("GracefulShutdownCoordinator sleep must be callable");
   });
 
   test("forces active connections closed after the graceful deadline", async () => {
