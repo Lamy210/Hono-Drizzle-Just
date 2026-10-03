@@ -1,6 +1,15 @@
 import type { HttpRequest } from "../../core/http/http-client";
 
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 502, 503, 504]);
+const HTTP_METHODS = new Set<HttpRequest["method"]>([
+  "GET",
+  "HEAD",
+  "OPTIONS",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+]);
 const DEFAULT_RETRY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 type RetryRequest = Pick<HttpRequest, "method" | "retry">;
@@ -107,11 +116,21 @@ function snapshotRetryRequest(request: unknown): RetryRequest {
     const method = Reflect.get(request, "method") as RetryRequest["method"];
     const retry = Reflect.get(request, "retry") as RetryRequest["retry"];
 
+    if (!HTTP_METHODS.has(method)) {
+      throw new TypeError("DefaultRetryPolicy request method was invalid");
+    }
+    if (retry !== undefined && retry !== "never" && retry !== "idempotent") {
+      throw new TypeError("DefaultRetryPolicy request retry mode was invalid");
+    }
+
     return {
       method,
       ...(retry === undefined ? {} : { retry }),
     };
-  } catch {
+  } catch (error) {
+    if (error instanceof TypeError && error.message.startsWith("DefaultRetryPolicy request ")) {
+      throw error;
+    }
     throw new TypeError("DefaultRetryPolicy request could not be read");
   }
 }
@@ -140,12 +159,16 @@ function snapshotRetryFailure(failure: unknown): RetryFailureSnapshot {
     throw new TypeError("DefaultRetryPolicy failure kind must be network or response");
   }
 
+  let status: unknown;
   try {
-    const status = Reflect.get(failure, "status") as number;
-    return { kind: "response", status, source: failure };
+    status = Reflect.get(failure, "status");
   } catch {
     throw new TypeError("DefaultRetryPolicy failure could not be read");
   }
+  if (!Number.isInteger(status) || (status as number) < 100 || (status as number) > 599) {
+    throw new TypeError("DefaultRetryPolicy response status was invalid");
+  }
+  return { kind: "response", status: status as number, source: failure };
 }
 
 function readRetryAfterHeader(failure: object): string | null | undefined {
