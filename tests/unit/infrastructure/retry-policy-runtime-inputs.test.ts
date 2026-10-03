@@ -137,3 +137,99 @@ test("retry short-circuits do not inspect irrelevant failure input", () => {
   const defaultPolicy = new DefaultRetryPolicy({ random: () => 0.5 });
   expect(defaultPolicy.nextDelay(nonRetryableRequest, 1, throwingFailure)).toBeNull();
 });
+
+test("nextDelay rejects malformed retry response headers with a stable error", () => {
+  const policy = new DefaultRetryPolicy({ random: () => 0.5 });
+  const headersValues = [null, "headers", 1, true, [], {}, { get: 1 }];
+
+  for (const headers of headersValues) {
+    expect(() =>
+      policy.nextDelay(request, 1, {
+        kind: "response",
+        status: 503,
+        headers,
+      } as unknown as RetryFailure),
+    ).toThrow("DefaultRetryPolicy response headers were invalid");
+  }
+});
+
+test("nextDelay normalizes retry header lookup failures", () => {
+  const policy = new DefaultRetryPolicy({ random: () => 0.5 });
+  const headersValues = [
+    {
+      get get(): Headers["get"] {
+        throw new Error("private-getter-detail");
+      },
+    },
+    {
+      get() {
+        throw new Error("private-method-detail");
+      },
+    },
+  ];
+
+  for (const headers of headersValues) {
+    expect(() =>
+      policy.nextDelay(request, 1, {
+        kind: "response",
+        status: 503,
+        headers,
+      } as unknown as RetryFailure),
+    ).toThrow("DefaultRetryPolicy response headers were invalid");
+  }
+});
+
+test("nextDelay rejects non-string Retry-After runtime values", () => {
+  const policy = new DefaultRetryPolicy({ random: () => 0.5 });
+
+  for (const value of [1, true, {}, []]) {
+    expect(() =>
+      policy.nextDelay(request, 1, {
+        kind: "response",
+        status: 503,
+        headers: { get: () => value },
+      } as unknown as RetryFailure),
+    ).toThrow("DefaultRetryPolicy response headers were invalid");
+  }
+});
+
+test("nextDelay resolves Retry-After lookup once and preserves its receiver", () => {
+  const policy = new DefaultRetryPolicy({ random: () => 0.5 });
+  let getReads = 0;
+  const headers = {
+    marker: "headers-receiver",
+    get get() {
+      getReads += 1;
+      if (getReads > 1) {
+        throw new Error("get read twice");
+      }
+      return function (this: { marker: string }, name: string): string | null {
+        expect(this.marker).toBe("headers-receiver");
+        expect(name).toBe("retry-after");
+        return "2";
+      };
+    },
+  };
+
+  expect(
+    policy.nextDelay(request, 1, {
+      kind: "response",
+      status: 503,
+      headers,
+    } as unknown as RetryFailure),
+  ).toBe(2_000);
+  expect(getReads).toBe(1);
+});
+
+test("non-retryable response status does not inspect headers", () => {
+  const policy = new DefaultRetryPolicy({ random: () => 0.5 });
+  const failure = {
+    kind: "response",
+    status: 500,
+    get headers(): Headers {
+      throw new Error("headers should not be read");
+    },
+  } as RetryFailure;
+
+  expect(policy.nextDelay(request, 1, failure)).toBeNull();
+});
