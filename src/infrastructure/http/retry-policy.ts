@@ -128,10 +128,11 @@ function snapshotRetryRequest(request: unknown): RetryRequest {
     throw new TypeError("DefaultRetryPolicy request retry mode was invalid");
   }
 
-  return {
-    method: method as HttpRequest["method"],
-    ...(retry === undefined ? {} : { retry: retry as HttpRequest["retry"] }),
-  };
+  const normalizedMethod = method as HttpRequest["method"];
+  if (retry === undefined) {
+    return { method: normalizedMethod };
+  }
+  return { method: normalizedMethod, retry };
 }
 
 function snapshotRetryFailure(failure: unknown): RetryFailureSnapshot {
