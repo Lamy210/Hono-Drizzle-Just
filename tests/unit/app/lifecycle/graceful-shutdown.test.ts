@@ -79,7 +79,12 @@ describe("GracefulShutdownCoordinator", () => {
   test("logging failures do not interrupt shutdown control flow", async () => {
     const calls: string[] = [];
     const server = {
-      stop: mock(async (force?: boolean) => void calls.push(`stop:${String(force)}`)),
+      stop: mock(async (force?: boolean) => {
+        calls.push(`stop:${String(force)}`);
+        if (!force) {
+          await new Promise<never>(() => undefined);
+        }
+      }),
     };
     const lifecycle = {
       close: mock(async () => void calls.push("close")),
@@ -91,7 +96,7 @@ describe("GracefulShutdownCoordinator", () => {
       server,
       lifecycle,
       logger: failingLogger,
-      timeoutMs: 1_000,
+      timeoutMs: 0,
       drainDelayMs: 25,
       beginDrain: () => void calls.push("drain"),
       sleep: async (delayMs) => void calls.push(`sleep:${delayMs}`),
@@ -99,7 +104,7 @@ describe("GracefulShutdownCoordinator", () => {
 
     await coordinator.shutdown("SIGTERM");
 
-    expect(calls).toEqual(["drain", "sleep:25", "stop:false", "close"]);
+    expect(calls).toEqual(["drain", "sleep:25", "stop:false", "stop:true", "close"]);
   });
 
   test("is idempotent when multiple signals arrive", async () => {
