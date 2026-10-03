@@ -63,6 +63,29 @@ function snapshotTransactionManagerOptions(
   }
 }
 
+function snapshotTransactionRunOptions(options: unknown): TransactionRunOptions {
+  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+    throw new TypeError(
+      "DrizzleTransactionManager run options must be a non-array object",
+    );
+  }
+
+  let retry: unknown;
+  try {
+    retry = Reflect.get(options, "retry");
+  } catch {
+    throw new TypeError("DrizzleTransactionManager run options could not be read");
+  }
+
+  if (retry === undefined) {
+    return {};
+  }
+  if (retry !== "never" && retry !== "safe") {
+    throw new TypeError('DrizzleTransactionManager retry must be "never" or "safe"');
+  }
+  return { retry };
+}
+
 function requireRandomHook(value: unknown): () => number {
   if (typeof value !== "function") {
     throw new TypeError("DrizzleTransactionManager random must be callable");
@@ -139,6 +162,11 @@ export class DrizzleTransactionManager<TUnitOfWork>
     operation: (unitOfWork: TUnitOfWork) => Promise<TResult>,
     options: TransactionRunOptions = {},
   ): Promise<TResult> {
+    if (typeof operation !== "function") {
+      throw new TypeError("DrizzleTransactionManager operation must be callable");
+    }
+    const normalizedOptions = snapshotTransactionRunOptions(options);
+
     const execute = () =>
       this.database.transaction(async (transaction) =>
         operation(this.createUnitOfWork(transaction)),
@@ -146,7 +174,7 @@ export class DrizzleTransactionManager<TUnitOfWork>
     const executeAttempt = () =>
       this.observer ? this.observer.transaction(execute) : execute();
 
-    if (options.retry !== "safe") {
+    if (normalizedOptions.retry !== "safe") {
       return executeAttempt();
     }
 
