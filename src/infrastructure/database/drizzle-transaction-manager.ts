@@ -240,7 +240,7 @@ export class DrizzleTransactionManager<TUnitOfWork>
 {
   private readonly runDatabaseTransaction: DatabaseTransactionRunner;
   private readonly createUnitOfWork: UnitOfWorkFactory<TUnitOfWork>;
-  private readonly observer?: TransactionObserver;
+  private readonly observer: TransactionObserver | undefined;
   private readonly maxAttempts: number;
   private readonly baseDelayMs: number;
   private readonly maxDelayMs: number;
