@@ -73,6 +73,20 @@ function requireNumberHook(name: "now" | "random", value: unknown): () => number
   return value as () => number;
 }
 
+function readFiniteHookResult(name: "now" | "random", hook: () => number): number {
+  let value: number;
+  try {
+    value = hook();
+  } catch {
+    throw new TypeError(`DefaultRetryPolicy ${name} hook failed`);
+  }
+
+  if (!Number.isFinite(value)) {
+    throw new RangeError(`DefaultRetryPolicy ${name} hook must return a finite number`);
+  }
+  return value;
+}
+
 export class DefaultRetryPolicy implements RetryPolicy {
   private readonly maxRetries: number;
   private readonly baseDelayMs: number;
@@ -136,12 +150,14 @@ export class DefaultRetryPolicy implements RetryPolicy {
     }
 
     const retryAt = Date.parse(retryAfter);
-    return Number.isFinite(retryAt) ? Math.max(0, retryAt - this.now()) : null;
+    return Number.isFinite(retryAt)
+      ? Math.max(0, retryAt - readFiniteHookResult("now", this.now))
+      : null;
   }
 
   private backoffDelay(failedAttempt: number): number {
     const cap = Math.min(this.maxDelayMs, this.baseDelayMs * 2 ** (failedAttempt - 1));
-    const jitter = Math.min(1, Math.max(0, this.random()));
+    const jitter = Math.min(1, Math.max(0, readFiniteHookResult("random", this.random)));
     return Math.floor(cap * jitter);
   }
 
