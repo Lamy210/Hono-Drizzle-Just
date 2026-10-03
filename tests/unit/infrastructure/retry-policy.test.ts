@@ -244,7 +244,13 @@ test("random hook rejects non-finite runtime results", () => {
 });
 
 test("constructor rejects invalid maxRetries values", () => {
-  for (const maxRetries of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+  for (const maxRetries of [
+    -1,
+    0.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.MAX_SAFE_INTEGER + 1,
+  ]) {
     expect(() => new DefaultRetryPolicy({ maxRetries })).toThrow(RangeError);
   }
 });
