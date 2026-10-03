@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import type { HttpRequest } from "../../../src/core/http/http-client";
-import { DefaultRetryPolicy } from "../../../src/infrastructure/http/retry-policy";
+import {
+  DefaultRetryPolicy,
+  type RetryFailure,
+} from "../../../src/infrastructure/http/retry-policy";
 
 const request: HttpRequest = { method: "GET", path: "/resource" };
 
@@ -68,4 +71,69 @@ test("nextDelay snapshots policy-relevant request fields exactly once", () => {
 
   expect(policy.nextDelay(runtimeRequest, 1, { kind: "network" })).toBe(50);
   expect({ methodReads, retryReads }).toEqual({ methodReads: 1, retryReads: 1 });
+});
+
+test("nextDelay rejects invalid runtime failure containers with a stable error", () => {
+  const policy = new DefaultRetryPolicy({ random: () => 0.5 });
+
+  for (const runtimeFailure of [null, undefined, "failure", 1, true, [], () => undefined]) {
+    expect(() =>
+      policy.nextDelay(request, 1, runtimeFailure as unknown as RetryFailure),
+    ).toThrow("DefaultRetryPolicy failure must be a non-array object");
+  }
+});
+
+test("nextDelay normalizes throwing failure getters", () => {
+  const policy = new DefaultRetryPolicy({ random: () => 0.5 });
+  const failures = [
+    {
+      get kind(): RetryFailure["kind"] {
+        throw new Error("private-kind-detail");
+      },
+    },
+    {
+      kind: "response",
+      get status(): number {
+        throw new Error("private-status-detail");
+      },
+    },
+    {
+      kind: "response",
+      status: 503,
+      get headers(): Headers {
+        throw new Error("private-headers-detail");
+      },
+    },
+  ];
+
+  for (const failure of failures) {
+    expect(() => policy.nextDelay(request, 1, failure as RetryFailure)).toThrow(
+      "DefaultRetryPolicy failure could not be read",
+    );
+  }
+});
+
+test("nextDelay rejects unsupported runtime failure kinds", () => {
+  const policy = new DefaultRetryPolicy({ random: () => 0.5 });
+
+  for (const kind of ["other", "", null, 1]) {
+    expect(() =>
+      policy.nextDelay(request, 1, { kind } as unknown as RetryFailure),
+    ).toThrow("DefaultRetryPolicy failure kind must be network or response");
+  }
+});
+
+test("retry short-circuits do not inspect irrelevant failure input", () => {
+  const policy = new DefaultRetryPolicy({ maxRetries: 0, random: () => 0.5 });
+  const throwingFailure = {
+    get kind(): RetryFailure["kind"] {
+      throw new Error("failure should not be read");
+    },
+  } as RetryFailure;
+
+  expect(policy.nextDelay(request, 1, throwingFailure)).toBeNull();
+
+  const nonRetryableRequest: HttpRequest = { method: "POST", path: "/resource" };
+  const defaultPolicy = new DefaultRetryPolicy({ random: () => 0.5 });
+  expect(defaultPolicy.nextDelay(nonRetryableRequest, 1, throwingFailure)).toBeNull();
 });
