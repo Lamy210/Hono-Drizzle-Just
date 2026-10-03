@@ -3,6 +3,8 @@ import type { HttpRequest } from "../../core/http/http-client";
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 502, 503, 504]);
 const DEFAULT_RETRY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+type RetryRequest = Pick<HttpRequest, "method" | "retry">;
+
 function nonNegativeFiniteNumber(name: string, value: number): number {
   if (!Number.isFinite(value) || value < 0) {
     throw new RangeError(`${name} must be a finite number greater than or equal to 0`);
@@ -73,6 +75,24 @@ function snapshotDefaultRetryPolicyOptions(options: unknown): DefaultRetryPolicy
   }
 }
 
+function snapshotRetryRequest(request: unknown): RetryRequest {
+  if (typeof request !== "object" || request === null || Array.isArray(request)) {
+    throw new TypeError("DefaultRetryPolicy request must be a non-array object");
+  }
+
+  try {
+    const method = Reflect.get(request, "method") as RetryRequest["method"];
+    const retry = Reflect.get(request, "retry") as RetryRequest["retry"];
+
+    return {
+      method,
+      ...(retry === undefined ? {} : { retry }),
+    };
+  } catch {
+    throw new TypeError("DefaultRetryPolicy request could not be read");
+  }
+}
+
 function requireNumberHook(name: "now" | "random", value: unknown): () => number {
   if (typeof value !== "function") {
     throw new TypeError(`DefaultRetryPolicy ${name} must be callable`);
@@ -127,7 +147,12 @@ export class DefaultRetryPolicy implements RetryPolicy {
 
   nextDelay(request: HttpRequest, failedAttempt: number, failure: RetryFailure): number | null {
     positiveSafeInteger("failedAttempt", failedAttempt);
-    if (failedAttempt > this.maxRetries || !this.canRetryMethod(request)) {
+    if (failedAttempt > this.maxRetries) {
+      return null;
+    }
+
+    const normalizedRequest = snapshotRetryRequest(request);
+    if (!this.canRetryMethod(normalizedRequest)) {
       return null;
     }
     if (failure.kind === "response") {
@@ -169,7 +194,7 @@ export class DefaultRetryPolicy implements RetryPolicy {
     return Math.floor(cap * jitter);
   }
 
-  private canRetryMethod(request: HttpRequest): boolean {
+  private canRetryMethod(request: RetryRequest): boolean {
     if (request.retry === "never") {
       return false;
     }
