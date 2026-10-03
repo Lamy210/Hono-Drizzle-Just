@@ -17,6 +17,13 @@ function nonNegativeInteger(name: string, value: number): number {
   return value;
 }
 
+function positiveSafeInteger(name: string, value: number): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new RangeError(`${name} must be a positive safe integer`);
+  }
+  return value;
+}
+
 export type RetryFailure =
   | { readonly kind: "response"; readonly status: number; readonly headers?: Headers }
   | { readonly kind: "network" };
@@ -119,6 +126,7 @@ export class DefaultRetryPolicy implements RetryPolicy {
   }
 
   nextDelay(request: HttpRequest, failedAttempt: number, failure: RetryFailure): number | null {
+    positiveSafeInteger("failedAttempt", failedAttempt);
     if (failedAttempt > this.maxRetries || !this.canRetryMethod(request)) {
       return null;
     }
