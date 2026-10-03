@@ -10,6 +10,15 @@ import type { DatabaseObserver } from "./database-observer";
 export type UnitOfWorkFactory<TUnitOfWork> = (session: DatabaseSession) => TUnitOfWork;
 export type TransactionRetrySleep = (delayMs: number) => Promise<void>;
 
+type DatabaseTransactionRunner = <TResult>(
+  operation: (transaction: DatabaseSession) => Promise<TResult>,
+) => Promise<TResult>;
+
+type TransactionObserver = Pick<
+  DatabaseObserver,
+  "transaction" | "transactionRetryScheduled" | "transactionRetryExhausted"
+>;
+
 export interface DrizzleTransactionManagerOptions {
   readonly maxAttempts?: number;
   readonly baseDelayMs?: number;
@@ -108,6 +117,102 @@ function snapshotTransactionRunOptions(options: unknown): TransactionRunOptions 
   return { retry };
 }
 
+function normalizeDatabaseTransaction(database: unknown): DatabaseTransactionRunner {
+  if (
+    database === null ||
+    (typeof database !== "object" && typeof database !== "function")
+  ) {
+    throw new TypeError("DrizzleTransactionManager database transaction could not be read");
+  }
+
+  let transaction: unknown;
+  try {
+    transaction = Reflect.get(database, "transaction");
+  } catch {
+    throw new TypeError("DrizzleTransactionManager database transaction could not be read");
+  }
+  if (typeof transaction !== "function") {
+    throw new TypeError("DrizzleTransactionManager database transaction must be callable");
+  }
+
+  return ((operation: (transaction: DatabaseSession) => Promise<unknown>) =>
+    Reflect.apply(transaction, database, [operation])) as DatabaseTransactionRunner;
+}
+
+function requireUnitOfWorkFactory<TUnitOfWork>(
+  value: unknown,
+): UnitOfWorkFactory<TUnitOfWork> {
+  if (typeof value !== "function") {
+    throw new TypeError("DrizzleTransactionManager unit-of-work factory must be callable");
+  }
+  return value as UnitOfWorkFactory<TUnitOfWork>;
+}
+
+function normalizeTransactionObserver(observer: unknown): TransactionObserver | undefined {
+  if (observer === undefined) {
+    return undefined;
+  }
+  if (
+    observer === null ||
+    (typeof observer !== "object" && typeof observer !== "function")
+  ) {
+    throw new TypeError("DrizzleTransactionManager observer must be a non-null object");
+  }
+
+  let transaction: unknown;
+  let transactionRetryScheduled: unknown;
+  let transactionRetryExhausted: unknown;
+  try {
+    transaction = Reflect.get(observer, "transaction");
+    transactionRetryScheduled = Reflect.get(observer, "transactionRetryScheduled");
+    transactionRetryExhausted = Reflect.get(observer, "transactionRetryExhausted");
+  } catch {
+    throw new TypeError("DrizzleTransactionManager observer wiring could not be read");
+  }
+
+  if (typeof transaction !== "function") {
+    throw new TypeError("DrizzleTransactionManager observer transaction must be callable");
+  }
+  if (typeof transactionRetryScheduled !== "function") {
+    throw new TypeError(
+      "DrizzleTransactionManager observer transactionRetryScheduled must be callable",
+    );
+  }
+  if (typeof transactionRetryExhausted !== "function") {
+    throw new TypeError(
+      "DrizzleTransactionManager observer transactionRetryExhausted must be callable",
+    );
+  }
+
+  const normalizedTransaction = ((execute: () => Promise<unknown>) =>
+    Reflect.apply(transaction, observer, [execute])) as TransactionObserver["transaction"];
+  const normalizedRetryScheduled = ((
+    reason: Parameters<TransactionObserver["transactionRetryScheduled"]>[0],
+    delayMs: number,
+  ) => {
+    try {
+      Reflect.apply(transactionRetryScheduled, observer, [reason, delayMs]);
+    } catch {
+      // Retry telemetry is observational and must not change retry control flow.
+    }
+  }) as TransactionObserver["transactionRetryScheduled"];
+  const normalizedRetryExhausted = ((
+    reason: Parameters<TransactionObserver["transactionRetryExhausted"]>[0],
+  ) => {
+    try {
+      Reflect.apply(transactionRetryExhausted, observer, [reason]);
+    } catch {
+      // Exhaustion telemetry must not replace the authoritative database failure.
+    }
+  }) as TransactionObserver["transactionRetryExhausted"];
+
+  return {
+    transaction: normalizedTransaction,
+    transactionRetryScheduled: normalizedRetryScheduled,
+    transactionRetryExhausted: normalizedRetryExhausted,
+  };
+}
+
 function requireRandomHook(value: unknown): () => number {
   if (typeof value !== "function") {
     throw new TypeError("DrizzleTransactionManager random must be callable");
@@ -138,6 +243,9 @@ function requireInteger(name: string, value: number, min: number, max: number): 
 export class DrizzleTransactionManager<TUnitOfWork>
   implements TransactionManager<TUnitOfWork>
 {
+  private readonly runDatabaseTransaction: DatabaseTransactionRunner;
+  private readonly createUnitOfWork: UnitOfWorkFactory<TUnitOfWork>;
+  private readonly observer: TransactionObserver | undefined;
   private readonly maxAttempts: number;
   private readonly baseDelayMs: number;
   private readonly maxDelayMs: number;
@@ -145,9 +253,9 @@ export class DrizzleTransactionManager<TUnitOfWork>
   private readonly sleep: TransactionRetrySleep;
 
   constructor(
-    private readonly database: Database,
-    private readonly createUnitOfWork: UnitOfWorkFactory<TUnitOfWork>,
-    private readonly observer?: DatabaseObserver,
+    database: Database,
+    createUnitOfWork: UnitOfWorkFactory<TUnitOfWork>,
+    observer?: DatabaseObserver,
     options: DrizzleTransactionManagerOptions = {},
   ) {
     const normalizedOptions = snapshotTransactionManagerOptions(options);
@@ -178,6 +286,10 @@ export class DrizzleTransactionManager<TUnitOfWork>
     if (this.maxDelayMs < this.baseDelayMs) {
       throw new RangeError("maxDelayMs must be greater than or equal to baseDelayMs");
     }
+
+    this.runDatabaseTransaction = normalizeDatabaseTransaction(database);
+    this.createUnitOfWork = requireUnitOfWorkFactory(createUnitOfWork);
+    this.observer = normalizeTransactionObserver(observer);
   }
 
   async run<TResult>(
@@ -190,7 +302,7 @@ export class DrizzleTransactionManager<TUnitOfWork>
     const normalizedOptions = snapshotTransactionRunOptions(options);
 
     const execute = () =>
-      this.database.transaction(async (transaction) =>
+      this.runDatabaseTransaction(async (transaction) =>
         operation(this.createUnitOfWork(transaction)),
       );
     const executeAttempt = () =>
