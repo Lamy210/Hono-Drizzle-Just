@@ -46,7 +46,17 @@ export interface DefaultRetryPolicyOptions {
 }
 
 function snapshotDefaultRetryPolicyOptions(options: unknown): DefaultRetryPolicyOptions {
-  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+  if (typeof options !== "object" || options === null) {
+    throw new TypeError("DefaultRetryPolicy options must be a non-array object");
+  }
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(options);
+  } catch {
+    throw new TypeError("DefaultRetryPolicy options could not be read");
+  }
+  if (isArray) {
     throw new TypeError("DefaultRetryPolicy options must be a non-array object");
   }
 
@@ -79,7 +89,17 @@ function snapshotDefaultRetryPolicyOptions(options: unknown): DefaultRetryPolicy
 }
 
 function snapshotRetryRequest(request: unknown): RetryRequest {
-  if (typeof request !== "object" || request === null || Array.isArray(request)) {
+  if (typeof request !== "object" || request === null) {
+    throw new TypeError("DefaultRetryPolicy request must be a non-array object");
+  }
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(request);
+  } catch {
+    throw new TypeError("DefaultRetryPolicy request could not be read");
+  }
+  if (isArray) {
     throw new TypeError("DefaultRetryPolicy request must be a non-array object");
   }
 
