@@ -64,6 +64,47 @@ test("random hook failures become stable local errors without another transactio
   expect(sleep).not.toHaveBeenCalled();
 });
 
+test("non-finite random hook results fail locally without another transaction attempt", async () => {
+  for (const sample of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    const { database, transaction } = fakeDatabase();
+    const sleep = mock(async (_delayMs: number) => undefined);
+    const manager = new DrizzleTransactionManager(
+      database,
+      () => ({}),
+      undefined,
+      {
+        maxAttempts: 2,
+        random: () => sample,
+        sleep,
+      },
+    );
+
+    const error = await manager
+      .run(
+        async () => {
+          throw codedError("40001");
+        },
+        { retry: "safe" },
+      )
+      .then(
+        () => {
+          throw new Error("transaction unexpectedly succeeded");
+        },
+        (caught: unknown) => caught,
+      );
+
+    expect(error).toMatchObject({
+      code: "INTERNAL_ERROR",
+      status: 500,
+      message: "Database transaction retry random hook failed",
+      details: undefined,
+    });
+    expect((error as Error).cause).toBeUndefined();
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  }
+});
+
 test("sleep hook failures become stable local errors without another transaction attempt", async () => {
   const { database, transaction } = fakeDatabase();
   const secret = "private-sleep-hook-detail";
