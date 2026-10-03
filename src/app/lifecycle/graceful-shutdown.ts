@@ -1,4 +1,4 @@
-import type { Logger } from "../../core/logging/logger";
+import type { LogContext, Logger } from "../../core/logging/logger";
 
 export interface StoppableServer {
   stop(closeActiveConnections?: boolean): Promise<void>;
@@ -51,7 +51,7 @@ export class GracefulShutdownCoordinator {
   }
 
   private async performShutdown(signal: string): Promise<void> {
-    this.logger.info("server.stopping", {
+    this.infoBestEffort("server.stopping", {
       signal,
       timeoutMs: this.timeoutMs,
       drainDelayMs: this.drainDelayMs,
@@ -61,7 +61,7 @@ export class GracefulShutdownCoordinator {
     try {
       this.beginDrain();
       if (this.drainDelayMs > 0) {
-        this.logger.info("server.draining", {
+        this.infoBestEffort("server.draining", {
           signal,
           drainDelayMs: this.drainDelayMs,
         });
@@ -74,7 +74,7 @@ export class GracefulShutdownCoordinator {
     try {
       const stoppedGracefully = await this.settlesWithin(this.server.stop(false), this.timeoutMs);
       if (!stoppedGracefully) {
-        this.logger.warn("server.shutdown.deadline_exceeded", {
+        this.warnBestEffort("server.shutdown.deadline_exceeded", {
           signal,
           timeoutMs: this.timeoutMs,
         });
@@ -99,7 +99,23 @@ export class GracefulShutdownCoordinator {
       throw new AggregateError(errors, "Application shutdown completed with errors");
     }
 
-    this.logger.info("server.stopped", { signal });
+    this.infoBestEffort("server.stopped", { signal });
+  }
+
+  private infoBestEffort(message: string, context: LogContext): void {
+    try {
+      this.logger.info(message, context);
+    } catch {
+      // Shutdown control flow is authoritative; observability must remain best-effort.
+    }
+  }
+
+  private warnBestEffort(message: string, context: LogContext): void {
+    try {
+      this.logger.warn(message, context);
+    } catch {
+      // Shutdown control flow is authoritative; observability must remain best-effort.
+    }
   }
 
   private async settlesWithin(operation: Promise<void>, timeoutMs: number): Promise<boolean> {
