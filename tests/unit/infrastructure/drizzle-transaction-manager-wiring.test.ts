@@ -163,3 +163,65 @@ test("constructor snapshots transaction wiring exactly once and preserves receiv
   });
   expect(sleep).toHaveBeenCalledTimes(1);
 });
+
+test("retry scheduling observer failures do not interrupt an eligible retry", async () => {
+  const { database, transaction } = fakeDatabase();
+  const sleep = mock(async (_delayMs: number) => undefined);
+  const observer = {
+    transaction: async (execute: () => Promise<unknown>) => execute(),
+    transactionRetryScheduled() {
+      throw new Error("observer scheduling failed");
+    },
+    transactionRetryExhausted() {},
+  } as unknown as DatabaseObserver;
+  const manager = new DrizzleTransactionManager(
+    database,
+    () => ({}),
+    observer,
+    { maxAttempts: 2, baseDelayMs: 0, maxDelayMs: 0, random: () => 0, sleep },
+  );
+  let attempts = 0;
+
+  const result = await manager.run(
+    async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw codedError("40001");
+      }
+      return "committed";
+    },
+    { retry: "safe" },
+  );
+
+  expect(result).toBe("committed");
+  expect(transaction).toHaveBeenCalledTimes(2);
+  expect(sleep).toHaveBeenCalledTimes(1);
+});
+
+test("retry exhaustion observer failures preserve the authoritative database error", async () => {
+  const { database, transaction } = fakeDatabase();
+  const failure = codedError("40P01");
+  const observer = {
+    transaction: async (execute: () => Promise<unknown>) => execute(),
+    transactionRetryScheduled() {},
+    transactionRetryExhausted() {
+      throw new Error("observer exhaustion failed");
+    },
+  } as unknown as DatabaseObserver;
+  const manager = new DrizzleTransactionManager(
+    database,
+    () => ({}),
+    observer,
+    { maxAttempts: 1 },
+  );
+
+  await expect(
+    manager.run(
+      async () => {
+        throw failure;
+      },
+      { retry: "safe" },
+    ),
+  ).rejects.toBe(failure);
+  expect(transaction).toHaveBeenCalledTimes(1);
+});
