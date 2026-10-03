@@ -25,7 +25,17 @@ const DEFAULT_MAX_DELAY_MS = 100;
 function snapshotTransactionManagerOptions(
   options: unknown,
 ): DrizzleTransactionManagerOptions {
-  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+  if (typeof options !== "object" || options === null) {
+    throw new TypeError("DrizzleTransactionManager options must be a non-array object");
+  }
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(options);
+  } catch {
+    throw new TypeError("DrizzleTransactionManager options could not be read");
+  }
+  if (isArray) {
     throw new TypeError("DrizzleTransactionManager options must be a non-array object");
   }
 
@@ -64,7 +74,19 @@ function snapshotTransactionManagerOptions(
 }
 
 function snapshotTransactionRunOptions(options: unknown): TransactionRunOptions {
-  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+  if (typeof options !== "object" || options === null) {
+    throw new TypeError(
+      "DrizzleTransactionManager run options must be a non-array object",
+    );
+  }
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(options);
+  } catch {
+    throw new TypeError("DrizzleTransactionManager run options could not be read");
+  }
+  if (isArray) {
     throw new TypeError(
       "DrizzleTransactionManager run options must be a non-array object",
     );
