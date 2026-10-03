@@ -121,10 +121,8 @@ describe("GracefulShutdownCoordinator", () => {
     }
 
     expect(caught).toBeInstanceOf(TypeError);
-    expect(caught).toMatchObject({
-      message: "GracefulShutdownCoordinator options could not be read",
-      cause: undefined,
-    });
+    expect((caught as Error).message).toBe("GracefulShutdownCoordinator options could not be read");
+    expect((caught as Error).cause).toBeUndefined();
     expect(String(caught)).not.toContain(secret);
   });
 
