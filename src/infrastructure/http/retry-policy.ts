@@ -1,6 +1,15 @@
 import type { HttpRequest } from "../../core/http/http-client";
 
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 502, 503, 504]);
+const HTTP_METHODS = new Set<HttpRequest["method"]>([
+  "GET",
+  "HEAD",
+  "OPTIONS",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+]);
 const DEFAULT_RETRY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 type RetryRequest = Pick<HttpRequest, "method" | "retry">;
@@ -103,17 +112,27 @@ function snapshotRetryRequest(request: unknown): RetryRequest {
     throw new TypeError("DefaultRetryPolicy request must be a non-array object");
   }
 
+  let method: unknown;
+  let retry: unknown;
   try {
-    const method = Reflect.get(request, "method") as RetryRequest["method"];
-    const retry = Reflect.get(request, "retry") as RetryRequest["retry"];
-
-    return {
-      method,
-      ...(retry === undefined ? {} : { retry }),
-    };
+    method = Reflect.get(request, "method");
+    retry = Reflect.get(request, "retry");
   } catch {
     throw new TypeError("DefaultRetryPolicy request could not be read");
   }
+
+  if (typeof method !== "string" || !HTTP_METHODS.has(method as HttpRequest["method"])) {
+    throw new TypeError("DefaultRetryPolicy request method was invalid");
+  }
+  if (retry !== undefined && retry !== "never" && retry !== "idempotent") {
+    throw new TypeError("DefaultRetryPolicy request retry mode was invalid");
+  }
+
+  const normalizedMethod = method as HttpRequest["method"];
+  if (retry === undefined) {
+    return { method: normalizedMethod };
+  }
+  return { method: normalizedMethod, retry };
 }
 
 function snapshotRetryFailure(failure: unknown): RetryFailureSnapshot {
@@ -140,12 +159,16 @@ function snapshotRetryFailure(failure: unknown): RetryFailureSnapshot {
     throw new TypeError("DefaultRetryPolicy failure kind must be network or response");
   }
 
+  let status: unknown;
   try {
-    const status = Reflect.get(failure, "status") as number;
-    return { kind: "response", status, source: failure };
+    status = Reflect.get(failure, "status");
   } catch {
     throw new TypeError("DefaultRetryPolicy failure could not be read");
   }
+  if (typeof status !== "number" || !Number.isInteger(status) || status < 100 || status > 599) {
+    throw new TypeError("DefaultRetryPolicy response status was invalid");
+  }
+  return { kind: "response", status, source: failure };
 }
 
 function readRetryAfterHeader(failure: object): string | null | undefined {
