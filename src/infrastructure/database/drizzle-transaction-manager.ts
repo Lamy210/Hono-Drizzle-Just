@@ -361,7 +361,14 @@ export class DrizzleTransactionManager<TUnitOfWork>
         500,
       );
     }
-    const ratio = Number.isFinite(sample) ? Math.min(1, Math.max(0, sample)) : 0;
+    if (!Number.isFinite(sample)) {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Database transaction retry random hook failed",
+        500,
+      );
+    }
+    const ratio = Math.min(1, Math.max(0, sample));
     return Math.floor(cap * ratio);
   }
 }
