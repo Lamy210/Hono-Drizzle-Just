@@ -189,17 +189,22 @@ function normalizeTransactionObserver(observer: unknown): TransactionObserver | 
   const normalizedRetryScheduled = ((
     reason: Parameters<TransactionObserver["transactionRetryScheduled"]>[0],
     delayMs: number,
-  ) =>
-    Reflect.apply(transactionRetryScheduled, observer, [
-      reason,
-      delayMs,
-    ])) as TransactionObserver["transactionRetryScheduled"];
+  ) => {
+    try {
+      Reflect.apply(transactionRetryScheduled, observer, [reason, delayMs]);
+    } catch {
+      // Retry telemetry is observational and must not change retry control flow.
+    }
+  }) as TransactionObserver["transactionRetryScheduled"];
   const normalizedRetryExhausted = ((
     reason: Parameters<TransactionObserver["transactionRetryExhausted"]>[0],
-  ) =>
-    Reflect.apply(transactionRetryExhausted, observer, [
-      reason,
-    ])) as TransactionObserver["transactionRetryExhausted"];
+  ) => {
+    try {
+      Reflect.apply(transactionRetryExhausted, observer, [reason]);
+    } catch {
+      // Exhaustion telemetry must not replace the authoritative database failure.
+    }
+  }) as TransactionObserver["transactionRetryExhausted"];
 
   return {
     transaction: normalizedTransaction,
