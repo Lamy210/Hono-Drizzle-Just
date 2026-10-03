@@ -4,6 +4,9 @@ const RETRYABLE_STATUS_CODES = new Set([408, 429, 502, 503, 504]);
 const DEFAULT_RETRY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 type RetryRequest = Pick<HttpRequest, "method" | "retry">;
+type RetryFailureSnapshot =
+  | { readonly kind: "network" }
+  | { readonly kind: "response"; readonly status: number; readonly source: object };
 
 function nonNegativeFiniteNumber(name: string, value: number): number {
   if (!Number.isFinite(value) || value < 0) {
@@ -93,7 +96,7 @@ function snapshotRetryRequest(request: unknown): RetryRequest {
   }
 }
 
-function snapshotRetryFailure(failure: unknown): RetryFailure {
+function snapshotRetryFailure(failure: unknown): RetryFailureSnapshot {
   if (typeof failure !== "object" || failure === null) {
     throw new TypeError("DefaultRetryPolicy failure must be a non-array object");
   }
@@ -119,15 +122,54 @@ function snapshotRetryFailure(failure: unknown): RetryFailure {
 
   try {
     const status = Reflect.get(failure, "status") as number;
-    const headers = Reflect.get(failure, "headers") as Headers | undefined;
-    return {
-      kind: "response",
-      status,
-      ...(headers === undefined ? {} : { headers }),
-    };
+    return { kind: "response", status, source: failure };
   } catch {
     throw new TypeError("DefaultRetryPolicy failure could not be read");
   }
+}
+
+function readRetryAfterHeader(failure: object): string | null | undefined {
+  let headers: unknown;
+  try {
+    headers = Reflect.get(failure, "headers");
+  } catch {
+    throw new TypeError("DefaultRetryPolicy failure could not be read");
+  }
+
+  if (headers === undefined) {
+    return undefined;
+  }
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(headers);
+  } catch {
+    throw new TypeError("DefaultRetryPolicy response headers were invalid");
+  }
+  if (typeof headers !== "object" || headers === null || isArray) {
+    throw new TypeError("DefaultRetryPolicy response headers were invalid");
+  }
+
+  let get: unknown;
+  try {
+    get = Reflect.get(headers, "get");
+  } catch {
+    throw new TypeError("DefaultRetryPolicy response headers were invalid");
+  }
+  if (typeof get !== "function") {
+    throw new TypeError("DefaultRetryPolicy response headers were invalid");
+  }
+
+  let value: unknown;
+  try {
+    value = Reflect.apply(get, headers, ["retry-after"]);
+  } catch {
+    throw new TypeError("DefaultRetryPolicy response headers were invalid");
+  }
+  if (value !== undefined && value !== null && typeof value !== "string") {
+    throw new TypeError("DefaultRetryPolicy response headers were invalid");
+  }
+  return value;
 }
 
 function requireNumberHook(name: "now" | "random", value: unknown): () => number {
@@ -200,7 +242,7 @@ export class DefaultRetryPolicy implements RetryPolicy {
       }
 
       const retryAfterDelay = this.parseRetryAfter(
-        normalizedFailure.headers?.get("retry-after"),
+        readRetryAfterHeader(normalizedFailure.source),
       );
       if (retryAfterDelay !== null) {
         return retryAfterDelay;
