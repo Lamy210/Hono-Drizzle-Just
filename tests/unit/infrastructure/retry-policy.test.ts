@@ -166,6 +166,83 @@ test("constructor requires explicitly configured hooks to be callable", () => {
   }
 });
 
+test("now hook failures are normalized without retaining provider exceptions", () => {
+  const secret = "private-now-hook-detail";
+  const retryAt = Date.parse("2026-09-14T00:00:03.000Z");
+  const policy = new DefaultRetryPolicy({
+    now: () => {
+      throw new Error(`now failed with ${secret}`);
+    },
+  });
+
+  const error = (() => {
+    try {
+      policy.nextDelay(getRequest, 1, {
+        kind: "response",
+        status: 503,
+        headers: new Headers({ "retry-after": new Date(retryAt).toUTCString() }),
+      });
+      throw new Error("nextDelay unexpectedly succeeded");
+    } catch (caught) {
+      return caught;
+    }
+  })();
+
+  expect(error).toBeInstanceOf(TypeError);
+  expect(error).toMatchObject({ message: "DefaultRetryPolicy now hook failed" });
+  expect((error as Error).cause).toBeUndefined();
+  expect(String(error)).not.toContain(secret);
+});
+
+test("now hook rejects non-finite runtime results", () => {
+  const retryAt = Date.parse("2026-09-14T00:00:03.000Z");
+
+  for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    const policy = new DefaultRetryPolicy({ now: () => value });
+
+    expect(() =>
+      policy.nextDelay(getRequest, 1, {
+        kind: "response",
+        status: 503,
+        headers: new Headers({ "retry-after": new Date(retryAt).toUTCString() }),
+      }),
+    ).toThrow("DefaultRetryPolicy now hook must return a finite number");
+  }
+});
+
+test("random hook failures are normalized without retaining provider exceptions", () => {
+  const secret = "private-random-hook-detail";
+  const policy = new DefaultRetryPolicy({
+    random: () => {
+      throw new Error(`random failed with ${secret}`);
+    },
+  });
+
+  const error = (() => {
+    try {
+      policy.nextDelay(getRequest, 1, { kind: "network" });
+      throw new Error("nextDelay unexpectedly succeeded");
+    } catch (caught) {
+      return caught;
+    }
+  })();
+
+  expect(error).toBeInstanceOf(TypeError);
+  expect(error).toMatchObject({ message: "DefaultRetryPolicy random hook failed" });
+  expect((error as Error).cause).toBeUndefined();
+  expect(String(error)).not.toContain(secret);
+});
+
+test("random hook rejects non-finite runtime results", () => {
+  for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    const policy = new DefaultRetryPolicy({ random: () => value });
+
+    expect(() => policy.nextDelay(getRequest, 1, { kind: "network" })).toThrow(
+      "DefaultRetryPolicy random hook must return a finite number",
+    );
+  }
+});
+
 test("constructor rejects invalid maxRetries values", () => {
   for (const maxRetries of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
     expect(() => new DefaultRetryPolicy({ maxRetries })).toThrow(RangeError);
