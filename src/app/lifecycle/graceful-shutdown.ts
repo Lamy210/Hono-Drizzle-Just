@@ -18,6 +18,13 @@ export interface GracefulShutdownOptions {
   readonly sleep?: (delayMs: number) => Promise<void>;
 }
 
+function nonNegativeFiniteNumber(name: string, value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new RangeError(`${name} must be a finite number greater than or equal to 0`);
+  }
+  return value;
+}
+
 function defaultSleep(delayMs: number): Promise<void> {
   if (delayMs <= 0) {
     return Promise.resolve();
@@ -39,8 +46,11 @@ export class GracefulShutdownCoordinator {
     this.server = options.server;
     this.lifecycle = options.lifecycle;
     this.logger = options.logger;
-    this.timeoutMs = Math.max(0, options.timeoutMs);
-    this.drainDelayMs = Math.max(0, options.drainDelayMs ?? 0);
+    this.timeoutMs = nonNegativeFiniteNumber("timeoutMs", options.timeoutMs);
+    this.drainDelayMs =
+      options.drainDelayMs === undefined
+        ? 0
+        : nonNegativeFiniteNumber("drainDelayMs", options.drainDelayMs);
     this.beginDrain = options.beginDrain ?? (() => undefined);
     this.sleep = options.sleep ?? defaultSleep;
   }
