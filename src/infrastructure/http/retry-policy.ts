@@ -15,9 +15,9 @@ function nonNegativeFiniteNumber(name: string, value: number): number {
   return value;
 }
 
-function nonNegativeInteger(name: string, value: number): number {
-  if (!Number.isInteger(value) || value < 0) {
-    throw new RangeError(`${name} must be a non-negative integer`);
+function nonNegativeSafeInteger(name: string, value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError(`${name} must be a non-negative safe integer`);
   }
   return value;
 }
@@ -202,7 +202,7 @@ export class DefaultRetryPolicy implements RetryPolicy {
 
   constructor(options: DefaultRetryPolicyOptions = {}) {
     const normalizedOptions = snapshotDefaultRetryPolicyOptions(options);
-    this.maxRetries = nonNegativeInteger(
+    this.maxRetries = nonNegativeSafeInteger(
       "maxRetries",
       normalizedOptions.maxRetries === undefined ? 1 : normalizedOptions.maxRetries,
     );
