@@ -1,3 +1,4 @@
+import { AppError } from "../../core/errors/app-error";
 import type {
   TransactionManager,
   TransactionRunOptions,
@@ -165,9 +166,21 @@ export class DrizzleTransactionManager<TUnitOfWork>
 
         const delayMs = this.retryDelayMs(attempt);
         this.observer?.transactionRetryScheduled(reason, delayMs);
-        await this.sleep(delayMs);
+        await this.waitBeforeRetry(delayMs);
         attempt += 1;
       }
+    }
+  }
+
+  private async waitBeforeRetry(delayMs: number): Promise<void> {
+    try {
+      await this.sleep(delayMs);
+    } catch {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Database transaction retry delay failed",
+        500,
+      );
     }
   }
 
@@ -176,9 +189,17 @@ export class DrizzleTransactionManager<TUnitOfWork>
       this.maxDelayMs,
       this.baseDelayMs * 2 ** Math.max(0, failedAttempt - 1),
     );
-    const sample = this.random();
+    let sample: number;
+    try {
+      sample = this.random();
+    } catch {
+      throw new AppError(
+        "INTERNAL_ERROR",
+        "Database transaction retry random hook failed",
+        500,
+      );
+    }
     const ratio = Number.isFinite(sample) ? Math.min(1, Math.max(0, sample)) : 0;
     return Math.floor(cap * ratio);
   }
 }
-
