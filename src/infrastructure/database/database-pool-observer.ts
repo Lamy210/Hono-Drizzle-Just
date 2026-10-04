@@ -21,7 +21,11 @@ export class DatabasePoolObserver {
     if (!Number.isInteger(options.maxConnections) || options.maxConnections < 1) {
       throw new TypeError("Database pool maxConnections must be a positive integer");
     }
-    if (options.poolName.length < 1 || options.poolName.length > 128) {
+    if (
+      typeof options.poolName !== "string" ||
+      options.poolName.length < 1 ||
+      options.poolName.length > 128
+    ) {
       throw new TypeError("Database pool name must contain 1 to 128 characters");
     }
   }
