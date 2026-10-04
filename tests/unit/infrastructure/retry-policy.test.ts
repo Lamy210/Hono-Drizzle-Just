@@ -63,6 +63,17 @@ test("fallback retry delay uses capped exponential backoff with jitter", () => {
   expect(policy.nextDelay(getRequest, 3, failure)).toBeNull();
 });
 
+test("zero base delay remains finite for extreme retry attempts", () => {
+  const policy = new DefaultRetryPolicy({
+    maxRetries: 2_000,
+    baseDelayMs: 0,
+    maxDelayMs: 2_000,
+    random: () => 0.5,
+  });
+
+  expect(policy.nextDelay(getRequest, 1_025, { kind: "network" })).toBe(0);
+});
+
 test("constructor rejects invalid runtime option containers", () => {
   for (const options of [null, "options", 1, true, [], () => undefined]) {
     expect(
