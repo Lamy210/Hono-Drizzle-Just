@@ -10,6 +10,7 @@ import type { DatabaseSession } from "../database/database";
 import type { DatabaseObserver } from "../database/database-observer";
 import { databaseTimestampMs } from "./database-time";
 import { snapshotRateLimitPolicyOptions } from "./rate-limit-policy-options";
+import { snapshotRateLimitRequest } from "./rate-limit-request";
 import type { RateLimitObserver } from "./rate-limit-observer";
 
 const SCOPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,99}$/;
@@ -87,6 +88,7 @@ export class PostgresGcraRateLimiter implements RateLimiter {
   }
 
   private async consumeGcra(request: RateLimitRequest): Promise<RateLimitDecision> {
+    request = snapshotRateLimitRequest(request);
     this.validateRequest(request);
     await this.cleanupExpiredIfDue();
 
