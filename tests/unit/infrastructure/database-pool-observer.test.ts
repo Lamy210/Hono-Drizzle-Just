@@ -133,6 +133,15 @@ test("database pool observer rejects invalid static pool metadata", () => {
       new DatabasePoolObserver({
         meter,
         pool,
+        poolName: 123 as unknown as string,
+        maxConnections: 10,
+      }),
+  ).toThrow("Database pool name must contain 1 to 128 characters");
+  expect(
+    () =>
+      new DatabasePoolObserver({
+        meter,
+        pool,
         poolName: "primary",
         maxConnections: 0,
       }),
