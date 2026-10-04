@@ -315,7 +315,10 @@ export class DefaultRetryPolicy implements RetryPolicy {
   }
 
   private backoffDelay(failedAttempt: number): number {
-    const cap = Math.min(this.maxDelayMs, this.baseDelayMs * 2 ** (failedAttempt - 1));
+    const cap =
+      this.baseDelayMs === 0
+        ? 0
+        : Math.min(this.maxDelayMs, this.baseDelayMs * 2 ** (failedAttempt - 1));
     const jitter = Math.min(1, Math.max(0, readFiniteHookResult("random", this.random)));
     return Math.floor(cap * jitter);
   }
