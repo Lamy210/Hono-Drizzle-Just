@@ -7,6 +7,18 @@ class SilentMeter implements Meter {
   record(): void {}
 }
 
+class RecordingDurationMeter implements Meter {
+  readonly durations: number[] = [];
+
+  increment(): void {}
+
+  record(name: string, value: number): void {
+    if (name === "rate_limit.decision.duration") {
+      this.durations.push(value);
+    }
+  }
+}
+
 class ThrowingMeter implements Meter {
   increment(): void {
     throw new Error("private-meter-increment-failure");
@@ -38,6 +50,18 @@ test("decision executes when the observability clock throws before execution", a
 
   expect(decision).toEqual({ allowed: true });
   expect(executeCalls).toBe(1);
+});
+
+test("decision skips duration metrics when the observability clock is non-finite", async () => {
+  for (const invalidNow of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    const meter = new RecordingDurationMeter();
+    const observer = new RateLimitObserver({ meter, now: () => invalidNow });
+
+    await expect(
+      observer.decision(descriptor, async () => ({ allowed: true })),
+    ).resolves.toEqual({ allowed: true });
+    expect(meter.durations).toEqual([]);
+  }
 });
 
 test("decision meter failures do not replace a successful decision", async () => {
