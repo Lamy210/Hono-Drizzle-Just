@@ -9,6 +9,7 @@ import { rateLimitBuckets } from "../../db/schema";
 import type { DatabaseSession } from "../database/database";
 import type { DatabaseObserver } from "../database/database-observer";
 import { databaseTimestampMs } from "./database-time";
+import { snapshotRateLimitPolicyOptions } from "./rate-limit-policy-options";
 import type { RateLimitObserver } from "./rate-limit-observer";
 
 const SCOPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,99}$/;
@@ -49,8 +50,9 @@ export class PostgresFixedWindowRateLimiter implements RateLimiter {
     private readonly observer?: DatabaseObserver,
     private readonly rateLimitObserver?: RateLimitObserver,
   ) {
-    this.validatePolicy("default", options);
-    for (const [scope, policy] of Object.entries(options.policies ?? {})) {
+    const normalizedOptions = snapshotRateLimitPolicyOptions(options);
+    this.validatePolicy("default", normalizedOptions);
+    for (const [scope, policy] of Object.entries(normalizedOptions.policies)) {
       if (!SCOPE_PATTERN.test(scope)) {
         throw new TypeError("Rate limit policy scope is invalid");
       }
@@ -58,10 +60,10 @@ export class PostgresFixedWindowRateLimiter implements RateLimiter {
     }
 
     this.defaultPolicy = {
-      limit: options.limit,
-      windowSeconds: options.windowSeconds,
+      limit: normalizedOptions.limit,
+      windowSeconds: normalizedOptions.windowSeconds,
     };
-    this.policies = options.policies ?? {};
+    this.policies = normalizedOptions.policies;
     const shortestWindowSeconds = Math.min(
       this.defaultPolicy.windowSeconds,
       ...Object.values(this.policies).map((policy) => policy.windowSeconds),
