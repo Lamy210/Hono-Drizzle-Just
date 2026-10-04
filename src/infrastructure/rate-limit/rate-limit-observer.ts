@@ -82,7 +82,8 @@ export class RateLimitObserver {
 
   private readNowBestEffort(): number | undefined {
     try {
-      return this.now();
+      const value = this.now();
+      return Number.isFinite(value) ? value : undefined;
     } catch {
       return undefined;
     }
