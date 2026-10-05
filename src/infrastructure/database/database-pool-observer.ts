@@ -16,30 +16,116 @@ export interface DatabasePoolObserverOptions {
   readonly maxConnections: number;
 }
 
+interface NormalizedDatabasePoolObserverOptions {
+  readonly observeUpDownCounter: ObservableMeter["observeUpDownCounter"];
+  readonly pool: DatabasePoolState;
+  readonly poolName: string;
+  readonly maxConnections: number;
+}
+
+function requireObject(
+  value: unknown,
+  invalidMessage: string,
+  unreadableMessage: string,
+): object {
+  if (typeof value !== "object" || value === null) {
+    throw new TypeError(invalidMessage);
+  }
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(value);
+  } catch {
+    throw new TypeError(unreadableMessage);
+  }
+  if (isArray) {
+    throw new TypeError(invalidMessage);
+  }
+
+  return value;
+}
+
+function normalizeOptions(options: unknown): NormalizedDatabasePoolObserverOptions {
+  const container = requireObject(
+    options,
+    "Database pool observer options must be an object",
+    "Database pool observer options could not be read",
+  );
+
+  let meter: unknown;
+  let pool: unknown;
+  let poolName: unknown;
+  let maxConnections: unknown;
+  try {
+    meter = Reflect.get(container, "meter");
+    pool = Reflect.get(container, "pool");
+    poolName = Reflect.get(container, "poolName");
+    maxConnections = Reflect.get(container, "maxConnections");
+  } catch {
+    throw new TypeError("Database pool observer options could not be read");
+  }
+
+  if (!Number.isInteger(maxConnections) || (maxConnections as number) < 1) {
+    throw new TypeError("Database pool maxConnections must be a positive integer");
+  }
+  if (typeof poolName !== "string" || poolName.length < 1 || poolName.length > 128) {
+    throw new TypeError("Database pool name must contain 1 to 128 characters");
+  }
+
+  const meterObject = requireObject(
+    meter,
+    "Database pool observer meter must be an object",
+    "Database pool observer meter could not be read",
+  );
+  let observeUpDownCounter: unknown;
+  try {
+    observeUpDownCounter = Reflect.get(meterObject, "observeUpDownCounter");
+  } catch {
+    throw new TypeError("Database pool observer meter observeUpDownCounter could not be read");
+  }
+  if (typeof observeUpDownCounter !== "function") {
+    throw new TypeError("Database pool observer meter observeUpDownCounter must be callable");
+  }
+
+  const poolObject = requireObject(
+    pool,
+    "Database pool observer pool must be an object",
+    "Database pool observer pool could not be read",
+  );
+
+  return {
+    observeUpDownCounter: (name, callback, metricOptions) =>
+      Reflect.apply(observeUpDownCounter, meterObject, [name, callback, metricOptions]) as () => void,
+    pool: poolObject as DatabasePoolState,
+    poolName,
+    maxConnections: maxConnections as number,
+  };
+}
+
 export class DatabasePoolObserver {
-  constructor(private readonly options: DatabasePoolObserverOptions) {
-    if (!Number.isInteger(options.maxConnections) || options.maxConnections < 1) {
-      throw new TypeError("Database pool maxConnections must be a positive integer");
-    }
-    if (
-      typeof options.poolName !== "string" ||
-      options.poolName.length < 1 ||
-      options.poolName.length > 128
-    ) {
-      throw new TypeError("Database pool name must contain 1 to 128 characters");
-    }
+  private readonly observeUpDownCounter: ObservableMeter["observeUpDownCounter"];
+  private readonly pool: DatabasePoolState;
+  private readonly poolName: string;
+  private readonly maxConnections: number;
+
+  constructor(options: DatabasePoolObserverOptions) {
+    const normalized = normalizeOptions(options);
+    this.observeUpDownCounter = normalized.observeUpDownCounter;
+    this.pool = normalized.pool;
+    this.poolName = normalized.poolName;
+    this.maxConnections = normalized.maxConnections;
   }
 
   observe(): () => void {
     const baseAttributes = {
-      "db.client.connection.pool.name": this.options.poolName,
+      "db.client.connection.pool.name": this.poolName,
     } as const;
 
-    const unregisterConnections = this.options.meter.observeUpDownCounter(
+    const unregisterConnections = this.observeUpDownCounter(
       "db.client.connection.count",
       (): readonly ObservableMeasurement[] => {
-        const total = this.options.pool.totalCount;
-        const idle = this.options.pool.idleCount;
+        const total = this.pool.totalCount;
+        const idle = this.pool.idleCount;
         const used = Math.max(0, total - idle);
         return [
           {
@@ -64,11 +150,11 @@ export class DatabasePoolObserver {
       },
     );
 
-    const unregisterMax = this.options.meter.observeUpDownCounter(
+    const unregisterMax = this.observeUpDownCounter(
       "db.client.connection.max",
       () => [
         {
-          value: this.options.maxConnections,
+          value: this.maxConnections,
           attributes: baseAttributes,
         },
       ],
@@ -78,11 +164,11 @@ export class DatabasePoolObserver {
       },
     );
 
-    const unregisterPending = this.options.meter.observeUpDownCounter(
+    const unregisterPending = this.observeUpDownCounter(
       "db.client.connection.pending_requests",
       () => [
         {
-          value: this.options.pool.waitingCount,
+          value: this.pool.waitingCount,
           attributes: baseAttributes,
         },
       ],

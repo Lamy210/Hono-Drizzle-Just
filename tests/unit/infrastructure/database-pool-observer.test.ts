@@ -147,3 +147,135 @@ test("database pool observer rejects invalid static pool metadata", () => {
       }),
   ).toThrow(TypeError);
 });
+
+test("database pool observer rejects malformed runtime wiring at construction", () => {
+  const meter = new RecordingObservableMeter();
+  const pool = { totalCount: 0, idleCount: 0, waitingCount: 0 };
+
+  expect(
+    () =>
+      new DatabasePoolObserver(
+        null as unknown as ConstructorParameters<typeof DatabasePoolObserver>[0],
+      ),
+  ).toThrow("Database pool observer options must be an object");
+  expect(
+    () =>
+      new DatabasePoolObserver({
+        meter: null as unknown as ObservableMeter,
+        pool,
+        poolName: "primary",
+        maxConnections: 10,
+      }),
+  ).toThrow("Database pool observer meter must be an object");
+  expect(
+    () =>
+      new DatabasePoolObserver({
+        meter: {
+          observeUpDownCounter: null,
+        } as unknown as ObservableMeter,
+        pool,
+        poolName: "primary",
+        maxConnections: 10,
+      }),
+  ).toThrow("Database pool observer meter observeUpDownCounter must be callable");
+  expect(
+    () =>
+      new DatabasePoolObserver({
+        meter,
+        pool: null as unknown as typeof pool,
+        poolName: "primary",
+        maxConnections: 10,
+      }),
+  ).toThrow("Database pool observer pool must be an object");
+});
+
+test("database pool observer normalizes throwing option getters", () => {
+  const meter = new RecordingObservableMeter();
+  const pool = { totalCount: 0, idleCount: 0, waitingCount: 0 };
+  const options = {
+    meter,
+    pool,
+    poolName: "primary",
+    get maxConnections(): number {
+      throw new Error("boom");
+    },
+  };
+
+  expect(() => new DatabasePoolObserver(options)).toThrow(
+    "Database pool observer options could not be read",
+  );
+});
+
+test("database pool observer snapshots static wiring while keeping pool state dynamic", () => {
+  const primaryMeter = new RecordingObservableMeter();
+  const replacementMeter = new RecordingObservableMeter();
+  const primaryPool = { totalCount: 5, idleCount: 3, waitingCount: 4 };
+  const replacementPool = { totalCount: 20, idleCount: 10, waitingCount: 8 };
+  let currentMeter = primaryMeter;
+  let currentPool = primaryPool;
+  let currentPoolName = "primary";
+  let currentMaxConnections = 10;
+  let meterReads = 0;
+  let poolReads = 0;
+  let poolNameReads = 0;
+  let maxConnectionsReads = 0;
+  const options = {
+    get meter(): ObservableMeter {
+      meterReads += 1;
+      return currentMeter;
+    },
+    get pool(): typeof primaryPool {
+      poolReads += 1;
+      return currentPool;
+    },
+    get poolName(): string {
+      poolNameReads += 1;
+      return currentPoolName;
+    },
+    get maxConnections(): number {
+      maxConnectionsReads += 1;
+      return currentMaxConnections;
+    },
+  };
+
+  const observer = new DatabasePoolObserver(options);
+
+  expect({ meterReads, poolReads, poolNameReads, maxConnectionsReads }).toEqual({
+    meterReads: 1,
+    poolReads: 1,
+    poolNameReads: 1,
+    maxConnectionsReads: 1,
+  });
+
+  currentMeter = replacementMeter;
+  currentPool = replacementPool;
+  currentPoolName = "replacement";
+  currentMaxConnections = 99;
+
+  observer.observe();
+
+  expect(replacementMeter.registrations.size).toBe(0);
+  expect(primaryMeter.registrations.get("db.client.connection.max")?.callback()).toEqual([
+    {
+      value: 10,
+      attributes: {
+        "db.client.connection.pool.name": "primary",
+      },
+    },
+  ]);
+  expect(primaryMeter.registrations.get("db.client.connection.count")?.callback()).toMatchObject([
+    { value: 3 },
+    { value: 2 },
+  ]);
+
+  primaryPool.totalCount = 7;
+  primaryPool.idleCount = 1;
+  primaryPool.waitingCount = 2;
+  expect(primaryMeter.registrations.get("db.client.connection.count")?.callback()).toMatchObject([
+    { value: 1 },
+    { value: 6 },
+  ]);
+  expect(
+    primaryMeter.registrations.get("db.client.connection.pending_requests")?.callback(),
+  ).toMatchObject([{ value: 2 }]);
+});
