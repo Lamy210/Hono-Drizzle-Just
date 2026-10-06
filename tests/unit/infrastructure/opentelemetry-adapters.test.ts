@@ -129,6 +129,9 @@ test("OpenTelemetryTracer rejects malformed tracer runtime wiring at constructio
   expect(() => new OpenTelemetryTracer(null as unknown as ApiTracer)).toThrow(
     "OpenTelemetry tracer must be an object",
   );
+  expect(() => new OpenTelemetryTracer(123 as unknown as ApiTracer)).toThrow(
+    "OpenTelemetry tracer must be an object",
+  );
   expect(() => new OpenTelemetryTracer([] as unknown as ApiTracer)).toThrow(
     "OpenTelemetry tracer must be an object",
   );
