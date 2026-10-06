@@ -1,5 +1,5 @@
 import { Pool, type PoolClient, type PoolConfig } from "pg";
-import type { Meter } from "../../core/observability/meter";
+import type { Meter, MetricOptions } from "../../core/observability/meter";
 import { isDatabaseAcquireTimeout } from "./database-error";
 
 export type DatabasePoolNow = () => number;
@@ -77,26 +77,16 @@ export class ObservedPostgresPool extends Pool {
     createdNewConnection: boolean,
   ): (error?: unknown) => void {
     const acquisitionSeconds = Math.max(0, acquiredAt - startedAt) / 1_000;
-    this.observation.meter.record(
-      "db.client.connection.wait_time",
-      acquisitionSeconds,
-      this.attributes,
-      {
-        unit: "s",
-        description: "Time taken to obtain an open connection from the PostgreSQL pool.",
-      },
-    );
+    this.recordMetric("db.client.connection.wait_time", acquisitionSeconds, {
+      unit: "s",
+      description: "Time taken to obtain an open connection from the PostgreSQL pool.",
+    });
 
     if (createdNewConnection) {
-      this.observation.meter.record(
-        "db.client.connection.create_time",
-        acquisitionSeconds,
-        this.attributes,
-        {
-          unit: "s",
-          description: "Time taken to create a new PostgreSQL pool connection.",
-        },
-      );
+      this.recordMetric("db.client.connection.create_time", acquisitionSeconds, {
+        unit: "s",
+        description: "Time taken to create a new PostgreSQL pool connection.",
+      });
     }
 
     const originalRelease = client.release;
@@ -104,10 +94,9 @@ export class ObservedPostgresPool extends Pool {
     const release = (error?: unknown): void => {
       if (!released) {
         released = true;
-        this.observation.meter.record(
+        this.recordMetric(
           "db.client.connection.use_time",
           Math.max(0, this.now() - acquiredAt) / 1_000,
-          this.attributes,
           {
             unit: "s",
             description: "Time between borrowing and returning a PostgreSQL pool connection.",
@@ -122,15 +111,26 @@ export class ObservedPostgresPool extends Pool {
 
   private observeAcquisitionFailure(error: unknown): void {
     if (isDatabaseAcquireTimeout(error)) {
-      this.observation.meter.increment(
-        "db.client.connection.timeouts",
-        1,
-        this.attributes,
-        {
-          unit: "{timeout}",
-          description: "Connection timeouts while obtaining a PostgreSQL pool connection.",
-        },
-      );
+      this.incrementMetric("db.client.connection.timeouts", 1, {
+        unit: "{timeout}",
+        description: "Connection timeouts while obtaining a PostgreSQL pool connection.",
+      });
+    }
+  }
+
+  private recordMetric(name: string, value: number, options: MetricOptions): void {
+    try {
+      this.observation.meter.record(name, value, this.attributes, options);
+    } catch {
+      // Observability must not change PostgreSQL pool control flow.
+    }
+  }
+
+  private incrementMetric(name: string, value: number, options: MetricOptions): void {
+    try {
+      this.observation.meter.increment(name, value, this.attributes, options);
+    } catch {
+      // Observability must not replace the authoritative PostgreSQL failure.
     }
   }
 }
