@@ -35,6 +35,15 @@ function normalizedKey(key: string): string {
   return key.toLowerCase().replace(/[-_\s]/g, "");
 }
 
+function safeErrorName(error: Error): string {
+  try {
+    const name = Reflect.get(error, "name");
+    return typeof name === "string" && name.length > 0 ? name : "Error";
+  } catch {
+    return "Error";
+  }
+}
+
 function sanitizeUrl(value: URL): string {
   const sanitized = new URL(value.toString());
   sanitized.username = "";
@@ -58,7 +67,7 @@ function sanitize(value: unknown, key?: string): unknown {
     return "[REDACTED]";
   }
   if (value instanceof Error) {
-    return { name: value.name, message: value.message, stack: value.stack };
+    return { name: safeErrorName(value) };
   }
   if (value instanceof Date) {
     return value.toISOString();
