@@ -125,6 +125,72 @@ test("OpenTelemetryTracer can suppress exception events at sensitive boundaries"
   expect(otel.end).toHaveBeenCalledTimes(1);
 });
 
+test("OpenTelemetryTracer rejects malformed tracer runtime wiring at construction", () => {
+  expect(() => new OpenTelemetryTracer(null as unknown as ApiTracer)).toThrow(
+    "OpenTelemetry tracer must be an object",
+  );
+  expect(() => new OpenTelemetryTracer(123 as unknown as ApiTracer)).toThrow(
+    "OpenTelemetry tracer must be an object",
+  );
+  expect(() => new OpenTelemetryTracer([] as unknown as ApiTracer)).toThrow(
+    "OpenTelemetry tracer must be an object",
+  );
+  expect(
+    () =>
+      new OpenTelemetryTracer({
+        startActiveSpan: null,
+      } as unknown as ApiTracer),
+  ).toThrow("OpenTelemetry tracer startActiveSpan must be callable");
+});
+
+test("OpenTelemetryTracer normalizes a throwing startActiveSpan getter", () => {
+  const apiTracer = Object.defineProperty({}, "startActiveSpan", {
+    get() {
+      throw new Error("provider failure");
+    },
+  }) as ApiTracer;
+
+  expect(() => new OpenTelemetryTracer(apiTracer)).toThrow(
+    "OpenTelemetry tracer startActiveSpan could not be read",
+  );
+});
+
+test("OpenTelemetryTracer snapshots startActiveSpan once and preserves its receiver", async () => {
+  const otel = makeSpan();
+  let reads = 0;
+  let receiverPreserved = false;
+  let currentStartActiveSpan = function (
+    this: unknown,
+    _name: string,
+    _options: unknown,
+    _parentContext: unknown,
+    operation: (span: ApiSpan) => unknown,
+  ) {
+    receiverPreserved = this === apiTracer;
+    return operation(otel.span);
+  } as ApiTracer["startActiveSpan"];
+  const apiTracer = {
+    get startActiveSpan(): ApiTracer["startActiveSpan"] {
+      reads += 1;
+      return currentStartActiveSpan;
+    },
+  } as ApiTracer;
+
+  const tracer = new OpenTelemetryTracer(apiTracer);
+  expect(reads).toBe(1);
+
+  currentStartActiveSpan = (() => {
+    throw new Error("replacement must not run");
+  }) as ApiTracer["startActiveSpan"];
+
+  const result = await tracer.withSpan("snapshot", {}, async () => 42);
+
+  expect(result).toBe(42);
+  expect(reads).toBe(1);
+  expect(receiverPreserved).toBe(true);
+  expect(otel.end).toHaveBeenCalledTimes(1);
+});
+
 test("OpenTelemetryMeter caches instruments and forwards measurements", () => {
   const counter = { add: mock(() => undefined) };
   const histogram = { record: mock(() => undefined) };

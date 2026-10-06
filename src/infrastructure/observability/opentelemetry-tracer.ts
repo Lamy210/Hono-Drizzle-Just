@@ -31,6 +31,36 @@ const spanStatuses: Readonly<Record<SpanStatus, SpanStatusCode>> = {
   error: SpanStatusCode.ERROR,
 };
 
+type RuntimeStartActiveSpan = (...args: unknown[]) => unknown;
+
+function normalizeStartActiveSpan(tracer: unknown): RuntimeStartActiveSpan {
+  if (typeof tracer !== "object" || tracer === null) {
+    throw new TypeError("OpenTelemetry tracer must be an object");
+  }
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(tracer);
+  } catch {
+    throw new TypeError("OpenTelemetry tracer startActiveSpan could not be read");
+  }
+  if (isArray) {
+    throw new TypeError("OpenTelemetry tracer must be an object");
+  }
+
+  let startActiveSpan: unknown;
+  try {
+    startActiveSpan = Reflect.get(tracer, "startActiveSpan");
+  } catch {
+    throw new TypeError("OpenTelemetry tracer startActiveSpan could not be read");
+  }
+  if (typeof startActiveSpan !== "function") {
+    throw new TypeError("OpenTelemetry tracer startActiveSpan must be callable");
+  }
+
+  return (...args: unknown[]) => Reflect.apply(startActiveSpan, tracer, args);
+}
+
 function parentContext(options: SpanOptions) {
   if (!options.parent) {
     return context.active();
@@ -80,21 +110,25 @@ class OpenTelemetrySpan implements Span {
 }
 
 export class OpenTelemetryTracer implements Tracer {
-  constructor(private readonly tracer: ApiTracer) {}
+  private readonly startActiveSpan: RuntimeStartActiveSpan;
+
+  constructor(tracer: ApiTracer) {
+    this.startActiveSpan = normalizeStartActiveSpan(tracer);
+  }
 
   withSpan<T>(
     name: string,
     options: SpanOptions,
     operation: (span: Span) => Promise<T>,
   ): Promise<T> {
-    return this.tracer.startActiveSpan(
+    return this.startActiveSpan(
       name,
       {
         ...(options.kind === undefined ? {} : { kind: spanKinds[options.kind] }),
         ...(options.attributes === undefined ? {} : { attributes: options.attributes }),
       },
       parentContext(options),
-      async (apiSpan) => {
+      async (apiSpan: ApiSpan) => {
         const span = new OpenTelemetrySpan(apiSpan);
         try {
           return await operation(span);
@@ -108,6 +142,6 @@ export class OpenTelemetryTracer implements Tracer {
           apiSpan.end();
         }
       },
-    );
+    ) as Promise<T>;
   }
 }
