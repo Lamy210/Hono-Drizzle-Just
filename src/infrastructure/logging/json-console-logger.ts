@@ -7,6 +7,8 @@ const LEVEL_WEIGHT: Record<LogLevel, number> = {
   error: 40,
 };
 
+const INVALID_LOG_MESSAGE = "[INVALID_LOG_MESSAGE]";
+
 const SENSITIVE_KEYS = new Set([
   "authorization",
   "cookie",
@@ -108,13 +110,14 @@ export class JsonConsoleLogger implements Logger {
     }
 
     const timestamp = new Date().toISOString();
+    const safeMessage = typeof message === "string" ? message : INVALID_LOG_MESSAGE;
     let line: string;
     try {
       line = JSON.stringify(
         sanitize({
           timestamp,
           level,
-          message,
+          message: safeMessage,
           ...this.baseContext,
           ...context,
         }),
@@ -123,7 +126,7 @@ export class JsonConsoleLogger implements Logger {
       line = JSON.stringify({
         timestamp,
         level,
-        message,
+        message: safeMessage,
         contextSerializationFailed: true,
       });
     }
