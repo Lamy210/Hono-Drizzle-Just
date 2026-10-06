@@ -119,6 +119,34 @@ function normalizeObservableUpDownCounterInstrument(
   };
 }
 
+function snapshotObservableResultObserve(result: unknown): RuntimeInstrumentMethod | undefined {
+  if (typeof result !== "object" || result === null) {
+    return undefined;
+  }
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(result);
+  } catch {
+    return undefined;
+  }
+  if (isArray) {
+    return undefined;
+  }
+
+  let observe: unknown;
+  try {
+    observe = Reflect.get(result, "observe");
+  } catch {
+    return undefined;
+  }
+  if (typeof observe !== "function") {
+    return undefined;
+  }
+
+  return (...args: unknown[]) => Reflect.apply(observe, result, args);
+}
+
 export class OpenTelemetryMeter implements ObservableMeter {
   private readonly counters = new Map<string, NormalizedCounter>();
   private readonly histograms = new Map<string, NormalizedHistogram>();
@@ -170,7 +198,11 @@ export class OpenTelemetryMeter implements ObservableMeter {
       counter = normalizeCounterInstrument(this.createCounter(name, options));
       this.counters.set(name, counter);
     }
-    counter.add(value, attributes);
+    try {
+      counter.add(value, attributes);
+    } catch {
+      // Application flow is authoritative over metric recording failures.
+    }
   }
 
   record(
@@ -184,7 +216,11 @@ export class OpenTelemetryMeter implements ObservableMeter {
       histogram = normalizeHistogramInstrument(this.createHistogram(name, options));
       this.histograms.set(name, histogram);
     }
-    histogram.record(value, attributes);
+    try {
+      histogram.record(value, attributes);
+    } catch {
+      // Application flow is authoritative over metric recording failures.
+    }
   }
 
   observeUpDownCounter(
@@ -200,12 +236,39 @@ export class OpenTelemetryMeter implements ObservableMeter {
       this.observableUpDownCounters.set(name, instrument);
     }
 
+    const noApplicationFailure = Symbol("no application observable callback failure");
+    let applicationFailure: unknown = noApplicationFailure;
     const callback: ApiObservableCallback = (result) => {
-      for (const measurement of observe()) {
-        result.observe(measurement.value, measurement.attributes);
+      const resultObserve = snapshotObservableResultObserve(result);
+      if (!resultObserve) {
+        return;
+      }
+
+      let measurements: ReturnType<ObservableMetricCallback>;
+      try {
+        measurements = observe();
+      } catch (error) {
+        applicationFailure = error;
+        throw error;
+      }
+
+      for (const measurement of measurements) {
+        try {
+          resultObserve(measurement.value, measurement.attributes);
+        } catch {
+          // Application observation continues when a provider result rejects one value.
+        }
       }
     };
-    instrument.addCallback(callback);
+
+    try {
+      instrument.addCallback(callback);
+    } catch (error) {
+      if (applicationFailure !== noApplicationFailure && error === applicationFailure) {
+        throw error;
+      }
+      return () => undefined;
+    }
 
     let removed = false;
     return () => {
@@ -213,7 +276,11 @@ export class OpenTelemetryMeter implements ObservableMeter {
         return;
       }
       removed = true;
-      instrument.removeCallback(callback);
+      try {
+        instrument.removeCallback(callback);
+      } catch {
+        // Application flow is authoritative over callback cleanup failures.
+      }
     };
   }
 }
