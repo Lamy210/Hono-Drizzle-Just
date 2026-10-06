@@ -32,6 +32,21 @@ const spanStatuses: Readonly<Record<SpanStatus, SpanStatusCode>> = {
 };
 
 type RuntimeStartActiveSpan = (...args: unknown[]) => unknown;
+type RuntimeSpanMethod = (...args: unknown[]) => unknown;
+type SpanMethodName =
+  | "setAttribute"
+  | "setStatus"
+  | "recordException"
+  | "spanContext"
+  | "end";
+
+interface NormalizedSpan {
+  readonly setAttribute: ApiSpan["setAttribute"];
+  readonly setStatus: ApiSpan["setStatus"];
+  readonly recordException: ApiSpan["recordException"];
+  readonly spanContext: ApiSpan["spanContext"];
+  readonly end: ApiSpan["end"];
+}
 
 function normalizeStartActiveSpan(tracer: unknown): RuntimeStartActiveSpan {
   if (typeof tracer !== "object" || tracer === null) {
@@ -61,6 +76,53 @@ function normalizeStartActiveSpan(tracer: unknown): RuntimeStartActiveSpan {
   return (...args: unknown[]) => Reflect.apply(startActiveSpan, tracer, args);
 }
 
+function requireSpanObject(span: unknown): object {
+  const label = "OpenTelemetry span";
+  if (typeof span !== "object" || span === null) {
+    throw new TypeError(`${label} must be an object`);
+  }
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(span);
+  } catch {
+    throw new TypeError(`${label} could not be read`);
+  }
+  if (isArray) {
+    throw new TypeError(`${label} must be an object`);
+  }
+
+  return span;
+}
+
+function normalizeSpanMethod(span: object, name: SpanMethodName): RuntimeSpanMethod {
+  let method: unknown;
+  try {
+    method = Reflect.get(span, name);
+  } catch {
+    throw new TypeError(`OpenTelemetry span ${name} could not be read`);
+  }
+  if (typeof method !== "function") {
+    throw new TypeError(`OpenTelemetry span ${name} must be callable`);
+  }
+
+  return (...args: unknown[]) => Reflect.apply(method, span, args);
+}
+
+function normalizeSpan(span: unknown): NormalizedSpan {
+  const value = requireSpanObject(span);
+  return {
+    setAttribute: normalizeSpanMethod(value, "setAttribute") as ApiSpan["setAttribute"],
+    setStatus: normalizeSpanMethod(value, "setStatus") as ApiSpan["setStatus"],
+    recordException: normalizeSpanMethod(
+      value,
+      "recordException",
+    ) as ApiSpan["recordException"],
+    spanContext: normalizeSpanMethod(value, "spanContext") as ApiSpan["spanContext"],
+    end: normalizeSpanMethod(value, "end") as ApiSpan["end"],
+  };
+}
+
 function parentContext(options: SpanOptions) {
   if (!options.parent) {
     return context.active();
@@ -78,8 +140,7 @@ function parentContext(options: SpanOptions) {
   });
 }
 
-function toTraceContext(span: ApiSpan): TraceContext {
-  const value = span.spanContext();
+function toTraceContext(value: ReturnType<ApiSpan["spanContext"]>): TraceContext {
   const traceState = value.traceState?.serialize();
   return {
     traceId: value.traceId,
@@ -90,22 +151,55 @@ function toTraceContext(span: ApiSpan): TraceContext {
 }
 
 class OpenTelemetrySpan implements Span {
-  constructor(private readonly span: ApiSpan) {}
+  private readonly setAttributeMethod: ApiSpan["setAttribute"];
+  private readonly setStatusMethod: ApiSpan["setStatus"];
+  private readonly recordExceptionMethod: ApiSpan["recordException"];
+  private readonly spanContextMethod: ApiSpan["spanContext"];
+  private readonly endMethod: ApiSpan["end"];
+
+  constructor(span: ApiSpan) {
+    const normalized = normalizeSpan(span);
+    this.setAttributeMethod = normalized.setAttribute;
+    this.setStatusMethod = normalized.setStatus;
+    this.recordExceptionMethod = normalized.recordException;
+    this.spanContextMethod = normalized.spanContext;
+    this.endMethod = normalized.end;
+  }
 
   setAttribute(name: string, value: TelemetryAttributeValue): void {
-    this.span.setAttribute(name, value);
+    try {
+      this.setAttributeMethod(name, value);
+    } catch {
+      // Application results are authoritative over observability mutations.
+    }
   }
 
   setStatus(status: SpanStatus): void {
-    this.span.setStatus({ code: spanStatuses[status] });
+    try {
+      this.setStatusMethod({ code: spanStatuses[status] });
+    } catch {
+      // Application results are authoritative over observability mutations.
+    }
   }
 
   recordException(error: unknown): void {
-    this.span.recordException(error instanceof Error ? error : String(error));
+    try {
+      this.recordExceptionMethod(error instanceof Error ? error : String(error));
+    } catch {
+      // Application errors are authoritative over observability mutations.
+    }
   }
 
   traceContext(): TraceContext {
-    return toTraceContext(this.span);
+    return toTraceContext(this.spanContextMethod());
+  }
+
+  endBestEffort(): void {
+    try {
+      this.endMethod();
+    } catch {
+      // Application results and errors are authoritative over span finalization.
+    }
   }
 }
 
@@ -139,7 +233,7 @@ export class OpenTelemetryTracer implements Tracer {
           span.setStatus("error");
           throw error;
         } finally {
-          apiSpan.end();
+          span.endBestEffort();
         }
       },
     ) as Promise<T>;
