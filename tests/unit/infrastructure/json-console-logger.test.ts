@@ -173,6 +173,62 @@ test("non-JSON context values fall back to a minimal safe log entry", () => {
   expect(entry.sequence).toBeUndefined();
 });
 
+test("serializable non-string runtime messages use a safe placeholder", () => {
+  const lines: string[] = [];
+  const logger = new JsonConsoleLogger({}, (line) => lines.push(line));
+
+  logger.info(42 as unknown as string, { requestId: "req-1" });
+
+  const entry = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
+  expect(entry.message).toBe("[INVALID_LOG_MESSAGE]");
+  expect(entry.requestId).toBe("req-1");
+});
+
+test("BigInt runtime messages do not escape JSON serialization", () => {
+  const lines: string[] = [];
+  const logger = new JsonConsoleLogger({}, (line) => lines.push(line));
+
+  expect(() => logger.warn(1n as unknown as string)).not.toThrow();
+
+  expect(lines).toHaveLength(1);
+  const entry = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
+  expect(entry.message).toBe("[INVALID_LOG_MESSAGE]");
+});
+
+test("circular runtime messages do not escape JSON serialization", () => {
+  const lines: string[] = [];
+  const logger = new JsonConsoleLogger({}, (line) => lines.push(line));
+  const circular: Record<string, unknown> = { secret: "do-not-log" };
+  circular.self = circular;
+
+  expect(() => logger.error(circular as unknown as string)).not.toThrow();
+
+  expect(lines).toHaveLength(1);
+  const entry = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
+  expect(entry.message).toBe("[INVALID_LOG_MESSAGE]");
+  expect(lines[0]).not.toContain("do-not-log");
+});
+
+test("context serialization fallback stays safe with a malformed runtime message", () => {
+  const lines: string[] = [];
+  const logger = new JsonConsoleLogger({}, (line) => lines.push(line));
+  const payload = Object.defineProperty({}, "token", {
+    enumerable: true,
+    get(): never {
+      throw new Error("sensitive provider detail");
+    },
+  });
+
+  expect(() => logger.info(1n as unknown as string, { payload })).not.toThrow();
+
+  expect(lines).toHaveLength(1);
+  const entry = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
+  expect(entry.message).toBe("[INVALID_LOG_MESSAGE]");
+  expect(entry.contextSerializationFailed).toBe(true);
+  expect(entry.payload).toBeUndefined();
+  expect(lines[0]).not.toContain("sensitive provider detail");
+});
+
 test("log sink failures remain strict", () => {
   const sinkError = new Error("sink unavailable");
   const logger = new JsonConsoleLogger({}, () => {
