@@ -120,3 +120,64 @@ test("URL query redaction preserves repeated parameter order without leaking sec
   expect(lines[0]).not.toContain("second");
 });
 
+test("circular log context falls back to a minimal safe log entry", () => {
+  const lines: string[] = [];
+  const logger = new JsonConsoleLogger({}, (line) => lines.push(line));
+  const circular: Record<string, unknown> = { requestId: "req-secret" };
+  circular.self = circular;
+
+  expect(() => logger.info("circular context", { payload: circular })).not.toThrow();
+
+  expect(lines).toHaveLength(1);
+  const entry = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
+  expect(typeof entry.timestamp).toBe("string");
+  expect(entry.level).toBe("info");
+  expect(entry.message).toBe("circular context");
+  expect(entry.contextSerializationFailed).toBe(true);
+  expect(entry.payload).toBeUndefined();
+  expect(lines[0]).not.toContain("req-secret");
+});
+
+test("throwing context getters fall back without leaking the original failure", () => {
+  const lines: string[] = [];
+  const logger = new JsonConsoleLogger({}, (line) => lines.push(line));
+  const payload = Object.defineProperty({}, "token", {
+    enumerable: true,
+    get(): never {
+      throw new Error("getter contained sensitive detail");
+    },
+  });
+
+  expect(() => logger.warn("throwing getter", { payload })).not.toThrow();
+
+  expect(lines).toHaveLength(1);
+  const entry = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
+  expect(entry.level).toBe("warn");
+  expect(entry.message).toBe("throwing getter");
+  expect(entry.contextSerializationFailed).toBe(true);
+  expect(entry.payload).toBeUndefined();
+  expect(lines[0]).not.toContain("sensitive detail");
+});
+
+test("non-JSON context values fall back to a minimal safe log entry", () => {
+  const lines: string[] = [];
+  const logger = new JsonConsoleLogger({}, (line) => lines.push(line));
+
+  expect(() => logger.error("bigint context", { sequence: 1n })).not.toThrow();
+
+  expect(lines).toHaveLength(1);
+  const entry = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
+  expect(entry.level).toBe("error");
+  expect(entry.message).toBe("bigint context");
+  expect(entry.contextSerializationFailed).toBe(true);
+  expect(entry.sequence).toBeUndefined();
+});
+
+test("log sink failures remain strict", () => {
+  const sinkError = new Error("sink unavailable");
+  const logger = new JsonConsoleLogger({}, () => {
+    throw sinkError;
+  });
+
+  expect(() => logger.info("sink failure")).toThrow(sinkError);
+});
