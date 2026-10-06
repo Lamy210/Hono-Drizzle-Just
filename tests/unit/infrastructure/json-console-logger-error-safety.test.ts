@@ -37,3 +37,18 @@ test("throwing Error name getters fall back without discarding other context", (
   expect(lines[0]).not.toContain("provider-private detail");
   expect(lines[0]).not.toContain("name getter leaked secret");
 });
+
+test("invalid Date context values fall back without discarding other context", () => {
+  const lines: string[] = [];
+  const logger = new JsonConsoleLogger({}, (line) => lines.push(line));
+
+  expect(() =>
+    logger.info("invalid date", { occurredAt: new Date(Number.NaN), requestId: "req-3" }),
+  ).not.toThrow();
+
+  expect(lines).toHaveLength(1);
+  const entry = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
+  expect(entry.occurredAt).toBe("[INVALID_DATE]");
+  expect(entry.requestId).toBe("req-3");
+  expect(entry.contextSerializationFailed).toBeUndefined();
+});
