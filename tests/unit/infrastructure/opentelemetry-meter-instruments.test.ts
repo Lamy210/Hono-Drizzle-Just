@@ -150,7 +150,7 @@ test("OpenTelemetryMeter normalizes throwing instrument method getters", () => {
 test("OpenTelemetryMeter snapshots instrument methods once and preserves receivers", () => {
   let counterReads = 0;
   let counterReceiverPreserved = false;
-  const counterAdd = mock(() => undefined);
+  const counterAdd = mock((_value: number) => undefined);
   let currentCounterAdd = function (this: unknown, value: number) {
     counterReceiverPreserved = this === counterInstrument;
     counterAdd(value);
@@ -164,7 +164,7 @@ test("OpenTelemetryMeter snapshots instrument methods once and preserves receive
 
   let histogramReads = 0;
   let histogramReceiverPreserved = false;
-  const histogramRecord = mock(() => undefined);
+  const histogramRecord = mock((_value: number) => undefined);
   let currentHistogramRecord = function (this: unknown, value: number) {
     histogramReceiverPreserved = this === histogramInstrument;
     histogramRecord(value);
@@ -180,8 +180,8 @@ test("OpenTelemetryMeter snapshots instrument methods once and preserves receive
   let removeCallbackReads = 0;
   let addCallbackReceiverPreserved = false;
   let removeCallbackReceiverPreserved = false;
-  const addCallback = mock(() => undefined);
-  const removeCallback = mock(() => undefined);
+  const addCallback = mock((_callback: unknown) => undefined);
+  const removeCallback = mock((_callback: unknown) => undefined);
   let currentAddCallback = function (this: unknown, callback: unknown) {
     addCallbackReceiverPreserved = this === observableInstrument;
     addCallback(callback);
