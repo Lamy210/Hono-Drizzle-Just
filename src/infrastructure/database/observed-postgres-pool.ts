@@ -97,10 +97,12 @@ function normalizeObservation(options: unknown): NormalizedObservedPostgresPoolO
   }
 
   return {
-    record: (name, value, attributes, metricOptions) =>
-      Reflect.apply(record, meterObject, [name, value, attributes, metricOptions]) as void,
-    increment: (name, value, attributes, metricOptions) =>
-      Reflect.apply(increment, meterObject, [name, value, attributes, metricOptions]) as void,
+    record: (name, value, attributes, metricOptions) => {
+      Reflect.apply(record, meterObject, [name, value, attributes, metricOptions]);
+    },
+    increment: (name, value, attributes, metricOptions) => {
+      Reflect.apply(increment, meterObject, [name, value, attributes, metricOptions]);
+    },
     poolName,
     now: (now as DatabasePoolNow | undefined) ?? performance.now.bind(performance),
   };
