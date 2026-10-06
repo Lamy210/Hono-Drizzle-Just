@@ -425,3 +425,211 @@ test("OpenTelemetryMeter forwards semantic instrument options on first creation"
     "db.client.connection.pool.name": "primary",
   });
 });
+
+function makeRuntimeSpan(overrides: Record<string, unknown> = {}): ApiSpan {
+  return {
+    setAttribute: () => undefined,
+    setStatus: () => undefined,
+    recordException: () => undefined,
+    end: () => undefined,
+    spanContext: () => ({
+      traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+      spanId: "a3ce929d0e0e4736",
+      traceFlags: 1,
+    }),
+    ...overrides,
+  } as unknown as ApiSpan;
+}
+
+function tracerForRuntimeSpan(span: unknown): OpenTelemetryTracer {
+  return new OpenTelemetryTracer({
+    startActiveSpan: ((_name: string, _options: unknown, _parentContext: unknown, operation: (apiSpan: ApiSpan) => unknown) =>
+      operation(span as ApiSpan)) as ApiTracer["startActiveSpan"],
+  } as ApiTracer);
+}
+
+test("OpenTelemetryTracer validates runtime span wiring before use", async () => {
+  await expect(
+    tracerForRuntimeSpan(null).withSpan("invalid.span", {}, async () => 42),
+  ).rejects.toThrow("OpenTelemetry span must be an object");
+
+  await expect(
+    tracerForRuntimeSpan(makeRuntimeSpan({ setStatus: null })).withSpan(
+      "invalid.span.status",
+      {},
+      async () => 42,
+    ),
+  ).rejects.toThrow("OpenTelemetry span setStatus must be callable");
+});
+
+test("OpenTelemetryTracer normalizes throwing runtime span method getters", async () => {
+  const span = Object.defineProperty(makeRuntimeSpan(), "end", {
+    get() {
+      throw new Error("provider end getter failure");
+    },
+  });
+
+  await expect(
+    tracerForRuntimeSpan(span).withSpan("throwing.span.end", {}, async () => 42),
+  ).rejects.toThrow("OpenTelemetry span end could not be read");
+});
+
+test("OpenTelemetryTracer snapshots runtime span methods once and preserves receivers", async () => {
+  const reads = {
+    setAttribute: 0,
+    setStatus: 0,
+    recordException: 0,
+    spanContext: 0,
+    end: 0,
+  };
+  const receivers = {
+    setAttribute: false,
+    setStatus: false,
+    recordException: false,
+    spanContext: false,
+    end: false,
+  };
+
+  let currentSetAttribute = function (this: unknown) {
+    receivers.setAttribute = this === apiSpan;
+  };
+  let currentSetStatus = function (this: unknown) {
+    receivers.setStatus = this === apiSpan;
+  };
+  let currentRecordException = function (this: unknown) {
+    receivers.recordException = this === apiSpan;
+  };
+  let currentSpanContext = function (this: unknown) {
+    receivers.spanContext = this === apiSpan;
+    return {
+      traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+      spanId: "a3ce929d0e0e4736",
+      traceFlags: 1,
+    };
+  };
+  let currentEnd = function (this: unknown) {
+    receivers.end = this === apiSpan;
+  };
+
+  const apiSpan = {
+    get setAttribute() {
+      reads.setAttribute += 1;
+      return currentSetAttribute;
+    },
+    get setStatus() {
+      reads.setStatus += 1;
+      return currentSetStatus;
+    },
+    get recordException() {
+      reads.recordException += 1;
+      return currentRecordException;
+    },
+    get spanContext() {
+      reads.spanContext += 1;
+      return currentSpanContext;
+    },
+    get end() {
+      reads.end += 1;
+      return currentEnd;
+    },
+  } as unknown as ApiSpan;
+
+  const result = await tracerForRuntimeSpan(apiSpan).withSpan("snapshot.span", {}, async (span) => {
+    currentSetAttribute = () => {
+      throw new Error("replacement setAttribute must not run");
+    };
+    currentSetStatus = () => {
+      throw new Error("replacement setStatus must not run");
+    };
+    currentRecordException = () => {
+      throw new Error("replacement recordException must not run");
+    };
+    currentSpanContext = () => {
+      throw new Error("replacement spanContext must not run");
+    };
+    currentEnd = () => {
+      throw new Error("replacement end must not run");
+    };
+
+    span.setAttribute("example", "value");
+    span.setStatus("ok");
+    span.recordException(new Error("observed"));
+    expect(span.traceContext()?.spanId).toBe("a3ce929d0e0e4736");
+    return 42;
+  });
+
+  expect(result).toBe(42);
+  expect(reads).toEqual({
+    setAttribute: 1,
+    setStatus: 1,
+    recordException: 1,
+    spanContext: 1,
+    end: 1,
+  });
+  expect(receivers).toEqual({
+    setAttribute: true,
+    setStatus: true,
+    recordException: true,
+    spanContext: true,
+    end: true,
+  });
+});
+
+test("OpenTelemetryTracer isolates runtime span mutation and end failures", async () => {
+  const successfulTracer = tracerForRuntimeSpan(
+    makeRuntimeSpan({
+      setAttribute: () => {
+        throw new Error("setAttribute failed");
+      },
+      setStatus: () => {
+        throw new Error("setStatus failed");
+      },
+      end: () => {
+        throw new Error("end failed");
+      },
+    }),
+  );
+
+  const result = await successfulTracer.withSpan("isolated.success", {}, async (span) => {
+    span.setAttribute("example", "value");
+    span.setStatus("ok");
+    return 42;
+  });
+  expect(result).toBe(42);
+
+  const failure = new Error("application failure");
+  const failingTracer = tracerForRuntimeSpan(
+    makeRuntimeSpan({
+      recordException: () => {
+        throw new Error("recordException failed");
+      },
+      setStatus: () => {
+        throw new Error("setStatus failed");
+      },
+      end: () => {
+        throw new Error("end failed");
+      },
+    }),
+  );
+
+  await expect(
+    failingTracer.withSpan("isolated.failure", {}, async () => {
+      throw failure;
+    }),
+  ).rejects.toBe(failure);
+});
+
+test("OpenTelemetryTracer keeps runtime span traceContext failures strict", async () => {
+  const failure = new Error("span context failure");
+  const tracer = tracerForRuntimeSpan(
+    makeRuntimeSpan({
+      spanContext: () => {
+        throw failure;
+      },
+    }),
+  );
+
+  await expect(
+    tracer.withSpan("strict.trace-context", {}, async (span) => span.traceContext()),
+  ).rejects.toBe(failure);
+});
