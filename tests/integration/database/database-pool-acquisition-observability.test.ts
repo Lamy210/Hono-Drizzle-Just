@@ -446,3 +446,111 @@ test("ObservedPostgresPool snapshots observability hooks and preserves the meter
     await pool.end();
   }
 });
+
+test("clock failures do not replace successful PostgreSQL queries", async () => {
+  const meter = new RecordingMeter();
+  const database = createDatabase({
+    connectionString: databaseUrl(),
+    max: 1,
+    connectionTimeoutMillis: 500,
+    observability: {
+      meter,
+      poolName: "primary",
+      now: () => {
+        throw new Error("clock failure");
+      },
+    },
+  });
+
+  try {
+    const result = await database.pool.query("select 1 as value");
+    expect(result.rows).toEqual([{ value: 1 }]);
+    expect(meter.records).toHaveLength(0);
+  } finally {
+    await database.close();
+  }
+});
+
+test("release returns a client to the pool when the clock fails", async () => {
+  const meter = new RecordingMeter();
+  let reads = 0;
+  const database = createDatabase({
+    connectionString: databaseUrl(),
+    max: 1,
+    connectionTimeoutMillis: 500,
+    observability: {
+      meter,
+      poolName: "primary",
+      now: () => {
+        reads += 1;
+        if (reads === 3) {
+          throw new Error("clock failure");
+        }
+        return reads === 1 ? 100 : 125;
+      },
+    },
+  });
+
+  const client = await database.pool.connect();
+  try {
+    expect(() => client.release()).not.toThrow();
+    expect(database.pool.idleCount).toBe(1);
+    expect(
+      meter.records.filter(
+        (measurement) => measurement.name === "db.client.connection.use_time",
+      ),
+    ).toHaveLength(0);
+  } finally {
+    if (database.pool.idleCount === 0) {
+      client.release();
+    }
+    await database.close();
+  }
+});
+
+test("non-finite timestamps suppress only durations that depend on them", async () => {
+  const meter = new RecordingMeter();
+  const timestamps = [Number.NaN, 100, 120];
+  const database = createDatabase({
+    connectionString: databaseUrl(),
+    max: 1,
+    connectionTimeoutMillis: 500,
+    observability: {
+      meter,
+      poolName: "primary",
+      now: () => timestamps.shift() ?? 120,
+    },
+  });
+
+  try {
+    await database.pool.query("select 1");
+    expect(meter.records.map((measurement) => measurement.name)).toEqual([
+      "db.client.connection.use_time",
+    ]);
+    expect(meter.records[0]?.value).toBe(0.02);
+  } finally {
+    await database.close();
+  }
+});
+
+test("regressing timestamps do not emit misleading pool durations", async () => {
+  const meter = new RecordingMeter();
+  const timestamps = [100, 90, 80];
+  const database = createDatabase({
+    connectionString: databaseUrl(),
+    max: 1,
+    connectionTimeoutMillis: 500,
+    observability: {
+      meter,
+      poolName: "primary",
+      now: () => timestamps.shift() ?? 80,
+    },
+  });
+
+  try {
+    await database.pool.query("select 1");
+    expect(meter.records).toHaveLength(0);
+  } finally {
+    await database.close();
+  }
+});
