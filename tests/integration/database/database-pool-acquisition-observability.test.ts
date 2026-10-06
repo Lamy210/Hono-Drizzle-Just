@@ -43,6 +43,39 @@ class RecordingMeter implements Meter {
   }
 }
 
+class SelectivelyThrowingMeter extends RecordingMeter {
+  constructor(
+    private readonly throwOnRecordName?: string,
+    private readonly throwOnIncrementName?: string,
+  ) {
+    super();
+  }
+
+  override increment(
+    name: string,
+    value = 1,
+    attributes?: TelemetryAttributes,
+    options?: MetricOptions,
+  ): void {
+    if (name === this.throwOnIncrementName) {
+      throw new Error("observability failure");
+    }
+    super.increment(name, value, attributes, options);
+  }
+
+  override record(
+    name: string,
+    value: number,
+    attributes?: TelemetryAttributes,
+    options?: MetricOptions,
+  ): void {
+    if (name === this.throwOnRecordName) {
+      throw new Error("observability failure");
+    }
+    super.record(name, value, attributes, options);
+  }
+}
+
 function databaseUrl(): string {
   const value = process.env.DATABASE_URL;
   if (!value) {
@@ -191,6 +224,45 @@ test("pool acquisition timeout increments only the timeout counter", async () =>
     expect(waitTimes).toHaveLength(1);
     expect(createTimes).toHaveLength(1);
     expect(useTimes).toHaveLength(0);
+  } finally {
+    held.release();
+    await database.close();
+  }
+});
+
+test("release returns a client to the pool even when use-time metrics fail", async () => {
+  const meter = new SelectivelyThrowingMeter("db.client.connection.use_time");
+  const database = createDatabase({
+    connectionString: databaseUrl(),
+    max: 1,
+    connectionTimeoutMillis: 500,
+    observability: { meter, poolName: "primary" },
+  });
+
+  const client = await database.pool.connect();
+  try {
+    expect(() => client.release()).not.toThrow();
+    expect(database.pool.idleCount).toBe(1);
+  } finally {
+    if (database.pool.idleCount === 0) {
+      client.release();
+    }
+    await database.close();
+  }
+});
+
+test("timeout metric failures preserve the PostgreSQL acquisition timeout", async () => {
+  const meter = new SelectivelyThrowingMeter(undefined, "db.client.connection.timeouts");
+  const database = createDatabase({
+    connectionString: databaseUrl(),
+    max: 1,
+    connectionTimeoutMillis: 40,
+    observability: { meter, poolName: "primary" },
+  });
+
+  const held = await database.pool.connect();
+  try {
+    await expect(database.pool.connect()).rejects.toThrow("timeout");
   } finally {
     held.release();
     await database.close();
