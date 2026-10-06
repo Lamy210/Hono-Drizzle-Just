@@ -115,11 +115,11 @@ export class JsonConsoleLogger implements Logger {
     try {
       line = JSON.stringify(
         sanitize({
+          ...this.baseContext,
+          ...context,
           timestamp,
           level,
           message: safeMessage,
-          ...this.baseContext,
-          ...context,
         }),
       );
     } catch {
