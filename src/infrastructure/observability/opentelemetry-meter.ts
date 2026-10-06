@@ -14,11 +14,25 @@ import type {
 import type { TelemetryAttributes } from "../../core/observability/tracer";
 
 type RuntimeMeterFactory = (...args: unknown[]) => unknown;
+type RuntimeInstrumentMethod = (...args: unknown[]) => unknown;
 
 type MeterFactoryName =
   | "createCounter"
   | "createHistogram"
   | "createObservableUpDownCounter";
+
+interface NormalizedCounter {
+  readonly add: Counter["add"];
+}
+
+interface NormalizedHistogram {
+  readonly record: Histogram["record"];
+}
+
+interface NormalizedObservableUpDownCounter {
+  readonly addCallback: ObservableUpDownCounter["addCallback"];
+  readonly removeCallback: ObservableUpDownCounter["removeCallback"];
+}
 
 function normalizeMeterFactory(meter: object, name: MeterFactoryName): RuntimeMeterFactory {
   let factory: unknown;
@@ -34,10 +48,84 @@ function normalizeMeterFactory(meter: object, name: MeterFactoryName): RuntimeMe
   return (...args: unknown[]) => Reflect.apply(factory, meter, args);
 }
 
+function requireInstrumentObject(instrument: unknown, label: string): object {
+  if (typeof instrument !== "object" || instrument === null) {
+    throw new TypeError(`${label} must be an object`);
+  }
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(instrument);
+  } catch {
+    throw new TypeError(`${label} could not be read`);
+  }
+  if (isArray) {
+    throw new TypeError(`${label} must be an object`);
+  }
+
+  return instrument;
+}
+
+function normalizeInstrumentMethod(
+  instrument: object,
+  label: string,
+  name: string,
+): RuntimeInstrumentMethod {
+  let method: unknown;
+  try {
+    method = Reflect.get(instrument, name);
+  } catch {
+    throw new TypeError(`${label} ${name} could not be read`);
+  }
+  if (typeof method !== "function") {
+    throw new TypeError(`${label} ${name} must be callable`);
+  }
+
+  return (...args: unknown[]) => Reflect.apply(method, instrument, args);
+}
+
+function normalizeCounterInstrument(instrument: unknown): NormalizedCounter {
+  const label = "OpenTelemetry counter instrument";
+  const value = requireInstrumentObject(instrument, label);
+  return {
+    add: normalizeInstrumentMethod(value, label, "add") as Counter["add"],
+  };
+}
+
+function normalizeHistogramInstrument(instrument: unknown): NormalizedHistogram {
+  const label = "OpenTelemetry histogram instrument";
+  const value = requireInstrumentObject(instrument, label);
+  return {
+    record: normalizeInstrumentMethod(value, label, "record") as Histogram["record"],
+  };
+}
+
+function normalizeObservableUpDownCounterInstrument(
+  instrument: unknown,
+): NormalizedObservableUpDownCounter {
+  const label = "OpenTelemetry observable up/down counter instrument";
+  const value = requireInstrumentObject(instrument, label);
+  return {
+    addCallback: normalizeInstrumentMethod(
+      value,
+      label,
+      "addCallback",
+    ) as ObservableUpDownCounter["addCallback"],
+    removeCallback: normalizeInstrumentMethod(
+      value,
+      label,
+      "removeCallback",
+    ) as ObservableUpDownCounter["removeCallback"],
+  };
+}
+
 export class OpenTelemetryMeter implements ObservableMeter {
-  private readonly counters = new Map<string, Counter>();
-  private readonly histograms = new Map<string, Histogram>();
-  private readonly observableUpDownCounters = new Map<string, ObservableUpDownCounter>();
+  private readonly counters = new Map<string, NormalizedCounter>();
+  private readonly histograms = new Map<string, NormalizedHistogram>();
+  private readonly observableUpDownCounters = new Map<
+    string,
+    NormalizedObservableUpDownCounter
+  >();
   private readonly createCounter: ApiMeter["createCounter"];
   private readonly createHistogram: ApiMeter["createHistogram"];
   private readonly createObservableUpDownCounter: ApiMeter["createObservableUpDownCounter"];
@@ -79,7 +167,7 @@ export class OpenTelemetryMeter implements ObservableMeter {
   ): void {
     let counter = this.counters.get(name);
     if (!counter) {
-      counter = this.createCounter(name, options);
+      counter = normalizeCounterInstrument(this.createCounter(name, options));
       this.counters.set(name, counter);
     }
     counter.add(value, attributes);
@@ -93,7 +181,7 @@ export class OpenTelemetryMeter implements ObservableMeter {
   ): void {
     let histogram = this.histograms.get(name);
     if (!histogram) {
-      histogram = this.createHistogram(name, options);
+      histogram = normalizeHistogramInstrument(this.createHistogram(name, options));
       this.histograms.set(name, histogram);
     }
     histogram.record(value, attributes);
@@ -106,7 +194,9 @@ export class OpenTelemetryMeter implements ObservableMeter {
   ): () => void {
     let instrument = this.observableUpDownCounters.get(name);
     if (!instrument) {
-      instrument = this.createObservableUpDownCounter(name, options);
+      instrument = normalizeObservableUpDownCounterInstrument(
+        this.createObservableUpDownCounter(name, options),
+      );
       this.observableUpDownCounters.set(name, instrument);
     }
 
@@ -123,7 +213,7 @@ export class OpenTelemetryMeter implements ObservableMeter {
         return;
       }
       removed = true;
-      instrument?.removeCallback(callback);
+      instrument.removeCallback(callback);
     };
   }
 }
