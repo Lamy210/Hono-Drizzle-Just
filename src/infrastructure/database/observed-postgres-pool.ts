@@ -10,24 +10,116 @@ export interface ObservedPostgresPoolOptions {
   readonly now?: DatabasePoolNow;
 }
 
+interface NormalizedObservedPostgresPoolOptions {
+  readonly record: Meter["record"];
+  readonly increment: Meter["increment"];
+  readonly poolName: string;
+  readonly now: DatabasePoolNow;
+}
+
 type ConnectCallback = (
   error: Error | undefined,
   client: PoolClient | undefined,
   done: (release?: unknown) => void,
 ) => void;
 
+function requireObject(
+  value: unknown,
+  invalidMessage: string,
+  unreadableMessage: string,
+): object {
+  if (typeof value !== "object" || value === null) {
+    throw new TypeError(invalidMessage);
+  }
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(value);
+  } catch {
+    throw new TypeError(unreadableMessage);
+  }
+  if (isArray) {
+    throw new TypeError(invalidMessage);
+  }
+
+  return value;
+}
+
+function normalizeObservation(options: unknown): NormalizedObservedPostgresPoolOptions {
+  const container = requireObject(
+    options,
+    "Database pool observability options must be an object",
+    "Database pool observability options could not be read",
+  );
+
+  let meter: unknown;
+  let poolName: unknown;
+  let now: unknown;
+  try {
+    meter = Reflect.get(container, "meter");
+    poolName = Reflect.get(container, "poolName");
+    now = Reflect.get(container, "now");
+  } catch {
+    throw new TypeError("Database pool observability options could not be read");
+  }
+
+  if (typeof poolName !== "string" || poolName.length < 1 || poolName.length > 128) {
+    throw new TypeError("Database pool name must contain 1 to 128 characters");
+  }
+  if (now !== undefined && typeof now !== "function") {
+    throw new TypeError("Database pool observability now must be callable");
+  }
+
+  const meterObject = requireObject(
+    meter,
+    "Database pool observability meter must be an object",
+    "Database pool observability meter could not be read",
+  );
+
+  let record: unknown;
+  try {
+    record = Reflect.get(meterObject, "record");
+  } catch {
+    throw new TypeError("Database pool observability meter record could not be read");
+  }
+  if (typeof record !== "function") {
+    throw new TypeError("Database pool observability meter record must be callable");
+  }
+
+  let increment: unknown;
+  try {
+    increment = Reflect.get(meterObject, "increment");
+  } catch {
+    throw new TypeError("Database pool observability meter increment could not be read");
+  }
+  if (typeof increment !== "function") {
+    throw new TypeError("Database pool observability meter increment must be callable");
+  }
+
+  return {
+    record: (name, value, attributes, metricOptions) =>
+      Reflect.apply(record, meterObject, [name, value, attributes, metricOptions]) as void,
+    increment: (name, value, attributes, metricOptions) =>
+      Reflect.apply(increment, meterObject, [name, value, attributes, metricOptions]) as void,
+    poolName,
+    now: (now as DatabasePoolNow | undefined) ?? performance.now.bind(performance),
+  };
+}
+
 export class ObservedPostgresPool extends Pool {
   private readonly now: DatabasePoolNow;
+  private readonly record: Meter["record"];
+  private readonly increment: Meter["increment"];
   private readonly attributes: { readonly "db.client.connection.pool.name": string };
 
-  constructor(config: PoolConfig, private readonly observation: ObservedPostgresPoolOptions) {
+  constructor(config: PoolConfig, observation: ObservedPostgresPoolOptions) {
     super(config);
-    if (observation.poolName.length < 1 || observation.poolName.length > 128) {
-      throw new TypeError("Database pool name must contain 1 to 128 characters");
-    }
-    this.now = observation.now ?? performance.now.bind(performance);
+    const normalized = normalizeObservation(observation);
+    this.now = normalized.now;
+    this.record = normalized.record;
+    this.increment = normalized.increment;
     this.attributes = {
-      "db.client.connection.pool.name": observation.poolName,
+      "db.client.connection.pool.name": normalized.poolName,
     };
   }
 
@@ -120,7 +212,7 @@ export class ObservedPostgresPool extends Pool {
 
   private recordMetric(name: string, value: number, options: MetricOptions): void {
     try {
-      this.observation.meter.record(name, value, this.attributes, options);
+      this.record(name, value, this.attributes, options);
     } catch {
       // Observability must not change PostgreSQL pool control flow.
     }
@@ -128,7 +220,7 @@ export class ObservedPostgresPool extends Pool {
 
   private incrementMetric(name: string, value: number, options: MetricOptions): void {
     try {
-      this.observation.meter.increment(name, value, this.attributes, options);
+      this.increment(name, value, this.attributes, options);
     } catch {
       // Observability must not replace the authoritative PostgreSQL failure.
     }
