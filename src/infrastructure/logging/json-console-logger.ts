@@ -106,13 +106,28 @@ export class JsonConsoleLogger implements Logger {
     if (LEVEL_WEIGHT[level] < LEVEL_WEIGHT[this.minimumLevel]) {
       return;
     }
-    const payload = sanitize({
-      timestamp: new Date().toISOString(),
-      level,
-      message,
-      ...this.baseContext,
-      ...context,
-    });
-    this.sink(JSON.stringify(payload));
+
+    const timestamp = new Date().toISOString();
+    let line: string;
+    try {
+      line = JSON.stringify(
+        sanitize({
+          timestamp,
+          level,
+          message,
+          ...this.baseContext,
+          ...context,
+        }),
+      );
+    } catch {
+      line = JSON.stringify({
+        timestamp,
+        level,
+        message,
+        contextSerializationFailed: true,
+      });
+    }
+
+    this.sink(line);
   }
 }
