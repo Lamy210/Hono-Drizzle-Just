@@ -8,6 +8,7 @@ const LEVEL_WEIGHT: Record<LogLevel, number> = {
 };
 
 const INVALID_LOG_MESSAGE = "[INVALID_LOG_MESSAGE]";
+const INVALID_LOG_DATE = "[INVALID_DATE]";
 
 const SENSITIVE_KEYS = new Set([
   "authorization",
@@ -44,6 +45,14 @@ function safeErrorName(error: Error): string {
   }
 }
 
+function safeDateString(value: Date): string {
+  try {
+    return value.toISOString();
+  } catch {
+    return INVALID_LOG_DATE;
+  }
+}
+
 function sanitizeUrl(value: URL): string {
   const sanitized = new URL(value.toString());
   sanitized.username = "";
@@ -70,7 +79,7 @@ function sanitize(value: unknown, key?: string): unknown {
     return { name: safeErrorName(value) };
   }
   if (value instanceof Date) {
-    return value.toISOString();
+    return safeDateString(value);
   }
   if (value instanceof URL) {
     return sanitizeUrl(value);
