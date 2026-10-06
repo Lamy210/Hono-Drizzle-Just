@@ -31,6 +31,18 @@ function makeSpan() {
   return { span, setAttribute, setStatus, recordException, end };
 }
 
+function makeApiMeter(overrides: Record<string, unknown> = {}): ApiMeter {
+  return {
+    createCounter: () => ({ add: () => undefined }),
+    createHistogram: () => ({ record: () => undefined }),
+    createObservableUpDownCounter: () => ({
+      addCallback: () => undefined,
+      removeCallback: () => undefined,
+    }),
+    ...overrides,
+  } as unknown as ApiMeter;
+}
+
 test("OpenTelemetryTracer maps span kind, remote parent, attributes, status, and trace context", async () => {
   const otel = makeSpan();
   let capturedName: string | undefined;
@@ -191,12 +203,130 @@ test("OpenTelemetryTracer snapshots startActiveSpan once and preserves its recei
   expect(otel.end).toHaveBeenCalledTimes(1);
 });
 
+test("OpenTelemetryMeter rejects malformed meter runtime wiring at construction", () => {
+  expect(() => new OpenTelemetryMeter(null as unknown as ApiMeter)).toThrow(
+    "OpenTelemetry meter must be an object",
+  );
+  expect(() => new OpenTelemetryMeter(123 as unknown as ApiMeter)).toThrow(
+    "OpenTelemetry meter must be an object",
+  );
+  expect(() => new OpenTelemetryMeter([] as unknown as ApiMeter)).toThrow(
+    "OpenTelemetry meter must be an object",
+  );
+  expect(() => new OpenTelemetryMeter(makeApiMeter({ createCounter: null }))).toThrow(
+    "OpenTelemetry meter createCounter must be callable",
+  );
+  expect(() => new OpenTelemetryMeter(makeApiMeter({ createHistogram: null }))).toThrow(
+    "OpenTelemetry meter createHistogram must be callable",
+  );
+  expect(
+    () => new OpenTelemetryMeter(makeApiMeter({ createObservableUpDownCounter: null })),
+  ).toThrow("OpenTelemetry meter createObservableUpDownCounter must be callable");
+});
+
+test("OpenTelemetryMeter normalizes throwing factory getters", () => {
+  const counterMeter = Object.defineProperty(makeApiMeter(), "createCounter", {
+    get() {
+      throw new Error("provider failure");
+    },
+  });
+  expect(() => new OpenTelemetryMeter(counterMeter)).toThrow(
+    "OpenTelemetry meter createCounter could not be read",
+  );
+
+  const histogramMeter = Object.defineProperty(makeApiMeter(), "createHistogram", {
+    get() {
+      throw new Error("provider failure");
+    },
+  });
+  expect(() => new OpenTelemetryMeter(histogramMeter)).toThrow(
+    "OpenTelemetry meter createHistogram could not be read",
+  );
+
+  const observableMeter = Object.defineProperty(makeApiMeter(), "createObservableUpDownCounter", {
+    get() {
+      throw new Error("provider failure");
+    },
+  });
+  expect(() => new OpenTelemetryMeter(observableMeter)).toThrow(
+    "OpenTelemetry meter createObservableUpDownCounter could not be read",
+  );
+});
+
+test("OpenTelemetryMeter snapshots factories once and preserves their receiver", () => {
+  const counter = { add: mock(() => undefined) };
+  const histogram = { record: mock(() => undefined) };
+  const observable = {
+    addCallback: mock(() => undefined),
+    removeCallback: mock(() => undefined),
+  };
+  let counterReads = 0;
+  let histogramReads = 0;
+  let observableReads = 0;
+  let counterReceiverPreserved = false;
+  let histogramReceiverPreserved = false;
+  let observableReceiverPreserved = false;
+  let currentCreateCounter = function (this: unknown) {
+    counterReceiverPreserved = this === apiMeter;
+    return counter;
+  } as unknown as ApiMeter["createCounter"];
+  let currentCreateHistogram = function (this: unknown) {
+    histogramReceiverPreserved = this === apiMeter;
+    return histogram;
+  } as unknown as ApiMeter["createHistogram"];
+  let currentCreateObservableUpDownCounter = function (this: unknown) {
+    observableReceiverPreserved = this === apiMeter;
+    return observable;
+  } as unknown as ApiMeter["createObservableUpDownCounter"];
+  const apiMeter = {
+    get createCounter(): ApiMeter["createCounter"] {
+      counterReads += 1;
+      return currentCreateCounter;
+    },
+    get createHistogram(): ApiMeter["createHistogram"] {
+      histogramReads += 1;
+      return currentCreateHistogram;
+    },
+    get createObservableUpDownCounter(): ApiMeter["createObservableUpDownCounter"] {
+      observableReads += 1;
+      return currentCreateObservableUpDownCounter;
+    },
+  } as ApiMeter;
+
+  const meter = new OpenTelemetryMeter(apiMeter);
+  expect(counterReads).toBe(1);
+  expect(histogramReads).toBe(1);
+  expect(observableReads).toBe(1);
+
+  currentCreateCounter = (() => {
+    throw new Error("replacement must not run");
+  }) as unknown as ApiMeter["createCounter"];
+  currentCreateHistogram = (() => {
+    throw new Error("replacement must not run");
+  }) as unknown as ApiMeter["createHistogram"];
+  currentCreateObservableUpDownCounter = (() => {
+    throw new Error("replacement must not run");
+  }) as unknown as ApiMeter["createObservableUpDownCounter"];
+
+  meter.increment("snapshot.counter");
+  meter.record("snapshot.histogram", 1);
+  const stop = meter.observeUpDownCounter("snapshot.observable", () => []);
+  stop();
+
+  expect(counterReads).toBe(1);
+  expect(histogramReads).toBe(1);
+  expect(observableReads).toBe(1);
+  expect(counterReceiverPreserved).toBe(true);
+  expect(histogramReceiverPreserved).toBe(true);
+  expect(observableReceiverPreserved).toBe(true);
+});
+
 test("OpenTelemetryMeter caches instruments and forwards measurements", () => {
   const counter = { add: mock(() => undefined) };
   const histogram = { record: mock(() => undefined) };
   const createCounter = mock(() => counter);
   const createHistogram = mock(() => histogram);
-  const meter = new OpenTelemetryMeter({ createCounter, createHistogram } as unknown as ApiMeter);
+  const meter = new OpenTelemetryMeter(makeApiMeter({ createCounter, createHistogram }));
 
   meter.increment("http.server.requests", 1, { method: "GET" });
   meter.increment("http.server.requests", 2, { method: "POST" });
@@ -224,9 +354,7 @@ test("OpenTelemetryMeter forwards observable up/down measurements and unregister
     addCallback,
     removeCallback,
   }));
-  const meter = new OpenTelemetryMeter({
-    createObservableUpDownCounter,
-  } as unknown as ApiMeter);
+  const meter = new OpenTelemetryMeter(makeApiMeter({ createObservableUpDownCounter }));
   let current = 3;
 
   const stop = meter.observeUpDownCounter(
@@ -267,7 +395,7 @@ test("OpenTelemetryMeter forwards semantic instrument options on first creation"
   const histogram = { record: mock(() => undefined) };
   const createCounter = mock(() => counter);
   const createHistogram = mock(() => histogram);
-  const meter = new OpenTelemetryMeter({ createCounter, createHistogram } as unknown as ApiMeter);
+  const meter = new OpenTelemetryMeter(makeApiMeter({ createCounter, createHistogram }));
 
   meter.increment(
     "db.client.connection.timeouts",
