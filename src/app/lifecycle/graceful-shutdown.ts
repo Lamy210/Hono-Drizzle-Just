@@ -76,6 +76,38 @@ function snapshotGracefulShutdownOptions(options: unknown): GracefulShutdownOpti
   }
 }
 
+function snapshotObjectMethod(
+  target: unknown,
+  label: string,
+  methodName: string,
+): (...args: unknown[]) => unknown {
+  if (typeof target !== "object" || target === null) {
+    throw new TypeError(`${label} must be a non-array object`);
+  }
+
+  let isArray: boolean;
+  try {
+    isArray = Array.isArray(target);
+  } catch {
+    throw new TypeError(`${label} could not be read`);
+  }
+  if (isArray) {
+    throw new TypeError(`${label} must be a non-array object`);
+  }
+
+  let method: unknown;
+  try {
+    method = Reflect.get(target, methodName);
+  } catch {
+    throw new TypeError(`${label}.${methodName} could not be read`);
+  }
+  if (typeof method !== "function") {
+    throw new TypeError(`${label}.${methodName} must be callable`);
+  }
+
+  return (...args: unknown[]) => Reflect.apply(method, target, args);
+}
+
 function requireBeginDrain(value: unknown): () => void {
   if (typeof value !== "function") {
     throw new TypeError("GracefulShutdownCoordinator beginDrain must be callable");
@@ -91,8 +123,8 @@ function requireSleep(value: unknown): (delayMs: number) => Promise<void> {
 }
 
 export class GracefulShutdownCoordinator {
-  private readonly server: StoppableServer;
-  private readonly lifecycle: ClosableLifecycle;
+  private readonly stopServer: StoppableServer["stop"];
+  private readonly closeLifecycle: ClosableLifecycle["close"];
   private readonly logger: Logger;
   private readonly timeoutMs: number;
   private readonly drainDelayMs: number;
@@ -102,8 +134,16 @@ export class GracefulShutdownCoordinator {
 
   constructor(options: GracefulShutdownOptions) {
     const normalizedOptions = snapshotGracefulShutdownOptions(options);
-    this.server = normalizedOptions.server;
-    this.lifecycle = normalizedOptions.lifecycle;
+    this.stopServer = snapshotObjectMethod(
+      normalizedOptions.server,
+      "GracefulShutdownCoordinator server",
+      "stop",
+    ) as StoppableServer["stop"];
+    this.closeLifecycle = snapshotObjectMethod(
+      normalizedOptions.lifecycle,
+      "GracefulShutdownCoordinator lifecycle",
+      "close",
+    ) as ClosableLifecycle["close"];
     this.logger = normalizedOptions.logger;
     this.timeoutMs = nonNegativeFiniteNumber("timeoutMs", normalizedOptions.timeoutMs);
     this.drainDelayMs =
@@ -145,25 +185,25 @@ export class GracefulShutdownCoordinator {
     }
 
     try {
-      const stoppedGracefully = await this.settlesWithin(this.server.stop(false), this.timeoutMs);
+      const stoppedGracefully = await this.settlesWithin(this.stopServer(false), this.timeoutMs);
       if (!stoppedGracefully) {
         this.warnBestEffort("server.shutdown.deadline_exceeded", {
           signal,
           timeoutMs: this.timeoutMs,
         });
-        await this.server.stop(true);
+        await this.stopServer(true);
       }
     } catch (error) {
       errors.push(error);
       try {
-        await this.server.stop(true);
+        await this.stopServer(true);
       } catch (forceStopError) {
         errors.push(forceStopError);
       }
     }
 
     try {
-      await this.lifecycle.close();
+      await this.closeLifecycle();
     } catch (error) {
       errors.push(error);
     }

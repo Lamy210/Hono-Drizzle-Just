@@ -1,7 +1,9 @@
 import { describe, expect, mock, test } from "bun:test";
 import {
   GracefulShutdownCoordinator,
+  type ClosableLifecycle,
   type GracefulShutdownOptions,
+  type StoppableServer,
 } from "../../../../src/app/lifecycle/graceful-shutdown";
 import { JsonConsoleLogger } from "../../../../src/infrastructure/logging/json-console-logger";
 
@@ -217,6 +219,130 @@ describe("GracefulShutdownCoordinator", () => {
           sleep: null,
         } as unknown as GracefulShutdownOptions),
     ).toThrow("GracefulShutdownCoordinator sleep must be callable");
+  });
+
+  test("rejects non-callable shutdown methods at construction", () => {
+    const lifecycle = { close: mock(async () => undefined) };
+    expect(
+      () =>
+        new GracefulShutdownCoordinator({
+          server: { stop: null } as unknown as StoppableServer,
+          lifecycle,
+          logger: logger(),
+          timeoutMs: 1_000,
+        }),
+    ).toThrow("GracefulShutdownCoordinator server.stop must be callable");
+
+    const server = { stop: mock(async () => undefined) };
+    expect(
+      () =>
+        new GracefulShutdownCoordinator({
+          server,
+          lifecycle: { close: null } as unknown as ClosableLifecycle,
+          logger: logger(),
+          timeoutMs: 1_000,
+        }),
+    ).toThrow("GracefulShutdownCoordinator lifecycle.close must be callable");
+  });
+
+  test("normalizes throwing shutdown method getters at construction", () => {
+    const serverSecret = "private-server-stop-detail";
+    const server = Object.defineProperty({}, "stop", {
+      enumerable: true,
+      get(): never {
+        throw new Error(serverSecret);
+      },
+    }) as StoppableServer;
+
+    let serverError: unknown;
+    try {
+      new GracefulShutdownCoordinator({
+        server,
+        lifecycle: { close: mock(async () => undefined) },
+        logger: logger(),
+        timeoutMs: 1_000,
+      });
+    } catch (error) {
+      serverError = error;
+    }
+
+    expect(serverError).toBeInstanceOf(TypeError);
+    expect((serverError as Error).message).toBe(
+      "GracefulShutdownCoordinator server.stop could not be read",
+    );
+    expect(String(serverError)).not.toContain(serverSecret);
+
+    const lifecycleSecret = "private-lifecycle-close-detail";
+    const lifecycle = Object.defineProperty({}, "close", {
+      enumerable: true,
+      get(): never {
+        throw new Error(lifecycleSecret);
+      },
+    }) as ClosableLifecycle;
+
+    let lifecycleError: unknown;
+    try {
+      new GracefulShutdownCoordinator({
+        server: { stop: mock(async () => undefined) },
+        lifecycle,
+        logger: logger(),
+        timeoutMs: 1_000,
+      });
+    } catch (error) {
+      lifecycleError = error;
+    }
+
+    expect(lifecycleError).toBeInstanceOf(TypeError);
+    expect((lifecycleError as Error).message).toBe(
+      "GracefulShutdownCoordinator lifecycle.close could not be read",
+    );
+    expect(String(lifecycleError)).not.toContain(lifecycleSecret);
+  });
+
+  test("snapshots server stop with its original receiver", async () => {
+    const calls: string[] = [];
+    const server: StoppableServer & { readonly name: string } = {
+      name: "primary",
+      async stop(force?: boolean) {
+        calls.push(`${this.name}:${String(force)}`);
+      },
+    };
+    const lifecycle = { close: mock(async () => void calls.push("close")) };
+    const coordinator = new GracefulShutdownCoordinator({
+      server,
+      lifecycle,
+      logger: logger(),
+      timeoutMs: 1_000,
+    });
+
+    server.stop = async (force?: boolean) => void calls.push(`replacement:${String(force)}`);
+
+    await coordinator.shutdown("SIGTERM");
+
+    expect(calls).toEqual(["primary:false", "close"]);
+  });
+
+  test("snapshots lifecycle close with its original receiver", async () => {
+    const calls: string[] = [];
+    const server = { stop: mock(async () => void calls.push("stop")) };
+    const lifecycle: ClosableLifecycle & { readonly name: string } = {
+      name: "primary",
+      async close() {
+        calls.push(this.name);
+      },
+    };
+    const coordinator = new GracefulShutdownCoordinator({
+      server,
+      lifecycle,
+      logger: logger(),
+      timeoutMs: 1_000,
+    });
+
+    lifecycle.close = async () => void calls.push("replacement");
+
+    await coordinator.shutdown("SIGTERM");
+
+    expect(calls).toEqual(["stop", "primary"]);
   });
 
   test("forces active connections closed after the graceful deadline", async () => {
