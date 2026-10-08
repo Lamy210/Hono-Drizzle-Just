@@ -16,6 +16,15 @@ function metricExporter(exportedMetrics: ResourceMetrics[] = []): PushMetricExpo
   } as unknown as PushMetricExporter;
 }
 
+class TrackingSpanExporter extends InMemorySpanExporter {
+  shutdownCalls = 0;
+
+  override async shutdown(): Promise<void> {
+    this.shutdownCalls += 1;
+    await super.shutdown();
+  }
+}
+
 const enabledOptions = {
   enabled: true,
   serviceName: "test-service",
@@ -76,6 +85,32 @@ test("enabled telemetry exports nested spans and metrics with service resource a
 
   stopObservable();
   await telemetry.shutdown();
+});
+
+test("shutdown still releases providers when forceFlush fails", async () => {
+  const traceExporter = new TrackingSpanExporter();
+  let metricShutdownCalls = 0;
+  const flushFailure = new Error("metric flush failed");
+  const failingMetricExporter = {
+    export(_metrics: ResourceMetrics, callback: (result: { code: number }) => void) {
+      callback({ code: 0 });
+    },
+    async forceFlush() {
+      throw flushFailure;
+    },
+    async shutdown() {
+      metricShutdownCalls += 1;
+    },
+  } as unknown as PushMetricExporter;
+  const telemetry = createTelemetry(enabledOptions, {
+    traceExporter,
+    metricExporter: failingMetricExporter,
+  });
+
+  await expect(telemetry.shutdown()).rejects.toBe(flushFailure);
+
+  expect(traceExporter.shutdownCalls).toBe(1);
+  expect(metricShutdownCalls).toBe(1);
 });
 
 test("shutdown releases the global context manager so telemetry can be initialized again", async () => {
