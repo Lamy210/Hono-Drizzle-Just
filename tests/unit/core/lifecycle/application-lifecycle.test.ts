@@ -27,4 +27,26 @@ describe("ApplicationLifecycle", () => {
     expect(failing).toHaveBeenCalledTimes(1);
     expect(first).toHaveBeenCalledTimes(1);
   });
+
+  test("rejects registration from a close hook once shutdown has started", async () => {
+    const lifecycle = new ApplicationLifecycle();
+    const lateClose = mock(async () => undefined);
+    let registrationError: unknown;
+
+    lifecycle.register("first", () => {
+      try {
+        lifecycle.register("late", lateClose);
+      } catch (error) {
+        registrationError = error;
+      }
+    });
+
+    await lifecycle.close();
+
+    expect(registrationError).toBeInstanceOf(Error);
+    expect((registrationError as Error).message).toBe(
+      "Cannot register lifecycle resource 'late' after shutdown has started",
+    );
+    expect(lateClose).not.toHaveBeenCalled();
+  });
 });
