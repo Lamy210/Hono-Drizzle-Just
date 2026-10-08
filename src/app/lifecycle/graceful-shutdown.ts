@@ -159,7 +159,17 @@ export class GracefulShutdownCoordinator {
   }
 
   shutdown(signal: string): Promise<void> {
-    this.shutdownPromise ??= this.performShutdown(signal);
+    if (!this.shutdownPromise) {
+      let resolveShutdown!: (value: void | PromiseLike<void>) => void;
+      let rejectShutdown!: (reason?: unknown) => void;
+      const shutdownPromise = new Promise<void>((resolve, reject) => {
+        resolveShutdown = resolve;
+        rejectShutdown = reject;
+      });
+
+      this.shutdownPromise = shutdownPromise;
+      void this.performShutdown(signal).then(resolveShutdown, rejectShutdown);
+    }
     return this.shutdownPromise;
   }
 
