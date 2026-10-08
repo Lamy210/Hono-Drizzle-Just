@@ -7,17 +7,21 @@ interface LifecycleResource {
 
 export class ApplicationLifecycle {
   private readonly resources: LifecycleResource[] = [];
+  private shutdownStarted = false;
   private closePromise: Promise<void> | undefined;
 
   register(name: string, close: CloseResource): void {
-    if (this.closePromise) {
+    if (this.shutdownStarted) {
       throw new Error(`Cannot register lifecycle resource '${name}' after shutdown has started`);
     }
     this.resources.push({ name, close });
   }
 
   close(): Promise<void> {
-    this.closePromise ??= this.closeResources();
+    if (!this.closePromise) {
+      this.shutdownStarted = true;
+      this.closePromise = this.closeResources();
+    }
     return this.closePromise;
   }
 
