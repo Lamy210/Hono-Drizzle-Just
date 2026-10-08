@@ -113,6 +113,36 @@ test("shutdown still releases providers when forceFlush fails", async () => {
   expect(metricShutdownCalls).toBe(1);
 });
 
+test("shutdown aggregates flush and provider cleanup failures", async () => {
+  const flushFailure = new Error("metric flush failed");
+  const shutdownFailure = new Error("metric shutdown failed");
+  const failingMetricExporter = {
+    export(_metrics: ResourceMetrics, callback: (result: { code: number }) => void) {
+      callback({ code: 0 });
+    },
+    async forceFlush() {
+      throw flushFailure;
+    },
+    async shutdown() {
+      throw shutdownFailure;
+    },
+  } as unknown as PushMetricExporter;
+  const telemetry = createTelemetry(enabledOptions, {
+    traceExporter: new InMemorySpanExporter(),
+    metricExporter: failingMetricExporter,
+  });
+
+  let failure: unknown;
+  try {
+    await telemetry.shutdown();
+  } catch (error) {
+    failure = error;
+  }
+
+  expect(failure).toBeInstanceOf(AggregateError);
+  expect((failure as AggregateError).errors).toEqual([flushFailure, shutdownFailure]);
+});
+
 test("shutdown releases the global context manager so telemetry can be initialized again", async () => {
   const first = createTelemetry(enabledOptions, {
     traceExporter: new InMemorySpanExporter(),
