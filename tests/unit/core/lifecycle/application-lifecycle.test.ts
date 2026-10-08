@@ -49,4 +49,25 @@ describe("ApplicationLifecycle", () => {
     );
     expect(lateClose).not.toHaveBeenCalled();
   });
+
+  test("shares the in-flight close promise with reentrant close calls", async () => {
+    const lifecycle = new ApplicationLifecycle();
+    let closeCalls = 0;
+    let reentered = false;
+    let reentrantClose: Promise<void> | undefined;
+
+    lifecycle.register("resource", () => {
+      closeCalls += 1;
+      if (!reentered) {
+        reentered = true;
+        reentrantClose = lifecycle.close();
+      }
+    });
+
+    const close = lifecycle.close();
+
+    expect(reentrantClose).toBe(close);
+    await close;
+    expect(closeCalls).toBe(1);
+  });
 });
