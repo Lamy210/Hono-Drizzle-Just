@@ -44,6 +44,12 @@ function signalUrl(endpoint: string, signal: "traces" | "metrics"): string {
   return `${endpoint.replace(/\/+$/, "")}/v1/${signal}`;
 }
 
+function pushDistinctError(errors: unknown[], error: unknown): void {
+  if (!errors.some((existing) => existing === error)) {
+    errors.push(error);
+  }
+}
+
 export function createTelemetry(
   options: TelemetryOptions,
   exporters: TelemetryExporters = {},
@@ -90,9 +96,30 @@ export function createTelemetry(
   };
   const shutdown = (): Promise<void> => {
     shutdownPromise ??= (async () => {
+      const errors: unknown[] = [];
       try {
-        await forceFlush();
-        await Promise.all([tracerProvider.shutdown(), meterProvider.shutdown()]);
+        try {
+          await forceFlush();
+        } catch (error) {
+          pushDistinctError(errors, error);
+        }
+
+        const shutdownResults = await Promise.allSettled([
+          Promise.resolve().then(() => tracerProvider.shutdown()),
+          Promise.resolve().then(() => meterProvider.shutdown()),
+        ]);
+        for (const result of shutdownResults) {
+          if (result.status === "rejected") {
+            pushDistinctError(errors, result.reason);
+          }
+        }
+
+        if (errors.length === 1) {
+          throw errors[0];
+        }
+        if (errors.length > 1) {
+          throw new AggregateError(errors, "OpenTelemetry shutdown completed with errors");
+        }
       } finally {
         context.disable();
       }
