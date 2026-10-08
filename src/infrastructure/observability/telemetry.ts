@@ -44,6 +44,12 @@ function signalUrl(endpoint: string, signal: "traces" | "metrics"): string {
   return `${endpoint.replace(/\/+$/, "")}/v1/${signal}`;
 }
 
+function pushDistinctError(errors: unknown[], error: unknown): void {
+  if (!errors.some((existing) => existing === error)) {
+    errors.push(error);
+  }
+}
+
 export function createTelemetry(
   options: TelemetryOptions,
   exporters: TelemetryExporters = {},
@@ -95,7 +101,7 @@ export function createTelemetry(
         try {
           await forceFlush();
         } catch (error) {
-          errors.push(error);
+          pushDistinctError(errors, error);
         }
 
         const shutdownResults = await Promise.allSettled([
@@ -104,7 +110,7 @@ export function createTelemetry(
         ]);
         for (const result of shutdownResults) {
           if (result.status === "rejected") {
-            errors.push(result.reason);
+            pushDistinctError(errors, result.reason);
           }
         }
 
