@@ -20,7 +20,16 @@ export class ApplicationLifecycle {
   close(): Promise<void> {
     if (!this.closePromise) {
       this.shutdownStarted = true;
-      this.closePromise = this.closeResources();
+
+      let resolveClose!: (value: void | PromiseLike<void>) => void;
+      let rejectClose!: (reason?: unknown) => void;
+      const closePromise = new Promise<void>((resolve, reject) => {
+        resolveClose = resolve;
+        rejectClose = reject;
+      });
+
+      this.closePromise = closePromise;
+      void this.closeResources().then(resolveClose, rejectClose);
     }
     return this.closePromise;
   }
