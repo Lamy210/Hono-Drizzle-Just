@@ -25,6 +25,16 @@ class TrackingSpanExporter extends InMemorySpanExporter {
   }
 }
 
+class FailingShutdownSpanExporter extends InMemorySpanExporter {
+  constructor(private readonly failure: Error) {
+    super();
+  }
+
+  override async shutdown(): Promise<void> {
+    throw this.failure;
+  }
+}
+
 const enabledOptions = {
   enabled: true,
   serviceName: "test-service",
@@ -87,20 +97,19 @@ test("enabled telemetry exports nested spans and metrics with service resource a
   await telemetry.shutdown();
 });
 
-test("shutdown still releases providers when forceFlush fails", async () => {
+test("shutdown still attempts both providers when forceFlush fails", async () => {
   const traceExporter = new TrackingSpanExporter();
-  let metricShutdownCalls = 0;
+  let metricForceFlushCalls = 0;
   const flushFailure = new Error("metric flush failed");
   const failingMetricExporter = {
     export(_metrics: ResourceMetrics, callback: (result: { code: number }) => void) {
       callback({ code: 0 });
     },
     async forceFlush() {
+      metricForceFlushCalls += 1;
       throw flushFailure;
     },
-    async shutdown() {
-      metricShutdownCalls += 1;
-    },
+    async shutdown() {},
   } as unknown as PushMetricExporter;
   const telemetry = createTelemetry(enabledOptions, {
     traceExporter,
@@ -110,12 +119,12 @@ test("shutdown still releases providers when forceFlush fails", async () => {
   await expect(telemetry.shutdown()).rejects.toBe(flushFailure);
 
   expect(traceExporter.shutdownCalls).toBe(1);
-  expect(metricShutdownCalls).toBe(1);
+  expect(metricForceFlushCalls).toBe(2);
 });
 
-test("shutdown aggregates flush and provider cleanup failures", async () => {
+test("shutdown aggregates distinct flush and provider cleanup failures", async () => {
   const flushFailure = new Error("metric flush failed");
-  const shutdownFailure = new Error("metric shutdown failed");
+  const traceShutdownFailure = new Error("trace shutdown failed");
   const failingMetricExporter = {
     export(_metrics: ResourceMetrics, callback: (result: { code: number }) => void) {
       callback({ code: 0 });
@@ -123,12 +132,10 @@ test("shutdown aggregates flush and provider cleanup failures", async () => {
     async forceFlush() {
       throw flushFailure;
     },
-    async shutdown() {
-      throw shutdownFailure;
-    },
+    async shutdown() {},
   } as unknown as PushMetricExporter;
   const telemetry = createTelemetry(enabledOptions, {
-    traceExporter: new InMemorySpanExporter(),
+    traceExporter: new FailingShutdownSpanExporter(traceShutdownFailure),
     metricExporter: failingMetricExporter,
   });
 
@@ -140,7 +147,7 @@ test("shutdown aggregates flush and provider cleanup failures", async () => {
   }
 
   expect(failure).toBeInstanceOf(AggregateError);
-  expect((failure as AggregateError).errors).toEqual([flushFailure, shutdownFailure]);
+  expect((failure as AggregateError).errors).toEqual([flushFailure, traceShutdownFailure]);
 });
 
 test("shutdown releases the global context manager so telemetry can be initialized again", async () => {
